@@ -4,15 +4,29 @@ import json
 import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from functools import lru_cache
 from pathlib import Path
-from zoneinfo import ZoneInfo
+import unicodedata
+from zoneinfo import TZPATH, ZoneInfo
 
 from .core import all_timezones, friendly_timezone_name
 
 DEFAULT_TIMEZONES: list[str] = []
 DEFAULT_SORT_MODE = "manual"
 VALID_SORT_MODES = {"manual", "alpha", "time"}
-CITY_ALIASES: dict[str, str] = {
+STANDARD_TZ_REGIONS = {
+    "Africa",
+    "America",
+    "Antarctica",
+    "Arctic",
+    "Asia",
+    "Atlantic",
+    "Australia",
+    "Europe",
+    "Indian",
+    "Pacific",
+}
+MANUAL_CITY_ALIASES: dict[str, str] = {
     "Austin": "America/Chicago",
     "Delhi": "Asia/Kolkata",
     "Faridabad": "Asia/Kolkata",
@@ -21,6 +35,61 @@ CITY_ALIASES: dict[str, str] = {
     "New Delhi": "Asia/Kolkata",
     "Noida": "Asia/Kolkata",
 }
+
+
+@lru_cache(maxsize=1)
+def timezone_link_aliases() -> dict[str, str]:
+    links: dict[str, str] = {}
+    tzdata_paths = [Path(raw_path) for raw_path in TZPATH]
+    default_tzdata_path = Path("/usr/share/zoneinfo")
+    if default_tzdata_path not in tzdata_paths:
+        tzdata_paths.append(default_tzdata_path)
+
+    for base_path in tzdata_paths:
+        tzdata_path = base_path / "tzdata.zi"
+        if not tzdata_path.exists():
+            continue
+
+        try:
+            with tzdata_path.open("r", encoding="utf-8") as handle:
+                for raw_line in handle:
+                    if not raw_line.startswith("L "):
+                        continue
+                    _, target, alias, *_ = raw_line.split()
+                    if "/" not in alias:
+                        continue
+                    links[alias] = target
+        except OSError:
+            continue
+
+    def resolve(name: str) -> str:
+        current = name
+        seen: set[str] = set()
+        while current in links and current not in seen:
+            seen.add(current)
+            current = links[current]
+        return current
+
+    return {alias: resolve(alias) for alias in links}
+
+
+def canonical_timezone_name(timezone_name: str) -> str:
+    candidate = timezone_name.strip()
+    if not candidate:
+        return candidate
+    return timezone_link_aliases().get(candidate, candidate)
+
+
+def canonical_timezone_names(zones: list[str]) -> list[str]:
+    canonical: list[str] = []
+    seen: set[str] = set()
+    for timezone_name in zones:
+        resolved = canonical_timezone_name(timezone_name)
+        if not resolved or resolved in seen:
+            continue
+        seen.add(resolved)
+        canonical.append(resolved)
+    return canonical
 
 
 def detect_local_timezone() -> str:
@@ -33,6 +102,7 @@ def detect_local_timezone() -> str:
         )
         timezone_name = result.stdout.strip()
         if timezone_name:
+            timezone_name = canonical_timezone_name(timezone_name)
             ZoneInfo(timezone_name)
             return timezone_name
     except Exception:
@@ -41,7 +111,7 @@ def detect_local_timezone() -> str:
     tzinfo = datetime.now().astimezone().tzinfo
     timezone_name = getattr(tzinfo, "key", None)
     if timezone_name:
-        return timezone_name
+        return canonical_timezone_name(timezone_name)
     return "UTC"
 
 
@@ -96,7 +166,10 @@ class ConfigManager:
     def load(self) -> AppConfig:
         if not self.path.exists():
             config = AppConfig(
-                timezones=[TimezoneEntry(timezone=zone) for zone in DEFAULT_TIMEZONES]
+                timezones=[
+                    TimezoneEntry(timezone=zone)
+                    for zone in canonical_timezone_names(DEFAULT_TIMEZONES)
+                ]
             )
             self.save(config)
             return config
@@ -106,7 +179,10 @@ class ConfigManager:
                 raw = json.load(handle)
         except Exception:
             config = AppConfig(
-                timezones=[TimezoneEntry(timezone=zone) for zone in DEFAULT_TIMEZONES]
+                timezones=[
+                    TimezoneEntry(timezone=zone)
+                    for zone in canonical_timezone_names(DEFAULT_TIMEZONES)
+                ]
             )
             self.save(config)
             return config
@@ -145,6 +221,7 @@ class ConfigManager:
 
     def add_timezone(self, timezone_name: str, label: str = "") -> AppConfig:
         config = self.load()
+        timezone_name = canonical_timezone_name(timezone_name)
         if timezone_name not in {entry.timezone for entry in config.timezones}:
             config.timezones.append(TimezoneEntry(timezone=timezone_name, label=label.strip()))
             self.save(config)
@@ -152,6 +229,7 @@ class ConfigManager:
 
     def remove_timezone(self, timezone_name: str) -> AppConfig:
         config = self.load()
+        timezone_name = canonical_timezone_name(timezone_name)
         config.timezones = [
             entry for entry in config.timezones if entry.timezone != timezone_name
         ]
@@ -160,6 +238,7 @@ class ConfigManager:
 
     def move_timezone(self, timezone_name: str, offset: int) -> AppConfig:
         config = self.load()
+        timezone_name = canonical_timezone_name(timezone_name)
         index = next(
             (position for position, entry in enumerate(config.timezones) if entry.timezone == timezone_name),
             None,
@@ -195,6 +274,7 @@ class ConfigManager:
         else:
             return None
 
+        timezone_name = canonical_timezone_name(timezone_name)
         if not ConfigManager.is_valid_timezone(timezone_name):
             return None
         return TimezoneEntry(timezone=timezone_name, label=label)
@@ -202,7 +282,7 @@ class ConfigManager:
     @staticmethod
     def is_valid_timezone(timezone_name: str) -> bool:
         try:
-            ZoneInfo(timezone_name)
+            ZoneInfo(canonical_timezone_name(timezone_name))
             return True
         except Exception:
             return False
@@ -210,17 +290,20 @@ class ConfigManager:
 
 class TimezoneResolver:
     def __init__(self, zones: list[str] | None = None) -> None:
-        self.zones = zones or all_timezones()
+        self.zones = canonical_timezone_names(zones or all_timezones())
         self.alias_records = self._build_alias_records()
         self.alias_lookup: dict[str, list[AliasRecord]] = {}
         self.direct_lookup = {zone.casefold(): zone for zone in self.zones}
-        self.space_lookup = {zone.replace("_", " ").casefold(): zone for zone in self.zones}
         self.city_lookup: dict[str, list[str]] = {}
+        self.normalized_timezone_lookup: dict[str, list[str]] = {}
         self.abbreviation_lookup: dict[str, list[str]] = {}
         self.records = [self._build_record(zone) for zone in self.zones]
         for alias in self.alias_records:
             self.alias_lookup.setdefault(alias.normalized_alias, []).append(alias)
         for record in self.records:
+            self.normalized_timezone_lookup.setdefault(record.normalized_timezone, []).append(
+                record.timezone
+            )
             self.city_lookup.setdefault(record.normalized_city, []).append(record.timezone)
             for abbreviation in record.abbreviations_folded:
                 self.abbreviation_lookup.setdefault(abbreviation, []).append(record.timezone)
@@ -234,11 +317,11 @@ class TimezoneResolver:
         if exact:
             return exact
 
-        spaced = self.space_lookup.get(candidate.casefold())
-        if spaced:
-            return spaced
-
         normalized = self._normalize(candidate)
+        exact_normalized = self.normalized_timezone_lookup.get(normalized, [])
+        if len(exact_normalized) == 1:
+            return exact_normalized[0]
+
         alias_matches = self.alias_lookup.get(normalized, [])
         if alias_matches:
             timezones = {alias.timezone for alias in alias_matches}
@@ -280,12 +363,11 @@ class TimezoneResolver:
         alias_scored.sort(key=lambda item: (-item[0], item[1], item[2]))
         scored.sort(key=lambda item: (-item[0], item[1], item[2]))
         results: list[TimezoneSearchResult] = []
-        seen: set[tuple[str, str]] = set()
+        seen_timezones: set[str] = set()
         for _, _, _, alias in alias_scored:
-            key = (alias.alias, alias.timezone)
-            if key in seen:
+            if alias.timezone in seen_timezones:
                 continue
-            seen.add(key)
+            seen_timezones.add(alias.timezone)
             record = self.direct_lookup_record(alias.timezone)
             abbreviation_text = " / ".join(record.abbreviations) if record.abbreviations else "Timezone"
             results.append(
@@ -299,10 +381,9 @@ class TimezoneResolver:
                 break
 
         for _, _, _, record in scored:
-            key = (record.city, record.timezone)
-            if key in seen:
+            if record.timezone in seen_timezones:
                 continue
-            seen.add(key)
+            seen_timezones.add(record.timezone)
             abbreviation_text = " / ".join(record.abbreviations) if record.abbreviations else "Timezone"
             results.append(
                 TimezoneSearchResult(
@@ -317,24 +398,76 @@ class TimezoneResolver:
 
     @staticmethod
     def _normalize(value: str) -> str:
-        return value.replace("/", " ").replace("_", " ").replace("-", " ").casefold().strip()
+        normalized = unicodedata.normalize("NFKD", value)
+        without_marks = "".join(
+            character for character in normalized if not unicodedata.combining(character)
+        )
+        translated = without_marks.translate(
+            str.maketrans({
+                "/": " ",
+                "_": " ",
+                "-": " ",
+                ".": " ",
+                ",": " ",
+                ":": " ",
+                "(": " ",
+                ")": " ",
+                "'": " ",
+            })
+        )
+        return " ".join(translated.casefold().split())
 
     def _build_alias_records(self) -> list[AliasRecord]:
-        aliases: list[AliasRecord] = []
-        for alias, timezone_name in sorted(CITY_ALIASES.items()):
-            if timezone_name not in self.zones:
-                continue
-            normalized_alias = self._normalize(alias)
-            alias_words = tuple(dict.fromkeys(normalized_alias.split()))
-            aliases.append(
-                AliasRecord(
-                    alias=alias,
-                    normalized_alias=normalized_alias,
-                    alias_words=alias_words,
-                    timezone=timezone_name,
-                )
-            )
-        return aliases
+        aliases: dict[tuple[str, str], AliasRecord] = {}
+        for alias, timezone_name in sorted(MANUAL_CITY_ALIASES.items()):
+            self._add_alias_record(aliases, alias, timezone_name)
+
+        for alias, timezone_name in sorted(timezone_link_aliases().items()):
+            self._add_alias_record(aliases, alias, timezone_name)
+
+            alias_region, _, alias_city = alias.partition("/")
+            timezone_region, _, _ = timezone_name.partition("/")
+            if (
+                alias_region
+                and alias_region == timezone_region
+                and alias_region in STANDARD_TZ_REGIONS
+                and self._is_city_alias_candidate(alias_city)
+            ):
+                self._add_alias_record(aliases, alias_city.replace("_", " "), timezone_name)
+
+        return sorted(aliases.values(), key=lambda record: (record.alias, record.timezone))
+
+    def _add_alias_record(
+        self,
+        aliases: dict[tuple[str, str], AliasRecord],
+        alias: str,
+        timezone_name: str,
+    ) -> None:
+        canonical_timezone = canonical_timezone_name(timezone_name)
+        if canonical_timezone not in self.zones:
+            return
+
+        normalized_alias = self._normalize(alias)
+        if not normalized_alias:
+            return
+
+        key = (alias, canonical_timezone)
+        if key in aliases:
+            return
+
+        aliases[key] = AliasRecord(
+            alias=alias,
+            normalized_alias=normalized_alias,
+            alias_words=tuple(dict.fromkeys(normalized_alias.split())),
+            timezone=canonical_timezone,
+        )
+
+    @staticmethod
+    def _is_city_alias_candidate(value: str) -> bool:
+        letters = [character for character in value if character.isalpha()]
+        if len(letters) < 4:
+            return False
+        return value.upper() != value
 
     def direct_lookup_record(self, timezone_name: str) -> TimezoneRecord:
         for record in self.records:

@@ -5,7 +5,12 @@ import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 
-from omarchy_world_clock.configuration import ConfigManager, TimezoneEntry, TimezoneResolver
+from omarchy_world_clock.configuration import (
+    ConfigManager,
+    TimezoneEntry,
+    TimezoneResolver,
+    timezone_link_aliases,
+)
 from omarchy_world_clock.core import format_offset, parse_manual_reference, zoned_datetime
 
 
@@ -56,6 +61,27 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(alias_results[0].title, "New Delhi")
         self.assertEqual(alias_results[0].timezone, "Asia/Kolkata")
 
+    def test_timezone_resolver_normalized_timezone_exact_match(self) -> None:
+        resolver = TimezoneResolver(["America/New_York", "America/Chicago"])
+
+        self.assertEqual(resolver.resolve("America New York"), "America/New_York")
+        self.assertEqual(resolver.resolve("America Chicago"), "America/Chicago")
+
+    def test_timezone_resolver_tzdata_aliases(self) -> None:
+        if not timezone_link_aliases():
+            self.skipTest("tzdata link aliases unavailable")
+
+        resolver = TimezoneResolver(["Asia/Kolkata", "America/New_York"])
+
+        self.assertEqual(resolver.resolve("Calcutta"), "Asia/Kolkata")
+        self.assertEqual(resolver.resolve("Asia/Calcutta"), "Asia/Kolkata")
+        self.assertEqual(resolver.resolve("US Eastern"), "America/New_York")
+
+        alias_results = resolver.search("Calcutta")
+        self.assertTrue(alias_results)
+        self.assertEqual(alias_results[0].title, "Calcutta")
+        self.assertEqual(alias_results[0].timezone, "Asia/Kolkata")
+
     def test_config_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "config.json"
@@ -87,6 +113,26 @@ class CoreTests(unittest.TestCase):
                 ],
             )
             self.assertEqual(loaded.sort_mode, "manual")
+
+    def test_config_canonicalizes_timezone_aliases(self) -> None:
+        if not timezone_link_aliases():
+            self.skipTest("tzdata link aliases unavailable")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "config.json"
+            manager = ConfigManager(path)
+
+            manager.add_timezone("Asia/Calcutta", label="Calcutta")
+            manager.add_timezone("US/Eastern", label="New York")
+
+            loaded = manager.load()
+            self.assertEqual(
+                loaded.timezones,
+                [
+                    TimezoneEntry(timezone="Asia/Kolkata", label="Calcutta"),
+                    TimezoneEntry(timezone="America/New_York", label="New York"),
+                ],
+            )
 
     def test_config_preserves_label_order_and_sort_mode(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

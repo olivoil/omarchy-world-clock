@@ -23,6 +23,8 @@ from .waybar import (
     write_text,
 )
 
+MODULE_ICON = ""
+
 
 def runtime_pid_path() -> Path:
     runtime_dir = os.environ.get("XDG_RUNTIME_DIR") or f"/tmp/omarchy-world-clock-{os.getuid()}"
@@ -119,7 +121,7 @@ def module_payload(pid_path: Path) -> dict[str, object]:
         tooltip_lines.append("No extra timezones yet.")
 
     return {
-        "text": "󰥔",
+        "text": MODULE_ICON,
         "class": "active" if popup_running(pid_path) else "inactive",
         "tooltip": "\n".join(tooltip_lines),
     }

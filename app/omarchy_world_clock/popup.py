@@ -123,7 +123,7 @@ window {{
 }}
 
 .clock-row.dragging {{
-  opacity: 0.42;
+  opacity: 0.18;
 }}
 
 .clock-row.drag-preview {{
@@ -142,10 +142,16 @@ window {{
   letter-spacing: 0.1em;
 }}
 
-.drop-slot-line {{
+.drop-slot-line,
+.drag-insert-marker {{
   min-height: 2px;
   border-radius: 999px;
   background: {rgba(palette.accent, 0.18)};
+}}
+
+.drag-insert-marker {{
+  min-height: 4px;
+  background: {rgba(palette.accent, 0.78)};
 }}
 
 .drag-handle-label {{
@@ -543,59 +549,6 @@ class ClockRow(Gtk.Box):
         self.window.toggle_timezone_lock(self.timezone_name)
 
 
-class DropSlot(Gtk.Box):
-    def __init__(self, window: "WorldClockWindow", insert_index: int) -> None:
-        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        self.window = window
-        self.insert_index = insert_index
-        self.preview_widget: Gtk.Widget | None = None
-        self.set_no_show_all(True)
-        self.set_margin_top(4)
-        self.set_margin_bottom(4)
-
-        self.line = Gtk.Box()
-        self.line.set_size_request(-1, 2)
-        self.line.get_style_context().add_class("drop-slot-line")
-        self.pack_start(self.line, False, False, 0)
-
-        self.preview_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        self.pack_start(self.preview_box, False, False, 0)
-        self.show_all()
-        self.preview_box.hide()
-
-        self.set_edit_mode(window.edit_mode)
-
-    def set_edit_mode(self, enabled: bool) -> None:
-        if enabled and self.window.config.sort_mode == "manual":
-            self.show()
-            self.line.show()
-            if self.preview_widget is None:
-                self.preview_box.hide()
-        else:
-            self.hide()
-            self.window.clear_drop_slot(self)
-
-    def set_active_preview(self, preview_widget: Gtk.Widget | None) -> None:
-        self.clear_active_preview()
-        if preview_widget is None:
-            return
-        self.preview_widget = preview_widget
-        self.preview_box.pack_start(preview_widget, False, False, 0)
-        self.preview_box.show()
-        preview_widget.show_all()
-        self.line.hide()
-        self.queue_resize()
-
-    def clear_active_preview(self) -> None:
-        if self.preview_widget is not None:
-            self.preview_box.remove(self.preview_widget)
-            self.preview_widget.destroy()
-            self.preview_widget = None
-        self.preview_box.hide()
-        self.line.show()
-        self.queue_resize()
-
-
 class WorldClockWindow(Gtk.Window):
     def __init__(self, pid_path: Path, config_path: Path | None = None) -> None:
         super().__init__(type=Gtk.WindowType.TOPLEVEL)
@@ -608,7 +561,7 @@ class WorldClockWindow(Gtk.Window):
         self.reference_utc = datetime.now(timezone.utc)
         self.live = True
         self.rows: list[ClockRow] = []
-        self.drop_slots: list[DropSlot] = []
+        self.row_separators: list[Gtk.Separator] = []
         self.local_search_results: list[TimezoneSearchResult] = []
         self.remote_search_results: list[TimezoneSearchResult] = []
         self.search_results: list[TimezoneSearchResult] = []
@@ -620,13 +573,16 @@ class WorldClockWindow(Gtk.Window):
         self.editing_row: ClockRow | None = None
         self.drag_pending_row: ClockRow | None = None
         self.drag_source_row: ClockRow | None = None
-        self.active_drop_slot: DropSlot | None = None
+        self.active_drop_index: int | None = None
         self.drag_start_root_x = 0.0
         self.drag_start_root_y = 0.0
         self.drag_start_rows_box_y = 0.0
+        self.drag_start_row_top_y = 0.0
+        self.drag_row_overlay_x = 0.0
         self.dismiss_armed = False
         self.edit_mode = False
         self.root: Gtk.EventBox | None = None
+        self.drag_ghost: Gtk.Widget | None = None
 
         self.set_title("Omarchy World Clock")
         self.set_resizable(False)
@@ -770,9 +726,29 @@ class WorldClockWindow(Gtk.Window):
         self.time_format_combo.connect("changed", self.on_time_format_changed)
         sort_row.pack_start(self.time_format_combo, False, False, 0)
 
+        rows_overlay = Gtk.Overlay()
+        rows_overlay.set_margin_top(14)
+        self.rows_overlay = rows_overlay
+        panel.pack_start(rows_overlay, False, False, 0)
+
         self.rows_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        self.rows_box.set_margin_top(14)
-        panel.pack_start(self.rows_box, False, False, 0)
+        rows_overlay.add(self.rows_box)
+
+        self.drag_layer = Gtk.Fixed()
+        self.drag_layer.set_hexpand(True)
+        self.drag_layer.set_vexpand(True)
+        rows_overlay.add_overlay(self.drag_layer)
+        rows_overlay.set_overlay_pass_through(self.drag_layer, True)
+
+        insertion_marker = Gtk.Box()
+        insertion_marker.set_no_show_all(True)
+        insertion_marker.set_size_request(-1, 4)
+        insertion_marker.set_hexpand(True)
+        insertion_marker.set_halign(Gtk.Align.FILL)
+        insertion_marker.set_margin_top(2)
+        insertion_marker.set_margin_bottom(2)
+        insertion_marker.get_style_context().add_class("drag-insert-marker")
+        self.insertion_marker = insertion_marker
 
         footer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         panel.pack_start(footer, False, False, 0)
@@ -842,7 +818,7 @@ class WorldClockWindow(Gtk.Window):
             self.rows_box.remove(child)
 
         self.rows = []
-        self.drop_slots = []
+        self.row_separators = []
         entries = self.selected_entries()
         if not entries:
             empty_state = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
@@ -864,15 +840,7 @@ class WorldClockWindow(Gtk.Window):
             return
 
         manual_sort = self.config.sort_mode == "manual"
-        first_unlocked_index = next(
-            (index for index, entry in enumerate(entries) if not entry.locked),
-            len(entries),
-        )
         for index, entry in enumerate(entries):
-            if manual_sort and index >= first_unlocked_index:
-                slot = DropSlot(self, insert_index=index)
-                self.drop_slots.append(slot)
-                self.rows_box.pack_start(slot, False, False, 0)
             row = ClockRow(
                 self,
                 entry,
@@ -882,14 +850,12 @@ class WorldClockWindow(Gtk.Window):
             self.rows_box.pack_start(row, False, False, 0)
             if index < len(entries) - 1:
                 separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+                self.row_separators.append(separator)
                 self.rows_box.pack_start(separator, False, False, 0)
-        if manual_sort and first_unlocked_index < len(entries):
-            slot = DropSlot(self, insert_index=len(entries))
-            self.drop_slots.append(slot)
-            self.rows_box.pack_start(slot, False, False, 0)
 
         self.refresh_rows()
         self.rows_box.show_all()
+        self.update_row_separators()
         self.update_edit_mode()
 
     def refresh_rows(self) -> None:
@@ -899,8 +865,20 @@ class WorldClockWindow(Gtk.Window):
 
     def begin_drag(self, row: ClockRow) -> None:
         self.drag_source_row = row
-        row.hide()
         self.clear_drop_slot()
+        if self.drag_ghost is not None:
+            self.drag_layer.remove(self.drag_ghost)
+            self.drag_ghost.destroy()
+            self.drag_ghost = None
+
+        ghost = row.build_drag_preview()
+        self.drag_layer.put(
+            ghost,
+            int(round(self.drag_row_overlay_x)),
+            int(round(self.drag_start_row_top_y)),
+        )
+        ghost.show_all()
+        self.drag_ghost = ghost
 
     def arm_pointer_drag(
         self,
@@ -917,12 +895,17 @@ class WorldClockWindow(Gtk.Window):
         )
         if translated is None:
             return False
+        overlay_origin = row.translate_coordinates(self.rows_overlay, 0, 0)
+        if overlay_origin is None:
+            return False
 
         self.cancel_pointer_drag()
         self.drag_pending_row = row
         self.drag_start_root_x = float(start_root_x)
         self.drag_start_root_y = float(start_root_y)
         self.drag_start_rows_box_y = float(translated[1])
+        self.drag_start_row_top_y = float(overlay_origin[1])
+        self.drag_row_overlay_x = float(overlay_origin[0])
         row.drag_armed = True
         row.drag_active = False
         if self.root is not None:
@@ -943,6 +926,7 @@ class WorldClockWindow(Gtk.Window):
             row.get_style_context().add_class("dragging")
             self.begin_drag(row)
 
+        self.set_drag_ghost_position(root_y)
         rows_y = int(round(self.drag_start_rows_box_y + offset_y))
         self.update_drag_position(rows_y)
         return True
@@ -954,21 +938,28 @@ class WorldClockWindow(Gtk.Window):
 
         if row.drag_active:
             rows_y = int(round(self.drag_start_rows_box_y + (root_y - self.drag_start_root_y)))
+            self.set_drag_ghost_position(root_y)
             self.update_drag_position(rows_y)
 
         row.drag_armed = False
         row.drag_active = False
         row.get_style_context().remove_class("dragging")
 
-        committed = False
-        if commit and self.drag_source_row is not None:
-            committed = self.commit_drag()
+        insert_index = self.active_drop_index
+        timezone_name = self.drag_source_row.timezone_name if self.drag_source_row is not None else None
 
         self.end_drag()
+
+        committed = False
+        if commit and timezone_name is not None and insert_index is not None:
+            committed = self.reorder_timezone_to_index(timezone_name, insert_index)
+
         self.drag_pending_row = None
         self.drag_start_root_x = 0.0
         self.drag_start_root_y = 0.0
         self.drag_start_rows_box_y = 0.0
+        self.drag_start_row_top_y = 0.0
+        self.drag_row_overlay_x = 0.0
         if self.root is not None and self.root.has_grab():
             self.root.grab_remove()
         return committed
@@ -1004,24 +995,17 @@ class WorldClockWindow(Gtk.Window):
                 insert_index = row_index
                 break
 
-        slot = self.slot_for_insert_index(insert_index)
-        if slot is None:
+        if not self.can_drop_at_index(insert_index):
             self.clear_drop_slot()
             return
-        self.set_drop_slot(slot)
-
-    def commit_drag(self) -> bool:
-        if self.drag_source_row is None or self.active_drop_slot is None:
-            return False
-        timezone_name = self.drag_source_row.timezone_name
-        insert_index = self.active_drop_slot.insert_index
-        self.clear_drop_slot()
-        return self.reorder_timezone_to_index(timezone_name, insert_index)
+        self.show_drop_marker(insert_index)
 
     def end_drag(self) -> None:
         self.clear_drop_slot()
-        if self.drag_source_row is not None and self.drag_source_row.get_parent() is not None:
-            self.drag_source_row.show()
+        if self.drag_ghost is not None:
+            self.drag_layer.remove(self.drag_ghost)
+            self.drag_ghost.destroy()
+            self.drag_ghost = None
         self.drag_source_row = None
 
     def can_drop_at_index(self, insert_index: int) -> bool:
@@ -1041,27 +1025,47 @@ class WorldClockWindow(Gtk.Window):
         effective_index = insert_index - 1 if source_index < insert_index else insert_index
         return effective_index != source_index
 
-    def set_drop_slot(self, slot: DropSlot) -> None:
-        if not self.can_drop_at_index(slot.insert_index):
-            self.clear_drop_slot()
+    def clear_drop_slot(self) -> None:
+        if self.active_drop_index is None and self.insertion_marker.get_parent() is None:
             return
-        if self.active_drop_slot is slot:
-            return
-        self.clear_drop_slot()
-        self.active_drop_slot = slot
-        preview = self.drag_source_row.build_drag_preview() if self.drag_source_row is not None else None
-        slot.set_active_preview(preview)
+        if self.insertion_marker.get_parent() is self.rows_box:
+            self.rows_box.remove(self.insertion_marker)
+        self.insertion_marker.hide()
+        self.active_drop_index = None
 
-    def clear_drop_slot(self, slot: DropSlot | None = None) -> None:
-        if slot is not None and self.active_drop_slot is not slot:
+    def show_drop_marker(self, insert_index: int) -> None:
+        if self.active_drop_index == insert_index and self.insertion_marker.get_parent() is self.rows_box:
             return
-        if self.active_drop_slot is None:
-            return
-        self.active_drop_slot.clear_active_preview()
-        self.active_drop_slot = None
 
-    def slot_for_insert_index(self, insert_index: int) -> DropSlot | None:
-        return next((slot for slot in self.drop_slots if slot.insert_index == insert_index), None)
+        children = [child for child in self.rows_box.get_children() if child is not self.insertion_marker]
+        if insert_index < len(self.rows):
+            marker_position = children.index(self.rows[insert_index])
+        else:
+            marker_position = len(children)
+
+        if self.insertion_marker.get_parent() is self.rows_box:
+            self.rows_box.remove(self.insertion_marker)
+        self.rows_box.pack_start(self.insertion_marker, True, True, 0)
+        self.rows_box.reorder_child(self.insertion_marker, marker_position)
+        self.insertion_marker.show()
+        self.rows_box.queue_resize()
+        self.active_drop_index = insert_index
+
+    def set_drag_ghost_position(self, root_y: float) -> None:
+        if self.drag_ghost is None:
+            return
+        ghost_y = int(round(self.drag_start_row_top_y + (root_y - self.drag_start_root_y)))
+        self.drag_layer.move(
+            self.drag_ghost,
+            int(round(self.drag_row_overlay_x)),
+            ghost_y,
+        )
+        self.drag_ghost.queue_draw()
+
+    def update_row_separators(self) -> None:
+        show_separators = not (self.edit_mode and self.config.sort_mode == "manual")
+        for separator in self.row_separators:
+            separator.set_visible(show_separators)
 
     def current_time_format(self) -> str:
         return effective_time_format(self.config.time_format)
@@ -1118,8 +1122,7 @@ class WorldClockWindow(Gtk.Window):
 
         for row in self.rows:
             row.set_edit_mode(self.edit_mode)
-        for slot in self.drop_slots:
-            slot.set_edit_mode(self.edit_mode)
+        self.update_row_separators()
 
     def focus_add_entry(self) -> bool:
         self.add_entry.grab_focus()

@@ -857,6 +857,15 @@ class WorldClockWindow(Gtk.Window):
         self.rows_box.show_all()
         self.update_row_separators()
         self.update_edit_mode()
+        self.ensure_rows_layout()
+
+    def ensure_rows_layout(self) -> None:
+        # Reordering rebuilds the row list in-place; force a fresh allocation so
+        # the next drag starts from real widget geometry instead of 1x1 placeholders.
+        self.rows_overlay.check_resize()
+        self.rows_box.check_resize()
+        self.rows_overlay.queue_allocate()
+        self.rows_box.queue_allocate()
 
     def refresh_rows(self) -> None:
         for row in self.rows:
@@ -888,6 +897,8 @@ class WorldClockWindow(Gtk.Window):
     ) -> bool:
         if not self.edit_mode or not row.can_reorder():
             return False
+        if row.get_allocated_height() <= 1 or row.get_allocation().y < 0:
+            self.ensure_rows_layout()
         translated = row.translate_coordinates(
             self.rows_box,
             0,

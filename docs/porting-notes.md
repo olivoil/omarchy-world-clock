@@ -106,6 +106,23 @@ Important guidance:
 
 ## Rewrite Guidance
 
+### Recommended Port Target
+
+The main port target should be:
+
+- language: Rust
+- UI toolkit: GTK 4
+- popup shell integration: `gtk4-layer-shell`
+
+This should be treated as the default direction for future port work.
+
+Fallback only if needed:
+
+- Python + GTK 4 can be used as an intermediate step if a direct Rust port
+  becomes too slow or too risky at the UI-integration stage
+- Go + GTK 4 and Zig + GTK 4 are not currently preferred directions for this
+  app
+
 If the app is rewritten, keep the following boundaries explicit:
 
 ### Recommended Separation
@@ -153,8 +170,9 @@ toolkit's abstractions become a liability.
 
 ## If Rewriting in Rust
 
-Rust may be a good long-term fit for an always-running desktop helper, but the
-main benefit should be architectural control and correctness, not just raw
+Rust + GTK 4 should be considered the primary rewrite target for this app.
+
+The main benefit should be architectural control and correctness, not just raw
 performance.
 
 Potential benefits:
@@ -162,13 +180,15 @@ Potential benefits:
 - stronger state modeling
 - easier separation between core logic and UI
 - lower long-term maintenance risk for always-on desktop software
+- strong fit for explicit drag/reorder state and testable domain boundaries
+- good alignment with the app's Wayland-native desktop target when paired with
+  `gtk4-layer-shell`
 
 Potential costs:
 
 - longer initial implementation time
 - more setup complexity around desktop integration
-- possible friction if the chosen UI toolkit does not match Wayland/layer-shell
-  needs cleanly
+- GTK 3 to GTK 4 remains a real UI port even if the language also changes
 
 ## Toolkit Guidance
 
@@ -178,17 +198,31 @@ Potential costs:
 - already integrated with the rest of the app
 - weakest part is the current drag implementation and native test loop
 
-### Python or Rust + GTK 4
+### Rust + GTK 4
 
 - cleaner modern event/controller model than GTK 3
 - likely a better foundation for native drag behavior
 - still a non-trivial migration because GTK 3 to GTK 4 is a real port
+- best match for the intended long-term architecture of this app
+- preferred default option for the port
 
-### Rust + egui
+### Python + GTK 4
 
-- may simplify explicit list-reorder interaction
-- less tied to legacy GTK event behavior
-- would require a fresh answer for popup shell integration and desktop fit
+- useful as a half step if direct Rust + GTK 4 work gets blocked on UI or
+  layer-shell integration
+- preserves the current language while still moving to the modern GTK event
+  model
+- does not provide the long-term architecture benefits of the Rust target
+
+### Other Directions
+
+- Go + GTK 4 is possible in principle, but is not a recommended first choice
+  for this app
+- Zig + GTK 4 is also possible in principle, but is not a recommended first
+  choice for this app
+- alternatives such as `egui` would require a fresh answer for popup shell
+  integration and desktop fit, so they should not be treated as the default
+  path
 
 ## Compatibility Targets for Any Rewrite
 
@@ -226,12 +260,15 @@ good baseline to preserve or port.
 
 ## Suggested Migration Order
 
-If doing a rewrite, the least risky order is:
+If doing the Rust + GTK 4 rewrite, the least risky order is:
 
 1. Port or reimplement `core.py` behavior.
 2. Port config schema and normalization behavior.
 3. Preserve CLI and Waybar payload behavior.
-4. Rebuild popup UI around the spec.
-5. Implement drag reorder last, using explicit drag state and acceptance
+4. Build the Rust GTK 4 shell and popup lifecycle with layer-shell integration.
+5. Rebuild popup UI around the spec.
+6. Implement drag reorder last, using explicit drag state and acceptance
    scenarios from the spec.
 
+If a half step is needed, the same order can be used with Python + GTK 4
+before a later Rust port.

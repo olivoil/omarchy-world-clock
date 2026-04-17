@@ -747,7 +747,11 @@ class WorldClockWindow(Gtk.Window):
         return "HH:MM"
 
     def should_rebuild_time_sorted_rows(self) -> bool:
-        return self.config.sort_mode == "time" and self.editing_row is None
+        return (
+            self.config.sort_mode == "time"
+            and self.editing_row is None
+            and not self.edit_mode
+        )
 
     def update_mode_button(self) -> None:
         context = self.live_button.get_style_context()
@@ -1043,6 +1047,8 @@ class WorldClockWindow(Gtk.Window):
     def on_toggle_edit_mode(self, *_args: object) -> None:
         self.edit_mode = not self.edit_mode
         self.update_edit_mode()
+        if not self.edit_mode and self.config.sort_mode == "time":
+            self.rebuild_rows()
 
     def on_toggle_add_panel(self, *_args: object) -> None:
         current = self.add_stack.get_visible_child_name()

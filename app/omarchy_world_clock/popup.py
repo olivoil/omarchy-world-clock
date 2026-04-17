@@ -25,6 +25,12 @@ from .configuration import (
     TimezoneSearchResult,
     detect_local_timezone,
 )
+from .layout import (
+    POPUP_TOP_CONTENT_MARGIN,
+    load_waybar_height,
+    load_window_gap,
+    popup_top_margin,
+)
 from .core import (
     all_timezones,
     format_offset,
@@ -467,7 +473,11 @@ class WorldClockWindow(Gtk.Window):
         GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.BOTTOM, True)
         GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.LEFT, True)
         GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.RIGHT, True)
-        GtkLayerShell.set_margin(self, GtkLayerShell.Edge.TOP, 32)
+        GtkLayerShell.set_margin(
+            self,
+            GtkLayerShell.Edge.TOP,
+            popup_top_margin(load_waybar_height(), load_window_gap()),
+        )
 
     def build_ui(self) -> None:
         root = Gtk.EventBox()
@@ -485,7 +495,7 @@ class WorldClockWindow(Gtk.Window):
         top_band = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         top_band.set_halign(Gtk.Align.CENTER)
         top_band.set_valign(Gtk.Align.START)
-        top_band.set_margin_top(8)
+        top_band.set_margin_top(POPUP_TOP_CONTENT_MARGIN)
         top_band.set_margin_bottom(12)
         layout.pack_start(top_band, False, False, 0)
 

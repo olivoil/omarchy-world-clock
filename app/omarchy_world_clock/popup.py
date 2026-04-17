@@ -3,6 +3,7 @@ from __future__ import annotations
 import atexit
 import os
 import signal
+import threading
 import tomllib
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -18,6 +19,7 @@ from gi.repository import Gdk, GLib, Gtk, GtkLayerShell, Pango
 
 from .configuration import (
     ConfigManager,
+    RemotePlaceSearch,
     TimezoneEntry,
     TimezoneResolver,
     TimezoneSearchResult,
@@ -29,6 +31,9 @@ from .core import (
     parse_manual_reference,
     zoned_datetime,
 )
+
+
+SEARCH_RESULT_LIMIT = 8
 
 
 def rgba(hex_value: str, alpha: float) -> str:
@@ -364,10 +369,16 @@ class WorldClockWindow(Gtk.Window):
         self.config_manager = ConfigManager(config_path)
         self.config = self.config_manager.load()
         self.resolver = TimezoneResolver(all_timezones())
+        self.place_search = RemotePlaceSearch(self.resolver.zones)
         self.local_timezone = detect_local_timezone()
         self.reference_utc = datetime.now(timezone.utc)
         self.live = True
         self.rows: list[ClockRow] = []
+        self.local_search_results: list[TimezoneSearchResult] = []
+        self.remote_search_results: list[TimezoneSearchResult] = []
+        self.search_results: list[TimezoneSearchResult] = []
+        self.search_generation = 0
+        self.remote_search_source: int | None = None
         self.status_clear_source: int | None = None
         self.pending_apply_source: int | None = None
         self.pending_apply_row: ClockRow | None = None
@@ -502,7 +513,7 @@ class WorldClockWindow(Gtk.Window):
 
         self.add_entry = Gtk.Entry()
         self.add_entry.set_hexpand(True)
-        self.add_entry.set_placeholder_text("Add timezone: Europe/Paris or Tokyo")
+        self.add_entry.set_placeholder_text("Add timezone: Europe/Paris, Tokyo, or Bangalore")
         self.add_entry.connect("activate", self.on_add_timezone)
         self.add_entry.connect("changed", self.on_search_query_changed)
         self.add_entry.get_style_context().add_class("search-entry")
@@ -524,7 +535,7 @@ class WorldClockWindow(Gtk.Window):
         self.search_results_scroller.add(self.search_results_box)
 
         hint = Gtk.Label(xalign=0)
-        hint.set_text("Search by city, timezone, or abbreviation like IST.")
+        hint.set_text("Search by place, timezone, or abbreviation like IST.")
         hint.get_style_context().add_class("hint-label")
         self.add_panel.pack_start(hint, False, False, 0)
 
@@ -617,19 +628,25 @@ class WorldClockWindow(Gtk.Window):
     def clear_search_results(self) -> None:
         for child in list(self.search_results_box.get_children()):
             self.search_results_box.remove(child)
+        self.search_results = []
         self.search_results_scroller.hide()
 
-    def update_search_results(self) -> None:
+    def render_search_results(self) -> None:
         self.clear_search_results()
-        query = self.add_entry.get_text().strip()
-        if not query:
+        seen_timezones: set[str] = set()
+        self.search_results = []
+        for match in [*self.local_search_results, *self.remote_search_results]:
+            if match.timezone in seen_timezones:
+                continue
+            seen_timezones.add(match.timezone)
+            self.search_results.append(match)
+            if len(self.search_results) >= SEARCH_RESULT_LIMIT:
+                break
+
+        if not self.search_results:
             return
 
-        matches = self.resolver.search(query, limit=8)
-        if not matches:
-            return
-
-        for match in matches:
+        for match in self.search_results:
             button = Gtk.Button()
             button.set_halign(Gtk.Align.FILL)
             button.set_hexpand(True)
@@ -654,6 +671,66 @@ class WorldClockWindow(Gtk.Window):
 
         self.search_results_box.show_all()
         self.search_results_scroller.show()
+
+    def cancel_remote_search(self) -> None:
+        if self.remote_search_source is not None:
+            GLib.source_remove(self.remote_search_source)
+            self.remote_search_source = None
+
+    def begin_remote_search(self, generation: int, query: str) -> bool:
+        self.remote_search_source = None
+        worker = threading.Thread(
+            target=self.run_remote_search,
+            args=(generation, query),
+            daemon=True,
+        )
+        worker.start()
+        return False
+
+    def run_remote_search(self, generation: int, query: str) -> None:
+        results = self.place_search.search(query, limit=SEARCH_RESULT_LIMIT)
+        GLib.idle_add(self.apply_remote_search_results, generation, query, results)
+
+    def apply_remote_search_results(
+        self,
+        generation: int,
+        query: str,
+        results: list[TimezoneSearchResult],
+    ) -> bool:
+        if generation != self.search_generation:
+            return False
+        if self.add_entry.get_text().strip() != query:
+            return False
+        self.remote_search_results = results
+        self.render_search_results()
+        return False
+
+    def update_search_results(self) -> None:
+        query = self.add_entry.get_text().strip()
+        self.cancel_remote_search()
+        self.search_generation += 1
+        self.remote_search_results = []
+
+        if not query:
+            self.local_search_results = []
+            self.render_search_results()
+            return
+
+        self.local_search_results = self.resolver.search(query, limit=SEARCH_RESULT_LIMIT)
+        self.render_search_results()
+
+        if self.local_search_results:
+            return
+
+        if len(TimezoneResolver._normalize(query)) < 3:
+            return
+
+        self.remote_search_source = GLib.timeout_add(
+            250,
+            self.begin_remote_search,
+            self.search_generation,
+            query,
+        )
 
     def show_status(self, message: str, error: bool = False) -> None:
         self.status_label.set_text(message)
@@ -794,11 +871,15 @@ class WorldClockWindow(Gtk.Window):
         raw_value = self.add_entry.get_text().strip()
         timezone_name = self.resolver.resolve(raw_value)
         if not timezone_name:
-            if self.resolver.search(raw_value, limit=1):
+            visible_match = self.single_visible_search_match(raw_value)
+            if visible_match is not None:
+                self.add_timezone(visible_match.timezone, label=visible_match.title)
+                return
+            if self.search_results:
                 self.show_status("Pick one of the matching timezones below.", error=True)
             else:
                 self.show_status(
-                    "Enter a valid timezone, city, or abbreviation like IST.",
+                    "Enter a valid timezone, place, or abbreviation like IST.",
                     error=True,
                 )
             return
@@ -816,6 +897,17 @@ class WorldClockWindow(Gtk.Window):
         if matches and matches[0].timezone == timezone_name:
             return matches[0].title
         return value
+
+    def single_visible_search_match(self, raw_value: str) -> TimezoneSearchResult | None:
+        if len(self.search_results) != 1:
+            return None
+        normalized_value = TimezoneResolver._normalize(raw_value)
+        if not normalized_value:
+            return None
+        match = self.search_results[0]
+        if TimezoneResolver._normalize(match.title).startswith(normalized_value):
+            return match
+        return None
 
     def on_sort_mode_changed(self, combo: Gtk.ComboBoxText) -> None:
         sort_mode = combo.get_active_id() or "manual"

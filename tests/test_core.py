@@ -1,14 +1,20 @@
 from __future__ import annotations
 
+import contextlib
+import io
+import json
 import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 from omarchy_world_clock.configuration import (
     ConfigManager,
+    RemotePlaceSearch,
     TimezoneEntry,
     TimezoneResolver,
+    TimezoneSearchResult,
     timezone_link_aliases,
 )
 from omarchy_world_clock.core import format_offset, parse_manual_reference, zoned_datetime
@@ -81,6 +87,50 @@ class CoreTests(unittest.TestCase):
         self.assertTrue(alias_results)
         self.assertEqual(alias_results[0].title, "Calcutta")
         self.assertEqual(alias_results[0].timezone, "Asia/Kolkata")
+
+    def test_remote_place_search_maps_places_to_canonical_timezones(self) -> None:
+        payload = {
+            "results": [
+                {
+                    "name": "Bengaluru",
+                    "admin1": "Karnataka",
+                    "country": "India",
+                    "timezone": "Asia/Calcutta",
+                },
+                {
+                    "name": "Mumbai",
+                    "admin1": "Maharashtra",
+                    "country": "India",
+                    "timezone": "Asia/Kolkata",
+                },
+                {
+                    "name": "Broken",
+                    "country": "Nowhere",
+                    "timezone": "Mars/OlympusMons",
+                },
+            ]
+        }
+        search = RemotePlaceSearch(["Asia/Kolkata"])
+
+        with patch(
+            "omarchy_world_clock.configuration.urllib.request.urlopen",
+            return_value=contextlib.nullcontext(io.StringIO(json.dumps(payload))),
+        ) as urlopen:
+            first_results = search.search("Bangalore")
+            second_results = search.search("bangalore")
+
+        self.assertEqual(
+            first_results,
+            [
+                TimezoneSearchResult(
+                    timezone="Asia/Kolkata",
+                    title="Bengaluru, Karnataka, India",
+                    subtitle="Asia/Kolkata  ·  Karnataka, India",
+                )
+            ],
+        )
+        self.assertEqual(second_results, first_results)
+        self.assertEqual(urlopen.call_count, 1)
 
     def test_config_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

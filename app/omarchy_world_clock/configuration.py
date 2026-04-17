@@ -7,6 +7,8 @@ from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
 import unicodedata
+import urllib.parse
+import urllib.request
 from zoneinfo import TZPATH, ZoneInfo
 
 from .core import all_timezones, friendly_timezone_name
@@ -537,3 +539,115 @@ class TimezoneResolver:
         if query in alias.normalized_alias:
             return 1340
         return None
+
+
+class RemotePlaceSearch:
+    endpoint = "https://geocoding-api.open-meteo.com/v1/search"
+
+    def __init__(self, zones: list[str] | None = None, timeout: float = 2.5) -> None:
+        self.zones = set(canonical_timezone_names(zones or all_timezones()))
+        self.timeout = timeout
+        self.cache: dict[str, tuple[TimezoneSearchResult, ...]] = {}
+
+    def search(self, raw_value: str, limit: int = 8) -> list[TimezoneSearchResult]:
+        query = " ".join(raw_value.strip().split())
+        query_key = TimezoneResolver._normalize(query)
+        if len(query_key) < 3:
+            return []
+
+        cached = self.cache.get(query_key)
+        if cached is None:
+            cached = tuple(self._fetch(query))
+            self.cache[query_key] = cached
+        return list(cached[:limit])
+
+    def _fetch(self, query: str) -> list[TimezoneSearchResult]:
+        params = urllib.parse.urlencode(
+            {
+                "name": query,
+                "count": 12,
+                "format": "json",
+            }
+        )
+        request = urllib.request.Request(
+            f"{self.endpoint}?{params}",
+            headers={
+                "Accept": "application/json",
+                "User-Agent": "omarchy-world-clock/1.0",
+            },
+        )
+
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                payload = json.load(response)
+        except Exception:
+            return []
+
+        raw_results = payload.get("results")
+        if not isinstance(raw_results, list):
+            return []
+
+        results: list[TimezoneSearchResult] = []
+        seen_timezones: set[str] = set()
+        for item in raw_results:
+            if not isinstance(item, dict):
+                continue
+
+            raw_timezone = item.get("timezone")
+            if not isinstance(raw_timezone, str):
+                continue
+
+            timezone_name = canonical_timezone_name(raw_timezone.strip())
+            if timezone_name not in self.zones or timezone_name in seen_timezones:
+                continue
+
+            title = self._format_title(item)
+            if not title:
+                continue
+
+            subtitle_parts = [timezone_name]
+            location_summary = self._format_location_summary(item)
+            if location_summary:
+                subtitle_parts.append(location_summary)
+
+            seen_timezones.add(timezone_name)
+            results.append(
+                TimezoneSearchResult(
+                    timezone=timezone_name,
+                    title=title,
+                    subtitle="  ·  ".join(subtitle_parts),
+                )
+            )
+        return results
+
+    @staticmethod
+    def _format_title(item: dict[str, object]) -> str:
+        return ", ".join(
+            RemotePlaceSearch._unique_parts(
+                item.get("name"),
+                item.get("admin1"),
+                item.get("country"),
+            )
+        )
+
+    @staticmethod
+    def _format_location_summary(item: dict[str, object]) -> str:
+        parts = RemotePlaceSearch._unique_parts(item.get("admin1"), item.get("country"))
+        return ", ".join(parts)
+
+    @staticmethod
+    def _unique_parts(*values: object) -> list[str]:
+        parts: list[str] = []
+        seen: set[str] = set()
+        for value in values:
+            if not isinstance(value, str):
+                continue
+            cleaned = " ".join(value.split())
+            if not cleaned:
+                continue
+            folded = cleaned.casefold()
+            if folded in seen:
+                continue
+            seen.add(folded)
+            parts.append(cleaned)
+        return parts

@@ -325,14 +325,9 @@ class ClockRow(Gtk.Box):
             | Gdk.EventMask.BUTTON_RELEASE_MASK
             | Gdk.EventMask.BUTTON1_MOTION_MASK
         )
-        self.drag_gesture = Gtk.GestureDrag.new(self.drag_handle)
-        self.drag_gesture.set_button(Gdk.BUTTON_PRIMARY)
-        self.drag_gesture.connect("drag-begin", self.on_drag_gesture_begin)
-        self.drag_gesture.connect("drag-update", self.on_drag_gesture_update)
-        self.drag_gesture.connect("drag-end", self.on_drag_gesture_end)
+        self.drag_handle.connect("button-press-event", self.on_drag_button_press)
         self.drag_armed = False
         self.drag_active = False
-        self.drag_start_y = 0.0
 
         handle_label = Gtk.Label()
         handle_label.set_text("≡")
@@ -415,7 +410,7 @@ class ClockRow(Gtk.Box):
                 self.drag_armed = False
                 self.drag_active = False
                 self.get_style_context().remove_class("dragging")
-                self.window.end_drag()
+                self.window.cancel_pointer_drag()
             self.drag_handle.hide()
             self.window.clear_drop_slot()
 
@@ -535,92 +530,47 @@ class ClockRow(Gtk.Box):
     def on_remove(self, *_args: object) -> None:
         self.window.remove_timezone(self.timezone_name)
 
-    def on_drag_gesture_begin(
+    def on_drag_button_press(
         self,
-        _gesture: Gtk.GestureDrag,
-        _start_x: float,
-        start_y: float,
-    ) -> None:
-        if not self.window.edit_mode or not self.can_reorder():
-            return
-        self.drag_armed = True
-        self.drag_active = False
-        self.drag_start_y = start_y
-
-    def on_drag_gesture_update(
-        self,
-        _gesture: Gtk.GestureDrag,
-        offset_x: float,
-        offset_y: float,
-    ) -> None:
-        if not self.drag_armed:
-            return
-        if not self.drag_active:
-            if max(abs(offset_x), abs(offset_y)) < 8:
-                return
-            self.drag_active = True
-            self.get_style_context().add_class("dragging")
-            self.window.begin_drag(self)
-        current_y = int(round(self.drag_start_y + offset_y))
-        translated = self.drag_handle.translate_coordinates(
-            self.window.rows_box,
-            0,
-            current_y,
-        )
-        if translated is None:
-            self.window.clear_drop_slot()
-            return
-        _rows_x, rows_y = translated
-        self.window.update_drag_position(rows_y)
-
-    def on_drag_gesture_end(
-        self,
-        gesture: Gtk.GestureDrag,
-        offset_x: float,
-        offset_y: float,
-    ) -> None:
-        if not self.drag_armed:
-            return
-        self.drag_armed = False
-        if not self.drag_active:
-            return
-        self.on_drag_gesture_update(gesture, offset_x, offset_y)
-        self.drag_active = False
-        self.get_style_context().remove_class("dragging")
-        self.window.commit_drag()
-        self.window.end_drag()
+        _widget: Gtk.Widget,
+        event: Gdk.EventButton,
+    ) -> bool:
+        if event.button != Gdk.BUTTON_PRIMARY:
+            return False
+        return self.window.arm_pointer_drag(self, event.x_root, event.y_root)
 
     def on_toggle_lock(self, *_args: object) -> None:
         self.window.toggle_timezone_lock(self.timezone_name)
 
 
-class DropSlot(Gtk.EventBox):
+class DropSlot(Gtk.Box):
     def __init__(self, window: "WorldClockWindow", insert_index: int) -> None:
-        super().__init__()
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.window = window
         self.insert_index = insert_index
         self.preview_widget: Gtk.Widget | None = None
         self.set_no_show_all(True)
-        self.set_visible_window(False)
-
-        container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        container.set_margin_top(4)
-        container.set_margin_bottom(4)
-        self.add(container)
+        self.set_margin_top(4)
+        self.set_margin_bottom(4)
 
         self.line = Gtk.Box()
         self.line.set_size_request(-1, 2)
         self.line.get_style_context().add_class("drop-slot-line")
-        container.pack_start(self.line, False, False, 0)
+        self.pack_start(self.line, False, False, 0)
 
         self.preview_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        container.pack_start(self.preview_box, False, False, 0)
+        self.pack_start(self.preview_box, False, False, 0)
+        self.show_all()
+        self.preview_box.hide()
 
         self.set_edit_mode(window.edit_mode)
 
     def set_edit_mode(self, enabled: bool) -> None:
         if enabled and self.window.config.sort_mode == "manual":
             self.show()
+            self.line.show()
+            if self.preview_widget is None:
+                self.preview_box.hide()
         else:
             self.hide()
             self.window.clear_drop_slot(self)
@@ -668,8 +618,12 @@ class WorldClockWindow(Gtk.Window):
         self.pending_apply_source: int | None = None
         self.pending_apply_row: ClockRow | None = None
         self.editing_row: ClockRow | None = None
+        self.drag_pending_row: ClockRow | None = None
         self.drag_source_row: ClockRow | None = None
         self.active_drop_slot: DropSlot | None = None
+        self.drag_start_root_x = 0.0
+        self.drag_start_root_y = 0.0
+        self.drag_start_rows_box_y = 0.0
         self.dismiss_armed = False
         self.edit_mode = False
         self.root: Gtk.EventBox | None = None
@@ -722,8 +676,15 @@ class WorldClockWindow(Gtk.Window):
     def build_ui(self) -> None:
         root = Gtk.EventBox()
         root.set_visible_window(False)
-        root.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+        root.add_events(
+            Gdk.EventMask.BUTTON_PRESS_MASK
+            | Gdk.EventMask.BUTTON_RELEASE_MASK
+            | Gdk.EventMask.POINTER_MOTION_MASK
+            | Gdk.EventMask.BUTTON1_MOTION_MASK
+        )
         root.connect("button-press-event", self.on_root_button_press)
+        root.connect("motion-notify-event", self.on_root_motion_notify)
+        root.connect("button-release-event", self.on_root_button_release)
         self.root = root
         self.add(root)
 
@@ -941,6 +902,80 @@ class WorldClockWindow(Gtk.Window):
         row.hide()
         self.clear_drop_slot()
 
+    def arm_pointer_drag(
+        self,
+        row: ClockRow,
+        start_root_x: float,
+        start_root_y: float,
+    ) -> bool:
+        if not self.edit_mode or not row.can_reorder():
+            return False
+        translated = row.translate_coordinates(
+            self.rows_box,
+            0,
+            row.get_allocated_height() // 2,
+        )
+        if translated is None:
+            return False
+
+        self.cancel_pointer_drag()
+        self.drag_pending_row = row
+        self.drag_start_root_x = float(start_root_x)
+        self.drag_start_root_y = float(start_root_y)
+        self.drag_start_rows_box_y = float(translated[1])
+        row.drag_armed = True
+        row.drag_active = False
+        if self.root is not None:
+            self.root.grab_add()
+        return True
+
+    def update_pointer_drag(self, root_x: float, root_y: float) -> bool:
+        row = self.drag_pending_row
+        if row is None or not row.drag_armed:
+            return False
+
+        offset_x = root_x - self.drag_start_root_x
+        offset_y = root_y - self.drag_start_root_y
+        if not row.drag_active:
+            if max(abs(offset_x), abs(offset_y)) < 8:
+                return True
+            row.drag_active = True
+            row.get_style_context().add_class("dragging")
+            self.begin_drag(row)
+
+        rows_y = int(round(self.drag_start_rows_box_y + offset_y))
+        self.update_drag_position(rows_y)
+        return True
+
+    def finish_pointer_drag(self, root_y: float, commit: bool) -> bool:
+        row = self.drag_pending_row
+        if row is None:
+            return False
+
+        if row.drag_active:
+            rows_y = int(round(self.drag_start_rows_box_y + (root_y - self.drag_start_root_y)))
+            self.update_drag_position(rows_y)
+
+        row.drag_armed = False
+        row.drag_active = False
+        row.get_style_context().remove_class("dragging")
+
+        committed = False
+        if commit and self.drag_source_row is not None:
+            committed = self.commit_drag()
+
+        self.end_drag()
+        self.drag_pending_row = None
+        self.drag_start_root_x = 0.0
+        self.drag_start_root_y = 0.0
+        self.drag_start_rows_box_y = 0.0
+        if self.root is not None and self.root.has_grab():
+            self.root.grab_remove()
+        return committed
+
+    def cancel_pointer_drag(self) -> None:
+        self.finish_pointer_drag(self.drag_start_root_y, commit=False)
+
     def update_drag_position(self, rows_box_y: int) -> None:
         if self.drag_source_row is None or not self.drag_source_row.can_reorder():
             self.clear_drop_slot()
@@ -957,8 +992,14 @@ class WorldClockWindow(Gtk.Window):
 
         insert_index = unlocked_rows[-1][0] + 1
         for row_index, row in unlocked_rows:
-            allocation = row.get_allocation()
-            midpoint = allocation.y + (allocation.height / 2)
+            translated = row.translate_coordinates(
+                self.rows_box,
+                0,
+                row.get_allocated_height() // 2,
+            )
+            if translated is None:
+                continue
+            _row_x, midpoint = translated
             if rows_box_y < midpoint:
                 insert_index = row_index
                 break
@@ -1384,7 +1425,7 @@ class WorldClockWindow(Gtk.Window):
             self.refresh_rows()
 
     def on_toggle_edit_mode(self, *_args: object) -> None:
-        self.end_drag()
+        self.cancel_pointer_drag()
         self.edit_mode = not self.edit_mode
         self.update_edit_mode()
         if not self.edit_mode and self.config.sort_mode == "time":
@@ -1492,6 +1533,8 @@ class WorldClockWindow(Gtk.Window):
         return inside_x and inside_y
 
     def on_root_button_press(self, _widget: Gtk.Widget, event: Gdk.EventButton) -> bool:
+        if self.drag_pending_row is not None:
+            return True
         if not self.dismiss_armed:
             return False
 
@@ -1499,6 +1542,15 @@ class WorldClockWindow(Gtk.Window):
             return False
 
         self.close()
+        return True
+
+    def on_root_motion_notify(self, _widget: Gtk.Widget, event: Gdk.EventMotion) -> bool:
+        return self.update_pointer_drag(event.x_root, event.y_root)
+
+    def on_root_button_release(self, _widget: Gtk.Widget, event: Gdk.EventButton) -> bool:
+        if event.button != Gdk.BUTTON_PRIMARY or self.drag_pending_row is None:
+            return False
+        self.finish_pointer_drag(event.y_root, commit=True)
         return True
 
     def on_focus_out(self, *_args: object) -> bool:

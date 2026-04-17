@@ -777,7 +777,8 @@ class WorldClockWindow(Gtk.Window):
             self.refresh_rows()
 
     def on_toggle_add_panel(self, *_args: object) -> None:
-        self.set_add_panel_visible(not self.add_panel.get_visible())
+        current = self.add_stack.get_visible_child_name()
+        self.set_add_panel_visible(current != "panel")
 
     def on_search_query_changed(self, *_args: object) -> None:
         self.update_search_results()

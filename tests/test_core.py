@@ -51,6 +51,27 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(parsed.normalized_text, "08:30")
         self.assertEqual(zoned.strftime("%Y-%m-%d %H:%M"), "2026-04-16 08:30")
 
+    def test_parse_time_only_accepts_meridiem_hour(self) -> None:
+        reference = datetime(2026, 4, 16, 18, 0, tzinfo=timezone.utc)
+        parsed = parse_manual_reference_details("3pm", "America/New_York", reference)
+        zoned = zoned_datetime(parsed.reference_utc, "America/New_York")
+        self.assertEqual(parsed.normalized_text, "15:00")
+        self.assertEqual(zoned.strftime("%Y-%m-%d %H:%M"), "2026-04-16 15:00")
+
+    def test_parse_time_only_accepts_meridiem_with_space(self) -> None:
+        reference = datetime(2026, 4, 16, 18, 0, tzinfo=timezone.utc)
+        parsed = parse_manual_reference_details("8 am", "America/New_York", reference)
+        zoned = zoned_datetime(parsed.reference_utc, "America/New_York")
+        self.assertEqual(parsed.normalized_text, "08:00")
+        self.assertEqual(zoned.strftime("%Y-%m-%d %H:%M"), "2026-04-16 08:00")
+
+    def test_parse_time_only_accepts_meridiem_midnight(self) -> None:
+        reference = datetime(2026, 4, 16, 18, 0, tzinfo=timezone.utc)
+        parsed = parse_manual_reference_details("12am", "America/New_York", reference)
+        zoned = zoned_datetime(parsed.reference_utc, "America/New_York")
+        self.assertEqual(parsed.normalized_text, "00:00")
+        self.assertEqual(zoned.strftime("%Y-%m-%d %H:%M"), "2026-04-16 00:00")
+
     def test_parse_full_datetime(self) -> None:
         reference = datetime(2026, 4, 16, 18, 0, tzinfo=timezone.utc)
         parsed = parse_manual_reference("2026-04-18 21:15", "Asia/Tokyo", reference)

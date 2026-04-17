@@ -349,7 +349,7 @@ class ClockRow(Gtk.Box):
             f"{self.current_zoned.strftime('%a %d %b')}  ·  {abbrev}  ·  {offset}"
         )
 
-        if self.time_entry.is_focus() and self.dirty:
+        if self.window.editing_row is self or self.time_entry.is_focus():
             return
 
         self.set_error(False)
@@ -366,13 +366,22 @@ class ClockRow(Gtk.Box):
             context.remove_class("error")
 
     def on_focus_in(self, *_args: object) -> bool:
+        self.window.editing_row = self
         self.dirty = False
         self.set_error(False)
+        self.time_entry.select_region(0, -1)
         return False
 
     def on_focus_out(self, *_args: object) -> bool:
+        if self.window.editing_row is self:
+            self.window.editing_row = None
         if self.dirty:
-            self.window.flush_live_apply(self, show_errors=True)
+            applied = self.window.flush_live_apply(self, show_errors=False)
+            if not applied:
+                self.set_error(False)
+                self.refresh(self.window.reference_utc)
+        else:
+            self.refresh(self.window.reference_utc)
         return False
 
     def on_changed(self, *_args: object) -> None:
@@ -414,6 +423,7 @@ class WorldClockWindow(Gtk.Window):
         self.status_clear_source: int | None = None
         self.pending_apply_source: int | None = None
         self.pending_apply_row: ClockRow | None = None
+        self.editing_row: ClockRow | None = None
         self.dismiss_armed = False
         self.edit_mode = False
 
@@ -652,6 +662,9 @@ class WorldClockWindow(Gtk.Window):
             row.refresh(self.reference_utc)
         self.update_mode_button()
 
+    def should_rebuild_time_sorted_rows(self) -> bool:
+        return self.config.sort_mode == "time" and self.editing_row is None
+
     def update_mode_button(self) -> None:
         if self.live:
             self.now_button.set_label("Now")
@@ -847,16 +860,16 @@ class WorldClockWindow(Gtk.Window):
             self.apply_manual_entry(row, show_errors=False)
         return False
 
-    def flush_live_apply(self, row: ClockRow, show_errors: bool) -> None:
+    def flush_live_apply(self, row: ClockRow, show_errors: bool) -> bool:
         if self.pending_apply_source is not None and self.pending_apply_row is row:
             GLib.source_remove(self.pending_apply_source)
             self.pending_apply_source = None
             self.pending_apply_row = None
-        self.apply_manual_entry(row, show_errors=show_errors)
+        return self.apply_manual_entry(row, show_errors=show_errors)
 
-    def apply_manual_entry(self, row: ClockRow, show_errors: bool) -> None:
+    def apply_manual_entry(self, row: ClockRow, show_errors: bool) -> bool:
         if not row.dirty:
-            return
+            return False
 
         try:
             self.reference_utc = parse_manual_reference(
@@ -868,16 +881,19 @@ class WorldClockWindow(Gtk.Window):
             if show_errors:
                 row.set_error(True)
                 self.show_status(str(exc), error=True)
-            return
+            return False
 
         self.live = False
         for clock_row in self.rows:
             clock_row.dirty = clock_row is row and row.time_entry.is_focus() and not show_errors
             clock_row.set_error(False)
-        if self.config.sort_mode == "time":
+        # Defer reordering until the user leaves the active entry so the widget
+        # instance holding focus is not destroyed mid-edit.
+        if self.should_rebuild_time_sorted_rows():
             self.rebuild_rows()
         else:
             self.refresh_rows()
+        return True
 
     def remove_timezone(self, timezone_name: str) -> None:
         removed_label = next(
@@ -910,7 +926,7 @@ class WorldClockWindow(Gtk.Window):
     def on_tick(self) -> bool:
         if self.live:
             self.reference_utc = datetime.now(timezone.utc)
-            if self.config.sort_mode == "time":
+            if self.should_rebuild_time_sorted_rows():
                 self.rebuild_rows()
             else:
                 self.refresh_rows()

@@ -383,6 +383,46 @@ class ConfigManager:
         self.save(config)
         return config
 
+    def reorder_timezone(
+        self,
+        timezone_name: str,
+        target_timezone_name: str,
+        place_after: bool = False,
+    ) -> AppConfig:
+        config = self.load()
+        timezone_name = canonical_timezone_name(timezone_name)
+        target_timezone_name = canonical_timezone_name(target_timezone_name)
+        if timezone_name == target_timezone_name:
+            return config
+
+        source_index = next(
+            (position for position, entry in enumerate(config.timezones) if entry.timezone == timezone_name),
+            None,
+        )
+        target_index = next(
+            (
+                position
+                for position, entry in enumerate(config.timezones)
+                if entry.timezone == target_timezone_name
+            ),
+            None,
+        )
+        if source_index is None or target_index is None:
+            return config
+
+        source_entry = config.timezones[source_index]
+        target_entry = config.timezones[target_index]
+        if source_entry.locked or target_entry.locked:
+            return config
+
+        entry = config.timezones.pop(source_index)
+        if source_index < target_index:
+            target_index -= 1
+        insert_index = target_index + (1 if place_after else 0)
+        config.timezones.insert(insert_index, entry)
+        self.save(config)
+        return config
+
     def set_sort_mode(self, sort_mode: str) -> AppConfig:
         config = self.load()
         config.sort_mode = sort_mode if sort_mode in VALID_SORT_MODES else DEFAULT_SORT_MODE
@@ -414,6 +454,7 @@ class ConfigManager:
         config.time_format = time_format if time_format in VALID_TIME_FORMATS else DEFAULT_TIME_FORMAT
         self.save(config)
         return config
+
     @staticmethod
     def _parse_entry(raw_entry: object) -> TimezoneEntry | None:
         if isinstance(raw_entry, str):

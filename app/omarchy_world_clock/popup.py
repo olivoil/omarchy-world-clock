@@ -43,8 +43,6 @@ from .core import (
 
 
 SEARCH_RESULT_LIMIT = 8
-
-
 def rgba(hex_value: str, alpha: float) -> str:
     value = hex_value.lstrip("#")
     red = int(value[0:2], 16)
@@ -118,6 +116,42 @@ window {{
   color: {palette.foreground};
   font-weight: 700;
   font-size: 14px;
+}}
+
+.clock-row {{
+  border-radius: 14px;
+}}
+
+.clock-row.dragging {{
+  opacity: 0.42;
+}}
+
+.clock-row.drag-preview {{
+  background: {rgba(palette.background, 0.94)};
+  border: 1px solid {rgba(palette.accent, 0.34)};
+  border-radius: 14px;
+  padding: 10px 12px;
+  box-shadow: 0 14px 28px {rgba("#000000", 0.24)};
+}}
+
+.drag-preview-time {{
+  color: {palette.foreground};
+  font-family: "JetBrainsMono Nerd Font Mono", "JetBrains Mono", monospace;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}}
+
+.drop-slot-line {{
+  min-height: 2px;
+  border-radius: 999px;
+  background: {rgba(palette.accent, 0.18)};
+}}
+
+.drag-handle-label {{
+  color: {rgba(palette.foreground, 0.44)};
+  font-size: 20px;
+  font-weight: 700;
 }}
 
 .time-entry {{
@@ -203,14 +237,6 @@ button.remove-button {{
   font-size: 13px;
 }}
 
-button.move-button {{
-  min-width: 34px;
-  min-height: 22px;
-  padding: 0;
-  font-size: 13px;
-}}
-
-button.move-button:disabled,
 button.remove-button:disabled {{
   opacity: 0.28;
 }}
@@ -276,16 +302,43 @@ class ClockRow(Gtk.Box):
         window: "WorldClockWindow",
         entry: TimezoneEntry,
         manual_sort: bool,
-        can_move_up: bool,
-        can_move_down: bool,
     ) -> None:
         super().__init__(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
         self.window = window
         self.entry = entry
         self.timezone_name = entry.timezone
+        self.manual_sort = manual_sort
         self.suppress_changes = False
         self.dirty = False
         self.current_zoned = zoned_datetime(window.reference_utc, self.timezone_name)
+        self.get_style_context().add_class("clock-row")
+
+        self.drag_handle = Gtk.EventBox()
+        self.drag_handle.set_no_show_all(True)
+        self.drag_handle.set_visible_window(False)
+        self.drag_handle.set_above_child(True)
+        self.drag_handle.set_valign(Gtk.Align.CENTER)
+        self.drag_handle.set_margin_end(4)
+        self.drag_handle.set_tooltip_text("Drag to reorder")
+        self.drag_handle.add_events(
+            Gdk.EventMask.BUTTON_PRESS_MASK
+            | Gdk.EventMask.BUTTON_RELEASE_MASK
+            | Gdk.EventMask.BUTTON1_MOTION_MASK
+        )
+        self.drag_gesture = Gtk.GestureDrag.new(self.drag_handle)
+        self.drag_gesture.set_button(Gdk.BUTTON_PRIMARY)
+        self.drag_gesture.connect("drag-begin", self.on_drag_gesture_begin)
+        self.drag_gesture.connect("drag-update", self.on_drag_gesture_update)
+        self.drag_gesture.connect("drag-end", self.on_drag_gesture_end)
+        self.drag_armed = False
+        self.drag_active = False
+        self.drag_start_y = 0.0
+
+        handle_label = Gtk.Label()
+        handle_label.set_text("≡")
+        handle_label.get_style_context().add_class("drag-handle-label")
+        self.drag_handle.add(handle_label)
+        self.pack_start(self.drag_handle, False, False, 0)
 
         info_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         info_box.set_hexpand(True)
@@ -319,6 +372,7 @@ class ClockRow(Gtk.Box):
         self.time_entry.connect("focus-out-event", self.on_focus_out)
         self.time_entry.connect("changed", self.on_changed)
         self.time_entry.connect("activate", self.on_activate)
+
         self.lock_button = Gtk.Button()
         self.lock_button.get_style_context().add_class("icon-button")
         self.lock_button.get_style_context().add_class("lock-button")
@@ -331,24 +385,6 @@ class ClockRow(Gtk.Box):
         self.lock_button.set_image(self.lock_image)
         controls.pack_start(self.lock_button, False, False, 0)
         controls.pack_start(self.time_entry, False, False, 0)
-
-        self.move_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        self.move_box.set_no_show_all(True)
-        self.move_box.set_valign(Gtk.Align.CENTER)
-        self.move_up_button = Gtk.Button(label="↑")
-        self.move_up_button.get_style_context().add_class("move-button")
-        self.move_up_button.set_sensitive(manual_sort and can_move_up)
-        self.move_up_button.set_tooltip_text("Move timezone up")
-        self.move_up_button.connect("clicked", self.on_move_up)
-        self.move_box.pack_start(self.move_up_button, False, False, 0)
-
-        self.move_down_button = Gtk.Button(label="↓")
-        self.move_down_button.get_style_context().add_class("move-button")
-        self.move_down_button.set_sensitive(manual_sort and can_move_down)
-        self.move_down_button.set_tooltip_text("Move timezone down")
-        self.move_down_button.connect("clicked", self.on_move_down)
-        self.move_box.pack_start(self.move_down_button, False, False, 0)
-        controls.pack_start(self.move_box, False, False, 0)
 
         self.remove_button = Gtk.Button(label="x")
         self.remove_button.set_no_show_all(True)
@@ -364,17 +400,68 @@ class ClockRow(Gtk.Box):
         self.set_edit_mode(window.edit_mode)
         self.refresh(window.reference_utc)
 
+    def can_reorder(self) -> bool:
+        return self.manual_sort and not self.entry.locked
+
     def set_edit_mode(self, enabled: bool) -> None:
+        drag_enabled = enabled and self.can_reorder()
+        if drag_enabled:
+            self.drag_handle.show()
+            child = self.drag_handle.get_child()
+            if child is not None:
+                child.show()
+        else:
+            if self.drag_active or self.drag_armed:
+                self.drag_armed = False
+                self.drag_active = False
+                self.get_style_context().remove_class("dragging")
+                self.window.end_drag()
+            self.drag_handle.hide()
+            self.window.clear_drop_slot()
+
         if enabled:
             self.lock_button.show()
-            self.move_box.show()
-            self.move_up_button.show()
-            self.move_down_button.show()
             self.remove_button.show()
         else:
             self.lock_button.hide()
-            self.move_box.hide()
             self.remove_button.hide()
+
+    def build_drag_preview(self) -> Gtk.Widget:
+        preview = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=14)
+        preview_context = preview.get_style_context()
+        preview_context.add_class("clock-row")
+        preview_context.add_class("drag-preview")
+
+        handle_label = Gtk.Label()
+        handle_label.set_text("≡")
+        handle_label.get_style_context().add_class("drag-handle-label")
+        preview.pack_start(handle_label, False, False, 0)
+
+        info_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        info_box.set_hexpand(True)
+
+        title = Gtk.Label(xalign=0)
+        title.set_text(self.title_label.get_text())
+        title.get_style_context().add_class("clock-title")
+        info_box.pack_start(title, False, False, 0)
+
+        context = Gtk.Label(xalign=0)
+        context.set_text(self.timezone_name)
+        context.get_style_context().add_class("clock-context")
+        info_box.pack_start(context, False, False, 0)
+
+        preview.pack_start(info_box, True, True, 0)
+
+        time_label = Gtk.Label(xalign=1)
+        time_label.set_text(self.window.display_time(self.current_zoned))
+        time_label.get_style_context().add_class("drag-preview-time")
+        preview.pack_start(time_label, False, False, 0)
+
+        width = self.get_allocated_width()
+        if width > 0:
+            preview.set_size_request(width, -1)
+        preview.show_all()
+        return preview
 
     def refresh(self, reference_utc: datetime) -> None:
         self.current_zoned = zoned_datetime(reference_utc, self.timezone_name)
@@ -448,14 +535,115 @@ class ClockRow(Gtk.Box):
     def on_remove(self, *_args: object) -> None:
         self.window.remove_timezone(self.timezone_name)
 
-    def on_move_up(self, *_args: object) -> None:
-        self.window.move_timezone(self.timezone_name, -1)
+    def on_drag_gesture_begin(
+        self,
+        _gesture: Gtk.GestureDrag,
+        _start_x: float,
+        start_y: float,
+    ) -> None:
+        if not self.window.edit_mode or not self.can_reorder():
+            return
+        self.drag_armed = True
+        self.drag_active = False
+        self.drag_start_y = start_y
 
-    def on_move_down(self, *_args: object) -> None:
-        self.window.move_timezone(self.timezone_name, 1)
+    def on_drag_gesture_update(
+        self,
+        _gesture: Gtk.GestureDrag,
+        offset_x: float,
+        offset_y: float,
+    ) -> None:
+        if not self.drag_armed:
+            return
+        if not self.drag_active:
+            if max(abs(offset_x), abs(offset_y)) < 8:
+                return
+            self.drag_active = True
+            self.get_style_context().add_class("dragging")
+            self.window.begin_drag(self)
+        current_y = int(round(self.drag_start_y + offset_y))
+        translated = self.drag_handle.translate_coordinates(
+            self.window.rows_box,
+            0,
+            current_y,
+        )
+        if translated is None:
+            self.window.clear_drop_slot()
+            return
+        _rows_x, rows_y = translated
+        self.window.update_drag_position(rows_y)
+
+    def on_drag_gesture_end(
+        self,
+        gesture: Gtk.GestureDrag,
+        offset_x: float,
+        offset_y: float,
+    ) -> None:
+        if not self.drag_armed:
+            return
+        self.drag_armed = False
+        if not self.drag_active:
+            return
+        self.on_drag_gesture_update(gesture, offset_x, offset_y)
+        self.drag_active = False
+        self.get_style_context().remove_class("dragging")
+        self.window.commit_drag()
+        self.window.end_drag()
 
     def on_toggle_lock(self, *_args: object) -> None:
         self.window.toggle_timezone_lock(self.timezone_name)
+
+
+class DropSlot(Gtk.EventBox):
+    def __init__(self, window: "WorldClockWindow", insert_index: int) -> None:
+        super().__init__()
+        self.window = window
+        self.insert_index = insert_index
+        self.preview_widget: Gtk.Widget | None = None
+        self.set_no_show_all(True)
+        self.set_visible_window(False)
+
+        container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        container.set_margin_top(4)
+        container.set_margin_bottom(4)
+        self.add(container)
+
+        self.line = Gtk.Box()
+        self.line.set_size_request(-1, 2)
+        self.line.get_style_context().add_class("drop-slot-line")
+        container.pack_start(self.line, False, False, 0)
+
+        self.preview_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        container.pack_start(self.preview_box, False, False, 0)
+
+        self.set_edit_mode(window.edit_mode)
+
+    def set_edit_mode(self, enabled: bool) -> None:
+        if enabled and self.window.config.sort_mode == "manual":
+            self.show()
+        else:
+            self.hide()
+            self.window.clear_drop_slot(self)
+
+    def set_active_preview(self, preview_widget: Gtk.Widget | None) -> None:
+        self.clear_active_preview()
+        if preview_widget is None:
+            return
+        self.preview_widget = preview_widget
+        self.preview_box.pack_start(preview_widget, False, False, 0)
+        self.preview_box.show()
+        preview_widget.show_all()
+        self.line.hide()
+        self.queue_resize()
+
+    def clear_active_preview(self) -> None:
+        if self.preview_widget is not None:
+            self.preview_box.remove(self.preview_widget)
+            self.preview_widget.destroy()
+            self.preview_widget = None
+        self.preview_box.hide()
+        self.line.show()
+        self.queue_resize()
 
 
 class WorldClockWindow(Gtk.Window):
@@ -470,6 +658,7 @@ class WorldClockWindow(Gtk.Window):
         self.reference_utc = datetime.now(timezone.utc)
         self.live = True
         self.rows: list[ClockRow] = []
+        self.drop_slots: list[DropSlot] = []
         self.local_search_results: list[TimezoneSearchResult] = []
         self.remote_search_results: list[TimezoneSearchResult] = []
         self.search_results: list[TimezoneSearchResult] = []
@@ -479,6 +668,8 @@ class WorldClockWindow(Gtk.Window):
         self.pending_apply_source: int | None = None
         self.pending_apply_row: ClockRow | None = None
         self.editing_row: ClockRow | None = None
+        self.drag_source_row: ClockRow | None = None
+        self.active_drop_slot: DropSlot | None = None
         self.dismiss_armed = False
         self.edit_mode = False
         self.root: Gtk.EventBox | None = None
@@ -685,10 +876,12 @@ class WorldClockWindow(Gtk.Window):
         return ordered_timezones(self.config.timezones, self.config.sort_mode, self.reference_utc)
 
     def rebuild_rows(self) -> None:
+        self.clear_drop_slot()
         for child in list(self.rows_box.get_children()):
             self.rows_box.remove(child)
 
         self.rows = []
+        self.drop_slots = []
         entries = self.selected_entries()
         if not entries:
             empty_state = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
@@ -710,21 +903,29 @@ class WorldClockWindow(Gtk.Window):
             return
 
         manual_sort = self.config.sort_mode == "manual"
+        first_unlocked_index = next(
+            (index for index, entry in enumerate(entries) if not entry.locked),
+            len(entries),
+        )
         for index, entry in enumerate(entries):
-            can_move_up = index > 0 and entries[index - 1].locked == entry.locked
-            can_move_down = index < len(entries) - 1 and entries[index + 1].locked == entry.locked
+            if manual_sort and index >= first_unlocked_index:
+                slot = DropSlot(self, insert_index=index)
+                self.drop_slots.append(slot)
+                self.rows_box.pack_start(slot, False, False, 0)
             row = ClockRow(
                 self,
                 entry,
                 manual_sort=manual_sort,
-                can_move_up=can_move_up,
-                can_move_down=can_move_down,
             )
             self.rows.append(row)
             self.rows_box.pack_start(row, False, False, 0)
             if index < len(entries) - 1:
                 separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
                 self.rows_box.pack_start(separator, False, False, 0)
+        if manual_sort and first_unlocked_index < len(entries):
+            slot = DropSlot(self, insert_index=len(entries))
+            self.drop_slots.append(slot)
+            self.rows_box.pack_start(slot, False, False, 0)
 
         self.refresh_rows()
         self.rows_box.show_all()
@@ -734,6 +935,92 @@ class WorldClockWindow(Gtk.Window):
         for row in self.rows:
             row.refresh(self.reference_utc)
         self.update_mode_button()
+
+    def begin_drag(self, row: ClockRow) -> None:
+        self.drag_source_row = row
+        row.hide()
+        self.clear_drop_slot()
+
+    def update_drag_position(self, rows_box_y: int) -> None:
+        if self.drag_source_row is None or not self.drag_source_row.can_reorder():
+            self.clear_drop_slot()
+            return
+
+        unlocked_rows = [
+            (index, row)
+            for index, row in enumerate(self.rows)
+            if not row.entry.locked and row is not self.drag_source_row
+        ]
+        if not unlocked_rows:
+            self.clear_drop_slot()
+            return
+
+        insert_index = unlocked_rows[-1][0] + 1
+        for row_index, row in unlocked_rows:
+            allocation = row.get_allocation()
+            midpoint = allocation.y + (allocation.height / 2)
+            if rows_box_y < midpoint:
+                insert_index = row_index
+                break
+
+        slot = self.slot_for_insert_index(insert_index)
+        if slot is None:
+            self.clear_drop_slot()
+            return
+        self.set_drop_slot(slot)
+
+    def commit_drag(self) -> bool:
+        if self.drag_source_row is None or self.active_drop_slot is None:
+            return False
+        timezone_name = self.drag_source_row.timezone_name
+        insert_index = self.active_drop_slot.insert_index
+        self.clear_drop_slot()
+        return self.reorder_timezone_to_index(timezone_name, insert_index)
+
+    def end_drag(self) -> None:
+        self.clear_drop_slot()
+        if self.drag_source_row is not None and self.drag_source_row.get_parent() is not None:
+            self.drag_source_row.show()
+        self.drag_source_row = None
+
+    def can_drop_at_index(self, insert_index: int) -> bool:
+        if self.drag_source_row is None or not self.drag_source_row.can_reorder():
+            return False
+        entries = self.selected_entries()
+        source_index = next(
+            (
+                index
+                for index, entry in enumerate(entries)
+                if entry.timezone == self.drag_source_row.timezone_name
+            ),
+            None,
+        )
+        if source_index is None:
+            return False
+        effective_index = insert_index - 1 if source_index < insert_index else insert_index
+        return effective_index != source_index
+
+    def set_drop_slot(self, slot: DropSlot) -> None:
+        if not self.can_drop_at_index(slot.insert_index):
+            self.clear_drop_slot()
+            return
+        if self.active_drop_slot is slot:
+            return
+        self.clear_drop_slot()
+        self.active_drop_slot = slot
+        preview = self.drag_source_row.build_drag_preview() if self.drag_source_row is not None else None
+        slot.set_active_preview(preview)
+
+    def clear_drop_slot(self, slot: DropSlot | None = None) -> None:
+        if slot is not None and self.active_drop_slot is not slot:
+            return
+        if self.active_drop_slot is None:
+            return
+        self.active_drop_slot.clear_active_preview()
+        self.active_drop_slot = None
+
+    def slot_for_insert_index(self, insert_index: int) -> DropSlot | None:
+        return next((slot for slot in self.drop_slots if slot.insert_index == insert_index), None)
 
     def current_time_format(self) -> str:
         return effective_time_format(self.config.time_format)
@@ -790,6 +1077,8 @@ class WorldClockWindow(Gtk.Window):
 
         for row in self.rows:
             row.set_edit_mode(self.edit_mode)
+        for slot in self.drop_slots:
+            slot.set_edit_mode(self.edit_mode)
 
     def focus_add_entry(self) -> bool:
         self.add_entry.grab_focus()
@@ -1020,6 +1309,56 @@ class WorldClockWindow(Gtk.Window):
         self.config = self.config_manager.move_timezone(timezone_name, offset)
         self.rebuild_rows()
 
+    def reorder_timezone(
+        self,
+        timezone_name: str,
+        target_timezone_name: str,
+        place_after: bool = False,
+    ) -> bool:
+        if self.config.sort_mode != "manual":
+            return False
+        source_entry = next(
+            (entry for entry in self.config.timezones if entry.timezone == timezone_name),
+            None,
+        )
+        target_entry = next(
+            (entry for entry in self.config.timezones if entry.timezone == target_timezone_name),
+            None,
+        )
+        if source_entry is None or target_entry is None:
+            return False
+        if source_entry.locked or target_entry.locked:
+            return False
+        updated = self.config_manager.reorder_timezone(
+            timezone_name,
+            target_timezone_name,
+            place_after=place_after,
+        )
+        if updated.timezones == self.config.timezones:
+            return False
+        self.config = updated
+        self.rebuild_rows()
+        return True
+
+    def reorder_timezone_to_index(self, timezone_name: str, insert_index: int) -> bool:
+        entries = self.selected_entries()
+        if not entries:
+            return False
+        if insert_index < 0 or insert_index > len(entries):
+            return False
+        if insert_index == len(entries):
+            target_timezone_name = entries[-1].timezone
+            place_after = True
+        else:
+            target_timezone_name = entries[insert_index].timezone
+            place_after = False
+        return self.reorder_timezone(
+            timezone_name,
+            target_timezone_name,
+            place_after=place_after,
+        )
+
+
     def on_tick(self) -> bool:
         if self.live:
             self.reference_utc = datetime.now(timezone.utc)
@@ -1045,6 +1384,7 @@ class WorldClockWindow(Gtk.Window):
             self.refresh_rows()
 
     def on_toggle_edit_mode(self, *_args: object) -> None:
+        self.end_drag()
         self.edit_mode = not self.edit_mode
         self.update_edit_mode()
         if not self.edit_mode and self.config.sort_mode == "time":
@@ -1119,6 +1459,7 @@ class WorldClockWindow(Gtk.Window):
         if entry is None:
             return
         self.config = self.config_manager.set_timezone_locked(timezone_name, not entry.locked)
+        self.rebuild_rows()
 
     def on_time_format_changed(self, combo: Gtk.ComboBoxText) -> None:
         time_format = combo.get_active_id() or "system"

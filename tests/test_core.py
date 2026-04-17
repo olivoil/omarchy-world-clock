@@ -334,6 +334,77 @@ class CoreTests(unittest.TestCase):
                     [TimezoneEntry(timezone="Europe/Paris", label="Paris")],
                 )
 
+    def test_config_reorders_timezone_before_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "config.json"
+            path.write_text('{"version": 3, "timezones": []}\n', encoding="utf-8")
+            manager = ConfigManager(path)
+
+            manager.add_timezone("America/Chicago", label="Austin")
+            manager.add_timezone("Asia/Kolkata", label="New Delhi")
+            manager.add_timezone("Europe/Paris", label="Rennes")
+            manager.reorder_timezone("Europe/Paris", "America/Chicago")
+
+            self.assertEqual(
+                manager.load().timezones,
+                [
+                    TimezoneEntry(timezone="Europe/Paris", label="Rennes"),
+                    TimezoneEntry(timezone="America/Chicago", label="Austin"),
+                    TimezoneEntry(timezone="Asia/Kolkata", label="New Delhi"),
+                ],
+            )
+
+    def test_config_reorders_timezone_after_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "config.json"
+            path.write_text('{"version": 3, "timezones": []}\n', encoding="utf-8")
+            manager = ConfigManager(path)
+
+            manager.add_timezone("America/Chicago", label="Austin")
+            manager.add_timezone("Asia/Kolkata", label="New Delhi")
+            manager.add_timezone("Europe/Paris", label="Rennes")
+            manager.reorder_timezone("America/Chicago", "Europe/Paris", place_after=True)
+
+            self.assertEqual(
+                manager.load().timezones,
+                [
+                    TimezoneEntry(timezone="Asia/Kolkata", label="New Delhi"),
+                    TimezoneEntry(timezone="Europe/Paris", label="Rennes"),
+                    TimezoneEntry(timezone="America/Chicago", label="Austin"),
+                ],
+            )
+
+    def test_config_does_not_reorder_locked_timezones(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "config.json"
+            path.write_text('{"version": 3, "timezones": []}\n', encoding="utf-8")
+            manager = ConfigManager(path)
+
+            manager.add_timezone("America/Chicago", label="Austin")
+            manager.add_timezone("Asia/Kolkata", label="New Delhi")
+            manager.add_timezone("Europe/Paris", label="Rennes")
+            manager.set_timezone_locked("America/Chicago", True)
+
+            manager.reorder_timezone("America/Chicago", "Europe/Paris")
+            self.assertEqual(
+                manager.load().timezones,
+                [
+                    TimezoneEntry(timezone="America/Chicago", label="Austin", locked=True),
+                    TimezoneEntry(timezone="Asia/Kolkata", label="New Delhi"),
+                    TimezoneEntry(timezone="Europe/Paris", label="Rennes"),
+                ],
+            )
+
+            manager.reorder_timezone("Europe/Paris", "America/Chicago")
+            self.assertEqual(
+                manager.load().timezones,
+                [
+                    TimezoneEntry(timezone="America/Chicago", label="Austin", locked=True),
+                    TimezoneEntry(timezone="Asia/Kolkata", label="New Delhi"),
+                    TimezoneEntry(timezone="Europe/Paris", label="Rennes"),
+                ],
+            )
+
     def test_ordered_timezones_sorts_all_entries(self) -> None:
         reference = datetime(2026, 4, 17, 12, 0, tzinfo=timezone.utc)
         entries = [
@@ -400,7 +471,6 @@ class CoreTests(unittest.TestCase):
             detected = detect_system_time_format((path,))
 
         self.assertEqual(detected, "ampm")
-
 
 if __name__ == "__main__":
     unittest.main()

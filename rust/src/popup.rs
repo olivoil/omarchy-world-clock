@@ -91,6 +91,85 @@ fn dropdown_selection_value(options: &[(&str, &str)], index: u32, fallback: &str
         .unwrap_or_else(|| fallback.to_string())
 }
 
+fn update_dropdown_list_item(list_item: &gtk::ListItem) {
+    let Some(container) = list_item
+        .child()
+        .and_then(|child| child.downcast::<gtk::Box>().ok())
+    else {
+        return;
+    };
+    let Some(label) = container
+        .first_child()
+        .and_then(|child| child.downcast::<gtk::Label>().ok())
+    else {
+        return;
+    };
+    let Some(checkmark) = container
+        .last_child()
+        .and_then(|child| child.downcast::<gtk::Label>().ok())
+    else {
+        return;
+    };
+
+    if let Some(item) = list_item
+        .item()
+        .and_then(|item| item.downcast::<gtk::StringObject>().ok())
+    {
+        label.set_text(item.string().as_str());
+    } else {
+        label.set_text("");
+    }
+
+    checkmark.set_visible(list_item.is_selected());
+}
+
+fn build_dropdown(options: &[(&str, &str)], active_value: &str) -> gtk::DropDown {
+    let labels: Vec<&str> = options.iter().map(|(_, label)| *label).collect();
+    let dropdown = gtk::DropDown::from_strings(&labels);
+    dropdown.add_css_class("popup-select");
+    dropdown.set_selected(dropdown_selection_index(options, active_value));
+
+    let factory = gtk::SignalListItemFactory::new();
+    factory.connect_setup(|_, object| {
+        let Some(list_item) = object.downcast_ref::<gtk::ListItem>() else {
+            return;
+        };
+
+        let row = gtk::Box::new(Orientation::Horizontal, 12);
+        row.set_hexpand(true);
+        row.set_halign(Align::Fill);
+        row.add_css_class("popup-select-row");
+
+        let label = gtk::Label::new(None);
+        label.set_hexpand(true);
+        label.set_xalign(0.0);
+        label.add_css_class("popup-select-item-label");
+        row.append(&label);
+
+        let checkmark = gtk::Label::new(Some("✓"));
+        checkmark.set_halign(Align::End);
+        checkmark.set_xalign(1.0);
+        checkmark.add_css_class("popup-select-item-check");
+        row.append(&checkmark);
+
+        list_item.set_child(Some(&row));
+
+        let list_item = list_item.clone();
+        list_item.connect_selected_notify(|item| {
+            update_dropdown_list_item(item);
+        });
+    });
+    factory.connect_bind(|_, object| {
+        let Some(list_item) = object.downcast_ref::<gtk::ListItem>() else {
+            return;
+        };
+        update_dropdown_list_item(list_item);
+    });
+    dropdown.set_list_factory(Some(&factory));
+
+    dropdown
+}
+
 fn cancel_pending_apply(state: &mut PopupState) {
     if let Some(source_id) = state.pending_apply_source.take() {
         source_id.remove();
@@ -740,9 +819,7 @@ fn build_window(
     sort_label.add_css_class("hint-label");
     sort_row.append(&sort_label);
 
-    let sort_combo = gtk::DropDown::from_strings(&["Manual", "A-Z", "Time"]);
-    sort_combo.add_css_class("popup-select");
-    sort_combo.set_selected(dropdown_selection_index(&SORT_OPTIONS, &config.sort_mode));
+    let sort_combo = build_dropdown(&SORT_OPTIONS, &config.sort_mode);
     sort_row.append(&sort_combo);
 
     let format_label = gtk::Label::new(Some("Format"));
@@ -750,12 +827,7 @@ fn build_window(
     format_label.set_margin_start(16);
     sort_row.append(&format_label);
 
-    let time_format_combo = gtk::DropDown::from_strings(&["System", "24h", "AM/PM"]);
-    time_format_combo.add_css_class("popup-select");
-    time_format_combo.set_selected(dropdown_selection_index(
-        &TIME_FORMAT_OPTIONS,
-        &config.time_format,
-    ));
+    let time_format_combo = build_dropdown(&TIME_FORMAT_OPTIONS, &config.time_format);
     sort_row.append(&time_format_combo);
 
     let rows_box = gtk::Box::new(Orientation::Vertical, 10);

@@ -256,11 +256,20 @@ dropdown.popup-select popover.background row:selected label {{
   color: {foreground};
 }}
 
-dropdown.popup-select popover.background row check {{
+dropdown.popup-select popover.background row .popup-select-row {{
+  min-width: 0;
+}}
+
+dropdown.popup-select popover.background row .popup-select-item-label {{
   color: {foreground};
-  margin-left: 14px;
+}}
+
+dropdown.popup-select popover.background row .popup-select-item-check {{
+  color: {foreground};
   min-width: 18px;
-  min-height: 18px;
+  font-size: 16px;
+  font-weight: 700;
+  margin-left: auto;
 }}
 
 button.icon-button.destructive:hover {{

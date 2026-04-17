@@ -159,6 +159,25 @@ button.suggested-action {{
   border-color: {rgba(palette.accent, 0.45)};
 }}
 
+button.icon-button {{
+  background: transparent;
+  border-color: {rgba(palette.foreground, 0.06)};
+  border-radius: 999px;
+  min-width: 34px;
+  min-height: 34px;
+  padding: 6px;
+}}
+
+button.icon-button:hover {{
+  background: {rgba(palette.foreground, 0.06)};
+  border-color: {rgba(palette.foreground, 0.16)};
+}}
+
+button.icon-button.active {{
+  background: {rgba(palette.accent, 0.10)};
+  border-color: {rgba(palette.accent, 0.30)};
+}}
+
 button.remove-button {{
   min-width: 34px;
   min-height: 34px;
@@ -275,6 +294,7 @@ class ClockRow(Gtk.Box):
         controls.pack_start(self.time_entry, False, False, 0)
 
         self.move_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self.move_box.set_no_show_all(True)
         self.move_up_button = Gtk.Button(label="˄")
         self.move_up_button.get_style_context().add_class("move-button")
         self.move_up_button.set_sensitive(manual_sort and can_move_up)
@@ -291,6 +311,7 @@ class ClockRow(Gtk.Box):
         controls.pack_start(self.move_box, False, False, 0)
 
         self.remove_button = Gtk.Button(label="x")
+        self.remove_button.set_no_show_all(True)
         self.remove_button.get_style_context().add_class("remove-button")
         self.remove_button.set_sensitive(removable)
         if removable:
@@ -301,7 +322,18 @@ class ClockRow(Gtk.Box):
         controls.pack_start(self.remove_button, False, False, 0)
 
         self.pack_start(controls, False, False, 0)
+        self.set_edit_mode(window.edit_mode)
         self.refresh(window.reference_utc)
+
+    def set_edit_mode(self, enabled: bool) -> None:
+        if enabled:
+            self.move_box.show()
+            self.move_up_button.show()
+            self.move_down_button.show()
+            self.remove_button.show()
+        else:
+            self.move_box.hide()
+            self.remove_button.hide()
 
     def refresh(self, reference_utc: datetime) -> None:
         self.current_zoned = zoned_datetime(reference_utc, self.timezone_name)
@@ -383,6 +415,7 @@ class WorldClockWindow(Gtk.Window):
         self.pending_apply_source: int | None = None
         self.pending_apply_row: ClockRow | None = None
         self.dismiss_armed = False
+        self.edit_mode = False
 
         self.set_title("Omarchy World Clock")
         self.set_resizable(False)
@@ -464,13 +497,26 @@ class WorldClockWindow(Gtk.Window):
         subtitle.get_style_context().add_class("panel-subtitle")
         titles.pack_start(subtitle, False, False, 0)
 
+        header_actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        header.pack_start(header_actions, False, False, 0)
+
         self.now_button = Gtk.Button(label="Now")
         self.now_button.get_style_context().add_class("suggested-action")
         self.now_button.connect("clicked", self.on_now_clicked)
-        header.pack_start(self.now_button, False, False, 0)
+        header_actions.pack_start(self.now_button, False, False, 0)
+
+        self.edit_button = Gtk.Button()
+        self.edit_button.get_style_context().add_class("icon-button")
+        self.edit_button.set_image(
+            Gtk.Image.new_from_icon_name("emblem-system-symbolic", Gtk.IconSize.MENU)
+        )
+        self.edit_button.connect("clicked", self.on_toggle_edit_mode)
+        header_actions.pack_start(self.edit_button, False, False, 0)
 
         sort_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         sort_row.set_halign(Gtk.Align.START)
+        sort_row.set_no_show_all(True)
+        self.sort_row = sort_row
         panel.pack_start(sort_row, False, False, 0)
 
         sort_label = Gtk.Label(xalign=0)
@@ -494,10 +540,13 @@ class WorldClockWindow(Gtk.Window):
         panel.pack_start(footer, False, False, 0)
 
         separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        separator.set_no_show_all(True)
+        self.footer_separator = separator
         footer.pack_start(separator, False, False, 0)
 
         self.add_stack = Gtk.Stack()
         self.add_stack.set_homogeneous(False)
+        self.add_stack.set_no_show_all(True)
         footer.pack_start(self.add_stack, False, False, 0)
 
         self.add_toggle_button = Gtk.Button(label="+ Add timezone")
@@ -544,6 +593,7 @@ class WorldClockWindow(Gtk.Window):
         self.status_label.set_no_show_all(True)
         footer.pack_start(self.status_label, False, False, 0)
         self.set_add_panel_visible(False)
+        self.update_edit_mode()
 
     def selected_entries(self) -> list[TimezoneEntry]:
         local_entry = TimezoneEntry(timezone=self.local_timezone)
@@ -595,6 +645,7 @@ class WorldClockWindow(Gtk.Window):
 
         self.refresh_rows()
         self.rows_box.show_all()
+        self.update_edit_mode()
 
     def refresh_rows(self) -> None:
         for row in self.rows:
@@ -608,6 +659,33 @@ class WorldClockWindow(Gtk.Window):
         else:
             self.now_button.set_label("Reset")
             self.now_button.set_tooltip_text("Return to the current time.")
+
+    def update_edit_mode(self) -> None:
+        if self.edit_mode:
+            self.edit_button.set_tooltip_text("Hide timezone management controls.")
+            self.edit_button.get_style_context().add_class("active")
+            self.sort_row.show()
+            for child in self.sort_row.get_children():
+                child.show()
+            self.footer_separator.show()
+            self.add_stack.show()
+            visible_child = self.add_stack.get_visible_child_name()
+            if visible_child == "panel":
+                self.add_panel.show_all()
+                if not self.add_entry.get_text().strip():
+                    self.search_results_scroller.hide()
+            else:
+                self.add_toggle_button.show()
+        else:
+            self.edit_button.set_tooltip_text("Show sort, add, and reorder controls.")
+            self.edit_button.get_style_context().remove_class("active")
+            self.set_add_panel_visible(False)
+            self.sort_row.hide()
+            self.footer_separator.hide()
+            self.add_stack.hide()
+
+        for row in self.rows:
+            row.set_edit_mode(self.edit_mode)
 
     def focus_add_entry(self) -> bool:
         self.add_entry.grab_focus()
@@ -852,6 +930,10 @@ class WorldClockWindow(Gtk.Window):
             self.rebuild_rows()
         else:
             self.refresh_rows()
+
+    def on_toggle_edit_mode(self, *_args: object) -> None:
+        self.edit_mode = not self.edit_mode
+        self.update_edit_mode()
 
     def on_toggle_add_panel(self, *_args: object) -> None:
         current = self.add_stack.get_visible_child_name()

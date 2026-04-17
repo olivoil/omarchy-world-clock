@@ -485,15 +485,17 @@ class WorldClockWindow(Gtk.Window):
         separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
         footer.pack_start(separator, False, False, 0)
 
+        self.add_stack = Gtk.Stack()
+        self.add_stack.set_homogeneous(False)
+        footer.pack_start(self.add_stack, False, False, 0)
+
         self.add_toggle_button = Gtk.Button(label="+ Add timezone")
         self.add_toggle_button.get_style_context().add_class("add-toggle")
-        self.add_toggle_button.set_no_show_all(True)
         self.add_toggle_button.connect("clicked", self.on_toggle_add_panel)
-        footer.pack_start(self.add_toggle_button, False, False, 0)
+        self.add_stack.add_named(self.add_toggle_button, "toggle")
 
         self.add_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        self.add_panel.set_no_show_all(True)
-        footer.pack_start(self.add_panel, False, False, 0)
+        self.add_stack.add_named(self.add_panel, "panel")
 
         add_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         self.add_panel.pack_start(add_box, False, False, 0)
@@ -602,16 +604,15 @@ class WorldClockWindow(Gtk.Window):
 
     def set_add_panel_visible(self, visible: bool) -> None:
         if visible:
-            self.add_toggle_button.hide()
             self.add_panel.show_all()
             if not self.add_entry.get_text().strip():
                 self.search_results_scroller.hide()
+            self.add_stack.set_visible_child_name("panel")
             GLib.idle_add(self.focus_add_entry)
         else:
-            self.add_panel.hide()
-            self.add_toggle_button.show()
             self.add_entry.set_text("")
             self.clear_search_results()
+            self.add_stack.set_visible_child_name("toggle")
 
     def clear_search_results(self) -> None:
         for child in list(self.search_results_box.get_children()):

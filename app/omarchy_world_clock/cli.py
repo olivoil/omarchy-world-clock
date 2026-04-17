@@ -81,14 +81,23 @@ def spawn_popup(pid_path: Path) -> None:
     )
 
 
+def format_tooltip_clock_rows(rows: list[tuple[str, str]]) -> list[str]:
+    if not rows:
+        return []
+
+    widest_label = max(len(label) for label, _time_value in rows)
+    return [f"{label:<{widest_label}}  {time_value}" for label, time_value in rows]
+
+
 def module_payload(pid_path: Path) -> dict[str, object]:
     config = ConfigManager().load()
     local_timezone = detect_local_timezone()
     now = datetime.now(timezone.utc)
-    tooltip_lines = [
-        "World Clock",
-        "",
-        f"Local  {friendly_timezone_name(local_timezone)}  {zoned_datetime(now, local_timezone).strftime('%H:%M')}",
+    clock_rows = [
+        (
+            f"Local  {friendly_timezone_name(local_timezone)}",
+            zoned_datetime(now, local_timezone).strftime("%H:%M"),
+        )
     ]
     entries = [entry for entry in config.timezones if entry.timezone != local_timezone]
     if config.sort_mode == "alpha":
@@ -103,10 +112,10 @@ def module_payload(pid_path: Path) -> dict[str, object]:
 
     for entry in entries:
         zoned = zoned_datetime(now, entry.timezone)
-        tooltip_lines.append(
-            f"{entry.display_label()}  {zoned.strftime('%H:%M')}"
-        )
-    if len(tooltip_lines) == 3:
+        clock_rows.append((entry.display_label(), zoned.strftime("%H:%M")))
+
+    tooltip_lines = ["World Clock", "", *format_tooltip_clock_rows(clock_rows)]
+    if len(clock_rows) == 1:
         tooltip_lines.append("No extra timezones yet.")
 
     return {

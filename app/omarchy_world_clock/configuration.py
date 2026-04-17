@@ -11,8 +11,10 @@ import urllib.parse
 import urllib.request
 from zoneinfo import TZPATH, ZoneInfo
 
-from .core import all_timezones, friendly_timezone_name
+from .core import all_timezones, friendly_timezone_name, zoned_datetime
 
+CONFIG_VERSION = 3
+LOCAL_TIMEZONE_MIGRATION_VERSION = 2
 DEFAULT_TIMEZONES: list[str] = []
 DEFAULT_SORT_MODE = "manual"
 VALID_SORT_MODES = {"manual", "alpha", "time"}
@@ -127,10 +129,38 @@ class AppConfig:
 class TimezoneEntry:
     timezone: str
     label: str = ""
+    locked: bool = False
 
     def display_label(self) -> str:
         value = self.label.strip()
         return value or friendly_timezone_name(self.timezone)
+
+
+def default_timezone_entries() -> list[TimezoneEntry]:
+    return [
+        TimezoneEntry(timezone=zone)
+        for zone in canonical_timezone_names([detect_local_timezone(), *DEFAULT_TIMEZONES])
+    ]
+
+
+def ordered_timezones(
+    entries: list[TimezoneEntry],
+    sort_mode: str,
+    reference_utc: datetime,
+) -> list[TimezoneEntry]:
+    ordered = list(entries)
+    if sort_mode == "alpha":
+        ordered.sort(key=lambda entry: (entry.display_label().casefold(), entry.timezone.casefold()))
+    elif sort_mode == "time":
+        ordered.sort(
+            key=lambda entry: (
+                zoned_datetime(reference_utc, entry.timezone).replace(tzinfo=None),
+                entry.display_label().casefold(),
+            )
+        )
+    locked = [entry for entry in ordered if entry.locked]
+    unlocked = [entry for entry in ordered if not entry.locked]
+    return [*locked, *unlocked]
 
 
 @dataclass(frozen=True)
@@ -165,14 +195,12 @@ class ConfigManager:
         self.path = path or Path.home() / ".config" / "omarchy-world-clock" / "config.json"
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
+    def default_config(self) -> AppConfig:
+        return AppConfig(timezones=default_timezone_entries())
+
     def load(self) -> AppConfig:
         if not self.path.exists():
-            config = AppConfig(
-                timezones=[
-                    TimezoneEntry(timezone=zone)
-                    for zone in canonical_timezone_names(DEFAULT_TIMEZONES)
-                ]
-            )
+            config = self.default_config()
             self.save(config)
             return config
 
@@ -180,14 +208,13 @@ class ConfigManager:
             with self.path.open("r", encoding="utf-8") as handle:
                 raw = json.load(handle)
         except Exception:
-            config = AppConfig(
-                timezones=[
-                    TimezoneEntry(timezone=zone)
-                    for zone in canonical_timezone_names(DEFAULT_TIMEZONES)
-                ]
-            )
+            config = self.default_config()
             self.save(config)
             return config
+
+        config_version = raw.get("version", 1)
+        if not isinstance(config_version, int):
+            config_version = 1
 
         entries: list[TimezoneEntry] = []
         seen: set[str] = set()
@@ -198,20 +225,33 @@ class ConfigManager:
             seen.add(entry.timezone)
             entries.append(entry)
 
+        if config_version < LOCAL_TIMEZONE_MIGRATION_VERSION:
+            local_timezone = canonical_timezone_name(detect_local_timezone())
+            if local_timezone and self.is_valid_timezone(local_timezone) and local_timezone not in seen:
+                entries.insert(0, TimezoneEntry(timezone=local_timezone))
+
         sort_mode = raw.get("sort_mode", DEFAULT_SORT_MODE)
         if sort_mode not in VALID_SORT_MODES:
             sort_mode = DEFAULT_SORT_MODE
 
-        config = AppConfig(timezones=entries, sort_mode=sort_mode)
+        config = self._normalize_config(
+            AppConfig(
+                timezones=entries,
+                sort_mode=sort_mode,
+            )
+        )
         self.save(config)
         return config
 
     def save(self, config: AppConfig) -> None:
+        config = self._normalize_config(config)
         payload = {
+            "version": CONFIG_VERSION,
             "timezones": [
                 {
                     "timezone": entry.timezone,
                     "label": entry.label.strip(),
+                    "locked": entry.locked,
                 }
                 for entry in config.timezones
             ],
@@ -263,6 +303,23 @@ class ConfigManager:
         self.save(config)
         return config
 
+    def set_timezone_locked(self, timezone_name: str, locked: bool) -> AppConfig:
+        config = self.load()
+        timezone_name = canonical_timezone_name(timezone_name)
+        for entry in config.timezones:
+            if entry.timezone == timezone_name:
+                entry.locked = bool(locked)
+                break
+        self.save(config)
+        return config
+
+    def _normalize_config(self, config: AppConfig) -> AppConfig:
+        config.sort_mode = config.sort_mode if config.sort_mode in VALID_SORT_MODES else DEFAULT_SORT_MODE
+        locked = [entry for entry in config.timezones if entry.locked]
+        unlocked = [entry for entry in config.timezones if not entry.locked]
+        config.timezones = [*locked, *unlocked]
+        return config
+
     @staticmethod
     def _parse_entry(raw_entry: object) -> TimezoneEntry | None:
         if isinstance(raw_entry, str):
@@ -271,15 +328,21 @@ class ConfigManager:
         elif isinstance(raw_entry, dict):
             raw_timezone = raw_entry.get("timezone", "")
             raw_label = raw_entry.get("label", "")
+            raw_locked = raw_entry.get("locked", False)
             timezone_name = raw_timezone.strip() if isinstance(raw_timezone, str) else ""
             label = raw_label.strip() if isinstance(raw_label, str) else ""
+            locked = raw_locked if isinstance(raw_locked, bool) else False
         else:
             return None
 
         timezone_name = canonical_timezone_name(timezone_name)
         if not ConfigManager.is_valid_timezone(timezone_name):
             return None
-        return TimezoneEntry(timezone=timezone_name, label=label)
+        return TimezoneEntry(
+            timezone=timezone_name,
+            label=label,
+            locked=locked if isinstance(raw_entry, dict) else False,
+        )
 
     @staticmethod
     def is_valid_timezone(timezone_name: str) -> bool:

@@ -11,8 +11,8 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .configuration import ConfigManager, detect_local_timezone
-from .core import friendly_timezone_name, zoned_datetime
+from .configuration import ConfigManager, detect_local_timezone, ordered_timezones
+from .core import zoned_datetime
 from .waybar import (
     MODULE_MARKER_START,
     STYLE_MARKER_START,
@@ -93,30 +93,20 @@ def module_payload(pid_path: Path) -> dict[str, object]:
     config = ConfigManager().load()
     local_timezone = detect_local_timezone()
     now = datetime.now(timezone.utc)
-    clock_rows = [
-        (
-            f"Local  {friendly_timezone_name(local_timezone)}",
-            zoned_datetime(now, local_timezone).strftime("%H:%M"),
-        )
-    ]
-    entries = [entry for entry in config.timezones if entry.timezone != local_timezone]
-    if config.sort_mode == "alpha":
-        entries.sort(key=lambda entry: (entry.display_label().casefold(), entry.timezone.casefold()))
-    elif config.sort_mode == "time":
-        entries.sort(
-            key=lambda entry: (
-                zoned_datetime(now, entry.timezone).replace(tzinfo=None),
-                entry.display_label().casefold(),
-            )
-        )
-
+    entries = ordered_timezones(config.timezones, config.sort_mode, now)
+    clock_rows: list[tuple[str, str]] = []
     for entry in entries:
         zoned = zoned_datetime(now, entry.timezone)
-        clock_rows.append((entry.display_label(), zoned.strftime("%H:%M")))
+        label = entry.display_label()
+        if entry.timezone == local_timezone:
+            label = f"{label}  ·  Local"
+        clock_rows.append((label, zoned.strftime("%H:%M")))
 
-    tooltip_lines = ["World Clock", "", *format_tooltip_clock_rows(clock_rows)]
-    if len(clock_rows) == 1:
-        tooltip_lines.append("No extra timezones yet.")
+    tooltip_lines = ["World Clock", ""]
+    if clock_rows:
+        tooltip_lines.extend(format_tooltip_clock_rows(clock_rows))
+    else:
+        tooltip_lines.append("No timezones yet.")
 
     return {
         "text": "󰥔",

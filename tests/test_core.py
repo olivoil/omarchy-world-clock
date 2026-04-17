@@ -15,6 +15,7 @@ from omarchy_world_clock.configuration import (
     TimezoneEntry,
     TimezoneResolver,
     TimezoneSearchResult,
+    ordered_timezones,
     timezone_link_aliases,
 )
 from omarchy_world_clock.core import (
@@ -159,34 +160,45 @@ class CoreTests(unittest.TestCase):
     def test_config_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "config.json"
-            manager = ConfigManager(path)
-            config = manager.load()
-            self.assertEqual(config.timezones, [])
-            self.assertEqual(config.sort_mode, "manual")
+            with patch("omarchy_world_clock.configuration.detect_local_timezone", return_value="UTC"):
+                manager = ConfigManager(path)
+                config = manager.load()
+                self.assertEqual(config.timezones, [TimezoneEntry(timezone="UTC", label="")])
+                self.assertEqual(config.sort_mode, "manual")
 
-            manager.add_timezone("UTC", label="UTC")
-            loaded = manager.load()
-            self.assertEqual(loaded.timezones, [TimezoneEntry(timezone="UTC", label="UTC")])
+                manager.add_timezone("Asia/Tokyo", label="Tokyo")
+                loaded = manager.load()
+                self.assertEqual(
+                    loaded.timezones,
+                    [
+                        TimezoneEntry(timezone="UTC", label=""),
+                        TimezoneEntry(timezone="Asia/Tokyo", label="Tokyo"),
+                    ],
+                )
 
-            manager.remove_timezone("UTC")
-            self.assertEqual(manager.load().timezones, [])
+                manager.remove_timezone("UTC")
+                self.assertEqual(
+                    manager.load().timezones,
+                    [TimezoneEntry(timezone="Asia/Tokyo", label="Tokyo")],
+                )
 
     def test_config_loads_legacy_timezone_list(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "config.json"
             path.write_text('{"timezones": ["UTC", "Asia/Tokyo"]}\n', encoding="utf-8")
 
-            manager = ConfigManager(path)
-            loaded = manager.load()
+            with patch("omarchy_world_clock.configuration.detect_local_timezone", return_value="UTC"):
+                manager = ConfigManager(path)
+                loaded = manager.load()
 
-            self.assertEqual(
-                loaded.timezones,
-                [
-                    TimezoneEntry(timezone="UTC", label=""),
-                    TimezoneEntry(timezone="Asia/Tokyo", label=""),
-                ],
-            )
-            self.assertEqual(loaded.sort_mode, "manual")
+                self.assertEqual(
+                    loaded.timezones,
+                    [
+                        TimezoneEntry(timezone="UTC", label=""),
+                        TimezoneEntry(timezone="Asia/Tokyo", label=""),
+                    ],
+                )
+                self.assertEqual(loaded.sort_mode, "manual")
 
     def test_config_canonicalizes_timezone_aliases(self) -> None:
         if not timezone_link_aliases():
@@ -194,6 +206,7 @@ class CoreTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "config.json"
+            path.write_text('{"version": 2, "timezones": []}\n', encoding="utf-8")
             manager = ConfigManager(path)
 
             manager.add_timezone("Asia/Calcutta", label="Calcutta")
@@ -208,25 +221,131 @@ class CoreTests(unittest.TestCase):
                 ],
             )
 
-    def test_config_preserves_label_order_and_sort_mode(self) -> None:
+    def test_config_preserves_label_order_sort_mode_and_locked_entries(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "config.json"
+            path.write_text('{"version": 2, "timezones": []}\n', encoding="utf-8")
             manager = ConfigManager(path)
 
             manager.add_timezone("America/Chicago", label="Austin")
             manager.add_timezone("Asia/Kolkata", label="New Delhi")
             manager.move_timezone("Asia/Kolkata", -1)
             manager.set_sort_mode("alpha")
+            manager.set_timezone_locked("America/Chicago", True)
 
             loaded = manager.load()
+
             self.assertEqual(loaded.sort_mode, "alpha")
             self.assertEqual(
                 loaded.timezones,
                 [
+                    TimezoneEntry(timezone="America/Chicago", label="Austin", locked=True),
                     TimezoneEntry(timezone="Asia/Kolkata", label="New Delhi"),
-                    TimezoneEntry(timezone="America/Chicago", label="Austin"),
                 ],
             )
+
+    def test_config_keeps_locked_entries_first(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "config.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "version": 3,
+                        "timezones": [
+                            {"timezone": "Europe/Paris", "label": "Paris"},
+                            {"timezone": "America/Cancun", "label": "Home", "locked": True},
+                        ],
+                        "sort_mode": "manual",
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            loaded = ConfigManager(path).load()
+
+            self.assertEqual(
+                loaded.timezones,
+                [
+                    TimezoneEntry(timezone="America/Cancun", label="Home", locked=True),
+                    TimezoneEntry(timezone="Europe/Paris", label="Paris"),
+                ],
+            )
+
+    def test_config_migrates_legacy_local_timezone_once(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "config.json"
+            path.write_text(
+                '{"timezones": [{"timezone": "Europe/Paris", "label": "Paris"}], "sort_mode": "manual"}\n',
+                encoding="utf-8",
+            )
+
+            with patch(
+                "omarchy_world_clock.configuration.detect_local_timezone",
+                return_value="America/Cancun",
+            ):
+                manager = ConfigManager(path)
+                loaded = manager.load()
+
+                self.assertEqual(
+                    loaded.timezones,
+                    [
+                        TimezoneEntry(timezone="America/Cancun", label=""),
+                        TimezoneEntry(timezone="Europe/Paris", label="Paris"),
+                    ],
+                )
+
+                manager.remove_timezone("America/Cancun")
+                self.assertEqual(
+                    manager.load().timezones,
+                    [TimezoneEntry(timezone="Europe/Paris", label="Paris")],
+                )
+
+    def test_ordered_timezones_sorts_all_entries(self) -> None:
+        reference = datetime(2026, 4, 17, 12, 0, tzinfo=timezone.utc)
+        entries = [
+            TimezoneEntry(timezone="UTC", label="Home"),
+            TimezoneEntry(timezone="Asia/Tokyo", label="Tokyo"),
+            TimezoneEntry(timezone="America/New_York", label="New York"),
+        ]
+
+        self.assertEqual(
+            ordered_timezones(entries, "manual", reference),
+            entries,
+        )
+        self.assertEqual(
+            ordered_timezones(entries, "alpha", reference),
+            [
+                TimezoneEntry(timezone="UTC", label="Home"),
+                TimezoneEntry(timezone="America/New_York", label="New York"),
+                TimezoneEntry(timezone="Asia/Tokyo", label="Tokyo"),
+            ],
+        )
+
+    def test_ordered_timezones_can_keep_locked_entries_first(self) -> None:
+        reference = datetime(2026, 4, 17, 12, 0, tzinfo=timezone.utc)
+        entries = [
+            TimezoneEntry(timezone="UTC", label="Home"),
+            TimezoneEntry(timezone="Asia/Tokyo", label="Tokyo", locked=True),
+            TimezoneEntry(timezone="America/New_York", label="New York"),
+        ]
+
+        self.assertEqual(
+            ordered_timezones(entries, "alpha", reference),
+            [
+                TimezoneEntry(timezone="Asia/Tokyo", label="Tokyo", locked=True),
+                TimezoneEntry(timezone="UTC", label="Home"),
+                TimezoneEntry(timezone="America/New_York", label="New York"),
+            ],
+        )
+        self.assertEqual(
+            ordered_timezones(entries, "time", reference),
+            [
+                TimezoneEntry(timezone="Asia/Tokyo", label="Tokyo", locked=True),
+                TimezoneEntry(timezone="America/New_York", label="New York"),
+                TimezoneEntry(timezone="UTC", label="Home"),
+            ],
+        )
 
 
 if __name__ == "__main__":

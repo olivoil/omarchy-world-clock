@@ -24,6 +24,7 @@ from .configuration import (
     TimezoneResolver,
     TimezoneSearchResult,
     detect_local_timezone,
+    ordered_timezones,
 )
 from .layout import (
     POPUP_TOP_CONTENT_MARGIN,
@@ -226,6 +227,17 @@ button.add-toggle {{
   font-size: 12px;
 }}
 
+.empty-state-title {{
+  color: {palette.foreground};
+  font-size: 15px;
+  font-weight: 700;
+}}
+
+.empty-state-copy {{
+  color: {rgba(palette.foreground, 0.72)};
+  font-size: 13px;
+}}
+
 separator {{
   color: {rgba(palette.foreground, 0.09)};
 }}
@@ -250,7 +262,6 @@ class ClockRow(Gtk.Box):
         self,
         window: "WorldClockWindow",
         entry: TimezoneEntry,
-        removable: bool,
         manual_sort: bool,
         can_move_up: bool,
         can_move_down: bool,
@@ -259,7 +270,6 @@ class ClockRow(Gtk.Box):
         self.window = window
         self.entry = entry
         self.timezone_name = entry.timezone
-        self.removable = removable
         self.suppress_changes = False
         self.dirty = False
         self.current_zoned = zoned_datetime(window.reference_utc, self.timezone_name)
@@ -288,7 +298,7 @@ class ClockRow(Gtk.Box):
 
         self.time_entry = Gtk.Entry()
         self.time_entry.set_alignment(1.0)
-        self.time_entry.set_width_chars(10)
+        self.time_entry.set_width_chars(8)
         self.time_entry.set_max_length(19)
         self.time_entry.set_placeholder_text("HH:MM")
         self.time_entry.get_style_context().add_class("time-entry")
@@ -296,6 +306,15 @@ class ClockRow(Gtk.Box):
         self.time_entry.connect("focus-out-event", self.on_focus_out)
         self.time_entry.connect("changed", self.on_changed)
         self.time_entry.connect("activate", self.on_activate)
+        self.lock_button = Gtk.Button()
+        self.lock_button.get_style_context().add_class("icon-button")
+        self.lock_button.set_valign(Gtk.Align.CENTER)
+        self.lock_button.set_always_show_image(True)
+        self.lock_button.set_tooltip_text("Keep this timezone above unlocked rows.")
+        self.lock_button.connect("clicked", self.on_toggle_lock)
+        self.lock_image = Gtk.Image()
+        self.lock_button.set_image(self.lock_image)
+        controls.pack_start(self.lock_button, False, False, 0)
         controls.pack_start(self.time_entry, False, False, 0)
 
         self.move_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
@@ -320,15 +339,13 @@ class ClockRow(Gtk.Box):
         self.remove_button.set_no_show_all(True)
         self.remove_button.get_style_context().add_class("remove-button")
         self.remove_button.set_valign(Gtk.Align.CENTER)
-        self.remove_button.set_sensitive(removable)
-        if removable:
-            self.remove_button.set_tooltip_text("Remove timezone")
-            self.remove_button.connect("clicked", self.on_remove)
-        else:
-            self.remove_button.set_tooltip_text("Local timezone")
+        self.remove_button.set_sensitive(True)
+        self.remove_button.set_tooltip_text("Remove timezone")
+        self.remove_button.connect("clicked", self.on_remove)
         controls.pack_start(self.remove_button, False, False, 0)
 
         self.pack_start(controls, False, False, 0)
+        self.update_lock_button()
         self.set_edit_mode(window.edit_mode)
         self.refresh(window.reference_utc)
 
@@ -372,6 +389,18 @@ class ClockRow(Gtk.Box):
         else:
             context.remove_class("error")
 
+    def update_lock_button(self) -> None:
+        context = self.lock_button.get_style_context()
+        if self.entry.locked:
+            context.add_class("active")
+            self.lock_button.set_tooltip_text("Unlock this timezone so it sorts with the rest.")
+            icon_name = "object-locked-symbolic"
+        else:
+            context.remove_class("active")
+            self.lock_button.set_tooltip_text("Keep this timezone above unlocked rows.")
+            icon_name = "object-unlocked-symbolic"
+        self.lock_image.set_from_icon_name(icon_name, Gtk.IconSize.MENU)
+
     def on_focus_in(self, *_args: object) -> bool:
         self.window.editing_row = self
         self.dirty = False
@@ -408,6 +437,9 @@ class ClockRow(Gtk.Box):
 
     def on_move_down(self, *_args: object) -> None:
         self.window.move_timezone(self.timezone_name, 1)
+
+    def on_toggle_lock(self, *_args: object) -> None:
+        self.window.toggle_timezone_lock(self.timezone_name)
 
 
 class WorldClockWindow(Gtk.Window):
@@ -621,25 +653,7 @@ class WorldClockWindow(Gtk.Window):
         self.update_edit_mode()
 
     def selected_entries(self) -> list[TimezoneEntry]:
-        local_entry = TimezoneEntry(timezone=self.local_timezone)
-        extras: list[TimezoneEntry] = []
-        seen = {self.local_timezone}
-        for entry in self.config.timezones:
-            if entry.timezone in seen:
-                continue
-            seen.add(entry.timezone)
-            extras.append(entry)
-
-        if self.config.sort_mode == "alpha":
-            extras.sort(key=lambda entry: (entry.display_label().casefold(), entry.timezone.casefold()))
-        elif self.config.sort_mode == "time":
-            extras.sort(
-                key=lambda entry: (
-                    zoned_datetime(self.reference_utc, entry.timezone).replace(tzinfo=None),
-                    entry.display_label().casefold(),
-                )
-            )
-        return [local_entry, *extras]
+        return ordered_timezones(self.config.timezones, self.config.sort_mode, self.reference_utc)
 
     def rebuild_rows(self) -> None:
         for child in list(self.rows_box.get_children()):
@@ -647,20 +661,35 @@ class WorldClockWindow(Gtk.Window):
 
         self.rows = []
         entries = self.selected_entries()
-        extra_entries = entries[1:]
+        if not entries:
+            empty_state = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+            empty_state.set_halign(Gtk.Align.START)
+
+            empty_title = Gtk.Label(xalign=0)
+            empty_title.set_text("No timezones yet")
+            empty_title.get_style_context().add_class("empty-state-title")
+            empty_state.pack_start(empty_title, False, False, 0)
+
+            empty_copy = Gtk.Label(xalign=0)
+            empty_copy.set_text("Use edit mode to add or restore a timezone.")
+            empty_copy.get_style_context().add_class("empty-state-copy")
+            empty_state.pack_start(empty_copy, False, False, 0)
+
+            self.rows_box.pack_start(empty_state, False, False, 0)
+            self.rows_box.show_all()
+            self.update_edit_mode()
+            return
+
         manual_sort = self.config.sort_mode == "manual"
         for index, entry in enumerate(entries):
-            extra_index = next(
-                (position for position, extra in enumerate(extra_entries) if extra.timezone == entry.timezone),
-                None,
-            )
+            can_move_up = index > 0 and entries[index - 1].locked == entry.locked
+            can_move_down = index < len(entries) - 1 and entries[index + 1].locked == entry.locked
             row = ClockRow(
                 self,
                 entry,
-                removable=entry.timezone != self.local_timezone,
                 manual_sort=manual_sort,
-                can_move_up=extra_index is not None and extra_index > 0,
-                can_move_down=extra_index is not None and extra_index < len(extra_entries) - 1,
+                can_move_up=can_move_up,
+                can_move_down=can_move_down,
             )
             self.rows.append(row)
             self.rows_box.pack_start(row, False, False, 0)
@@ -930,9 +959,6 @@ class WorldClockWindow(Gtk.Window):
         self.rebuild_rows()
 
     def add_timezone(self, timezone_name: str, label: str = "") -> None:
-        if timezone_name == self.local_timezone:
-            self.show_status(f"{timezone_name} is already your local clock.", error=True)
-            return
         if timezone_name in {entry.timezone for entry in self.config.timezones}:
             self.show_status(f"{label or timezone_name} is already in the list.", error=True)
             return
@@ -1035,6 +1061,16 @@ class WorldClockWindow(Gtk.Window):
     def on_sort_mode_changed(self, combo: Gtk.ComboBoxText) -> None:
         sort_mode = combo.get_active_id() or "manual"
         self.config = self.config_manager.set_sort_mode(sort_mode)
+        self.rebuild_rows()
+
+    def toggle_timezone_lock(self, timezone_name: str) -> None:
+        entry = next(
+            (candidate for candidate in self.config.timezones if candidate.timezone == timezone_name),
+            None,
+        )
+        if entry is None:
+            return
+        self.config = self.config_manager.set_timezone_locked(timezone_name, not entry.locked)
         self.rebuild_rows()
 
     def arm_dismissal(self) -> bool:

@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+PREFIX=${OMARCHY_WORLD_CLOCK_HOME:-"$HOME/.local/share/omarchy-world-clock"}
+BIN_DIR=${OMARCHY_WORLD_CLOCK_BIN_DIR:-"$HOME/.local/bin"}
+WAYBAR_CONFIG=${WAYBAR_CONFIG:-"$HOME/.config/waybar/config.jsonc"}
+WAYBAR_STYLE=${WAYBAR_STYLE:-"$HOME/.config/waybar/style.css"}
+USER_CONFIG=${OMARCHY_WORLD_CLOCK_CONFIG:-"$HOME/.config/omarchy-world-clock/config.json"}
+WRAPPER_PATH="$BIN_DIR/omarchy-world-clock"
+
+mkdir -p "$PREFIX" "$BIN_DIR"
+rm -rf "$PREFIX/app"
+cp -R "$REPO_ROOT/app" "$PREFIX/app"
+
+cat >"$WRAPPER_PATH" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+export PYTHONPATH="$PREFIX/app\${PYTHONPATH:+:\$PYTHONPATH}"
+exec python3 -m omarchy_world_clock.cli "\$@"
+EOF
+chmod +x "$WRAPPER_PATH"
+
+PYTHONPATH="$REPO_ROOT/app${PYTHONPATH:+:$PYTHONPATH}" \
+  python3 -m omarchy_world_clock.cli install-waybar \
+  --waybar-config "$WAYBAR_CONFIG" \
+  --waybar-style "$WAYBAR_STYLE" \
+  --command-path "$WRAPPER_PATH" \
+  --user-config "$USER_CONFIG"
+
+"$WRAPPER_PATH" restart-waybar
+
+printf 'Installed Omarchy World Clock.\nWaybar config: %s\nWaybar style: %s\nWrapper: %s\n' \
+  "$WAYBAR_CONFIG" "$WAYBAR_STYLE" "$WRAPPER_PATH"

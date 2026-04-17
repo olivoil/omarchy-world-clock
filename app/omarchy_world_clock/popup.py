@@ -426,6 +426,7 @@ class WorldClockWindow(Gtk.Window):
         self.editing_row: ClockRow | None = None
         self.dismiss_armed = False
         self.edit_mode = False
+        self.root: Gtk.EventBox | None = None
 
         self.set_title("Omarchy World Clock")
         self.set_resizable(False)
@@ -470,6 +471,7 @@ class WorldClockWindow(Gtk.Window):
         root.set_visible_window(False)
         root.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
         root.connect("button-press-event", self.on_root_button_press)
+        self.root = root
         self.add(root)
 
         layout = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -1016,14 +1018,32 @@ class WorldClockWindow(Gtk.Window):
         self.dismiss_armed = True
         return False
 
+    def event_targets_panel(self, event: Gdk.EventButton) -> bool:
+        event_widget = Gtk.get_event_widget(event)
+        current = event_widget
+        while current is not None:
+            if current is self.panel:
+                return True
+            current = current.get_parent()
+
+        if self.root is None:
+            return False
+
+        translated = self.panel.translate_coordinates(self.root, 0, 0)
+        if translated is None:
+            return False
+
+        panel_x, panel_y = translated
+        allocation = self.panel.get_allocation()
+        inside_x = panel_x <= event.x <= panel_x + allocation.width
+        inside_y = panel_y <= event.y <= panel_y + allocation.height
+        return inside_x and inside_y
+
     def on_root_button_press(self, _widget: Gtk.Widget, event: Gdk.EventButton) -> bool:
         if not self.dismiss_armed:
             return False
 
-        allocation = self.panel.get_allocation()
-        inside_x = allocation.x <= event.x <= allocation.x + allocation.width
-        inside_y = allocation.y <= event.y <= allocation.y + allocation.height
-        if inside_x and inside_y:
+        if self.event_targets_panel(event):
             return False
 
         self.close()

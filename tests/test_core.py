@@ -15,10 +15,12 @@ from omarchy_world_clock.configuration import (
     TimezoneEntry,
     TimezoneResolver,
     TimezoneSearchResult,
+    detect_system_time_format,
     ordered_timezones,
     timezone_link_aliases,
 )
 from omarchy_world_clock.core import (
+    format_display_time,
     format_offset,
     parse_manual_reference,
     parse_manual_reference_details,
@@ -52,6 +54,27 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(parsed.normalized_text, "08:30")
         self.assertEqual(zoned.strftime("%Y-%m-%d %H:%M"), "2026-04-16 08:30")
 
+    def test_parse_time_only_accepts_meridiem_hour(self) -> None:
+        reference = datetime(2026, 4, 16, 18, 0, tzinfo=timezone.utc)
+        parsed = parse_manual_reference_details("3pm", "America/New_York", reference)
+        zoned = zoned_datetime(parsed.reference_utc, "America/New_York")
+        self.assertEqual(parsed.normalized_text, "15:00")
+        self.assertEqual(zoned.strftime("%Y-%m-%d %H:%M"), "2026-04-16 15:00")
+
+    def test_parse_time_only_accepts_meridiem_with_space(self) -> None:
+        reference = datetime(2026, 4, 16, 18, 0, tzinfo=timezone.utc)
+        parsed = parse_manual_reference_details("8 am", "America/New_York", reference)
+        zoned = zoned_datetime(parsed.reference_utc, "America/New_York")
+        self.assertEqual(parsed.normalized_text, "08:00")
+        self.assertEqual(zoned.strftime("%Y-%m-%d %H:%M"), "2026-04-16 08:00")
+
+    def test_parse_time_only_accepts_meridiem_midnight(self) -> None:
+        reference = datetime(2026, 4, 16, 18, 0, tzinfo=timezone.utc)
+        parsed = parse_manual_reference_details("12am", "America/New_York", reference)
+        zoned = zoned_datetime(parsed.reference_utc, "America/New_York")
+        self.assertEqual(parsed.normalized_text, "00:00")
+        self.assertEqual(zoned.strftime("%Y-%m-%d %H:%M"), "2026-04-16 00:00")
+
     def test_parse_full_datetime(self) -> None:
         reference = datetime(2026, 4, 16, 18, 0, tzinfo=timezone.utc)
         parsed = parse_manual_reference("2026-04-18 21:15", "Asia/Tokyo", reference)
@@ -62,6 +85,10 @@ class CoreTests(unittest.TestCase):
         reference = datetime(2026, 1, 8, 12, 0, tzinfo=timezone.utc)
         zoned = zoned_datetime(reference, "Asia/Kolkata")
         self.assertEqual(format_offset(zoned.utcoffset()), "UTC+05:30")
+
+    def test_format_display_time_supports_ampm(self) -> None:
+        value = datetime(2026, 4, 16, 15, 5, tzinfo=timezone.utc)
+        self.assertEqual(format_display_time(value, "ampm"), "3:05 PM")
 
     def test_timezone_resolver_city_alias(self) -> None:
         resolver = TimezoneResolver(["Asia/Tokyo", "Europe/Paris"])
@@ -165,6 +192,7 @@ class CoreTests(unittest.TestCase):
                 config = manager.load()
                 self.assertEqual(config.timezones, [TimezoneEntry(timezone="UTC", label="")])
                 self.assertEqual(config.sort_mode, "manual")
+                self.assertEqual(config.time_format, "system")
 
                 manager.add_timezone("Asia/Tokyo", label="Tokyo")
                 loaded = manager.load()
@@ -175,6 +203,7 @@ class CoreTests(unittest.TestCase):
                         TimezoneEntry(timezone="Asia/Tokyo", label="Tokyo"),
                     ],
                 )
+                self.assertEqual(loaded.time_format, "system")
 
                 manager.remove_timezone("UTC")
                 self.assertEqual(
@@ -199,6 +228,7 @@ class CoreTests(unittest.TestCase):
                     ],
                 )
                 self.assertEqual(loaded.sort_mode, "manual")
+                self.assertEqual(loaded.time_format, "system")
 
     def test_config_canonicalizes_timezone_aliases(self) -> None:
         if not timezone_link_aliases():
@@ -221,7 +251,7 @@ class CoreTests(unittest.TestCase):
                 ],
             )
 
-    def test_config_preserves_label_order_sort_mode_and_locked_entries(self) -> None:
+    def test_config_preserves_label_order_sort_mode_time_format_and_locked_entries(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "config.json"
             path.write_text('{"version": 2, "timezones": []}\n', encoding="utf-8")
@@ -231,11 +261,13 @@ class CoreTests(unittest.TestCase):
             manager.add_timezone("Asia/Kolkata", label="New Delhi")
             manager.move_timezone("Asia/Kolkata", -1)
             manager.set_sort_mode("alpha")
+            manager.set_time_format("ampm")
             manager.set_timezone_locked("America/Chicago", True)
 
             loaded = manager.load()
 
             self.assertEqual(loaded.sort_mode, "alpha")
+            self.assertEqual(loaded.time_format, "ampm")
             self.assertEqual(
                 loaded.timezones,
                 [
@@ -256,6 +288,7 @@ class CoreTests(unittest.TestCase):
                             {"timezone": "America/Cancun", "label": "Home", "locked": True},
                         ],
                         "sort_mode": "manual",
+                        "time_format": "system",
                     }
                 )
                 + "\n",
@@ -321,6 +354,14 @@ class CoreTests(unittest.TestCase):
                 TimezoneEntry(timezone="Asia/Tokyo", label="Tokyo"),
             ],
         )
+        self.assertEqual(
+            ordered_timezones(entries, "time", reference),
+            [
+                TimezoneEntry(timezone="America/New_York", label="New York"),
+                TimezoneEntry(timezone="UTC", label="Home"),
+                TimezoneEntry(timezone="Asia/Tokyo", label="Tokyo"),
+            ],
+        )
 
     def test_ordered_timezones_can_keep_locked_entries_first(self) -> None:
         reference = datetime(2026, 4, 17, 12, 0, tzinfo=timezone.utc)
@@ -346,6 +387,19 @@ class CoreTests(unittest.TestCase):
                 TimezoneEntry(timezone="UTC", label="Home"),
             ],
         )
+
+    def test_detect_system_time_format_from_waybar_clock(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "config.jsonc"
+            path.write_text(
+                '{\n  "clock": {\n    "format": "{:L%A %I:%M %p}"\n  }\n}\n',
+                encoding="utf-8",
+            )
+
+            detect_system_time_format.cache_clear()
+            detected = detect_system_time_format((path,))
+
+        self.assertEqual(detected, "ampm")
 
 
 if __name__ == "__main__":

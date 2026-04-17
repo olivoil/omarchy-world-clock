@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+import re
 from zoneinfo import ZoneInfo, available_timezones
 
 TIME_ONLY_FORMATS = ("%H:%M", "%H:%M:%S")
@@ -19,7 +20,7 @@ DECIMAL_HOUR_FRACTIONS = {
     "50": 30,
     "75": 45,
 }
-MANUAL_REFERENCE_ERROR = "Use HH:MM, 830, 8.5, or YYYY-MM-DD HH:MM."
+MANUAL_REFERENCE_ERROR = "Use HH:MM, 830, 8.5, 3pm, or YYYY-MM-DD HH:MM."
 
 
 @dataclass(frozen=True)
@@ -67,6 +68,13 @@ def _normalized_time_text(hour: int, minute: int, second: int = 0) -> str:
     return f"{hour:02d}:{minute:02d}"
 
 
+def format_display_time(value: datetime, time_format: str) -> str:
+    if time_format == "ampm":
+        rendered = value.strftime("%I:%M %p")
+        return rendered[1:] if rendered.startswith("0") else rendered
+    return value.strftime("%H:%M")
+
+
 def _parse_compact_time(value: str) -> tuple[int, int, int, str] | None:
     if not value.isdigit() or len(value) > 4:
         return None
@@ -95,6 +103,35 @@ def _parse_decimal_hour(value: str) -> tuple[int, int, int, str] | None:
     return hour, minute, 0, _normalized_time_text(hour, minute)
 
 
+def _parse_meridiem_time(value: str) -> tuple[int, int, int, str] | None:
+    cleaned = re.sub(r"\s+", "", value).lower().replace(".", "")
+    match = re.fullmatch(r"(\d{1,4})(?::(\d{2}))?([ap]m?)", cleaned)
+    if match is None:
+        return None
+
+    digits, minute_text, meridiem = match.groups()
+    if minute_text is None:
+        if len(digits) <= 2:
+            hour_text = digits
+            minute = 0
+        else:
+            hour_text = digits[:-2]
+            minute = int(digits[-2:])
+    else:
+        hour_text = digits
+        minute = int(minute_text)
+
+    hour = int(hour_text)
+    if not 1 <= hour <= 12 or minute > 59:
+        return None
+
+    if meridiem.startswith("p") and hour != 12:
+        hour += 12
+    if meridiem.startswith("a") and hour == 12:
+        hour = 0
+    return hour, minute, 0, _normalized_time_text(hour, minute)
+
+
 def _parse_time_only(value: str) -> tuple[int, int, int, str] | None:
     for fmt in TIME_ONLY_FORMATS:
         try:
@@ -111,6 +148,10 @@ def _parse_time_only(value: str) -> tuple[int, int, int, str] | None:
     compact = _parse_compact_time(value)
     if compact is not None:
         return compact
+
+    meridiem = _parse_meridiem_time(value)
+    if meridiem is not None:
+        return meridiem
 
     return _parse_decimal_hour(value)
 

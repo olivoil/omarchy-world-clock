@@ -1,15 +1,18 @@
 # Omarchy World Clock
 
-Adds a small clock icon next to Omarchy's center Waybar clock. Clicking the icon opens a popup with multiple digital clocks for whichever timezones you keep in the list, including your local timezone if you want it there.
+Adds a small world icon next to Omarchy's center Waybar clock. Clicking the icon opens a popup with multiple digital clocks, one for your local timezone and any extra timezones you add.
+
+Adds a small world icon next to Omarchy's center Waybar clock. Clicking it opens a popup with multiple digital clocks for whichever timezones you keep in the list, including your local timezone if you want it there.
 
 ## Features
 
-- Keeps Omarchy's stock center clock and adds a small adjacent world-clock icon.
+- Keeps Omarchy's stock center clock and adds a small adjacent world icon.
 - Opens a top popup with large digital clocks for your chosen timezone list, with full add/remove/reorder control.
 - Lets you lock specific timezones so they stay above the rest of the list while the unlocked ones still sort normally.
-- Lets you type `HH:MM`, shorthand like `830` or `8.5`, or `YYYY-MM-DD HH:MM` into any clock to convert that instant across every other timezone.
+- Lets you keep the clocks on `System`, force `24h`, or force `AM/PM`. `System` follows the current Waybar/Omarchy clock format when available.
+- Lets you type `HH:MM`, shorthand like `830`, `8.5`, or `3pm`, or `YYYY-MM-DD HH:MM` into any clock to convert that instant across every other timezone.
 - Lets you add timezones with autocomplete, plus an online place lookup fallback for places that are not direct timezone names.
-- Stores your selected timezones in `~/.config/omarchy-world-clock/config.json`.
+- Stores your selected timezones and clock display preference in `~/.config/omarchy-world-clock/config.json`.
 - Installs and uninstalls by patching Waybar with reversible markers.
 
 ## Install

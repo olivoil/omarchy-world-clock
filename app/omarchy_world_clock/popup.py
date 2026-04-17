@@ -25,6 +25,7 @@ from .configuration import (
     TimezoneSearchResult,
     detect_local_timezone,
     ordered_timezones,
+    effective_time_format,
 )
 from .layout import (
     POPUP_TOP_CONTENT_MARGIN,
@@ -34,6 +35,7 @@ from .layout import (
 )
 from .core import (
     all_timezones,
+    format_display_time,
     format_offset,
     parse_manual_reference_details,
     zoned_datetime,
@@ -183,6 +185,17 @@ button.icon-button.active {{
   border-color: {rgba(palette.accent, 0.30)};
 }}
 
+button.lock-button {{
+  min-width: 30px;
+  min-height: 30px;
+  padding: 4px;
+  opacity: 0.28;
+}}
+
+button.lock-button.active {{
+  opacity: 1.0;
+}}
+
 button.remove-button {{
   min-width: 34px;
   min-height: 34px;
@@ -300,7 +313,7 @@ class ClockRow(Gtk.Box):
         self.time_entry.set_alignment(1.0)
         self.time_entry.set_width_chars(8)
         self.time_entry.set_max_length(19)
-        self.time_entry.set_placeholder_text("HH:MM")
+        self.time_entry.set_placeholder_text(self.window.time_entry_placeholder())
         self.time_entry.get_style_context().add_class("time-entry")
         self.time_entry.connect("focus-in-event", self.on_focus_in)
         self.time_entry.connect("focus-out-event", self.on_focus_out)
@@ -308,6 +321,8 @@ class ClockRow(Gtk.Box):
         self.time_entry.connect("activate", self.on_activate)
         self.lock_button = Gtk.Button()
         self.lock_button.get_style_context().add_class("icon-button")
+        self.lock_button.get_style_context().add_class("lock-button")
+        self.lock_button.set_no_show_all(True)
         self.lock_button.set_valign(Gtk.Align.CENTER)
         self.lock_button.set_always_show_image(True)
         self.lock_button.set_tooltip_text("Keep this timezone above unlocked rows.")
@@ -351,11 +366,13 @@ class ClockRow(Gtk.Box):
 
     def set_edit_mode(self, enabled: bool) -> None:
         if enabled:
+            self.lock_button.show()
             self.move_box.show()
             self.move_up_button.show()
             self.move_down_button.show()
             self.remove_button.show()
         else:
+            self.lock_button.hide()
             self.move_box.hide()
             self.remove_button.hide()
 
@@ -378,7 +395,7 @@ class ClockRow(Gtk.Box):
 
         self.set_error(False)
         self.suppress_changes = True
-        self.time_entry.set_text(self.current_zoned.strftime("%H:%M"))
+        self.time_entry.set_text(self.window.display_time(self.current_zoned))
         self.suppress_changes = False
         self.dirty = False
 
@@ -589,6 +606,19 @@ class WorldClockWindow(Gtk.Window):
         self.sort_combo.connect("changed", self.on_sort_mode_changed)
         sort_row.pack_start(self.sort_combo, False, False, 0)
 
+        format_label = Gtk.Label(xalign=0)
+        format_label.set_text("Format")
+        format_label.get_style_context().add_class("hint-label")
+        sort_row.pack_start(format_label, False, False, 12)
+
+        self.time_format_combo = Gtk.ComboBoxText()
+        self.time_format_combo.append("system", "System")
+        self.time_format_combo.append("24h", "24h")
+        self.time_format_combo.append("ampm", "AM/PM")
+        self.time_format_combo.set_active_id(self.config.time_format)
+        self.time_format_combo.connect("changed", self.on_time_format_changed)
+        sort_row.pack_start(self.time_format_combo, False, False, 0)
+
         self.rows_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         self.rows_box.set_margin_top(14)
         panel.pack_start(self.rows_box, False, False, 0)
@@ -705,6 +735,17 @@ class WorldClockWindow(Gtk.Window):
         for row in self.rows:
             row.refresh(self.reference_utc)
         self.update_mode_button()
+
+    def current_time_format(self) -> str:
+        return effective_time_format(self.config.time_format)
+
+    def display_time(self, value: datetime) -> str:
+        return format_display_time(value, self.current_time_format())
+
+    def time_entry_placeholder(self) -> str:
+        if self.current_time_format() == "ampm":
+            return "h:mm AM"
+        return "HH:MM"
 
     def should_rebuild_time_sorted_rows(self) -> bool:
         return self.config.sort_mode == "time" and self.editing_row is None
@@ -933,7 +974,9 @@ class WorldClockWindow(Gtk.Window):
         self.reference_utc = parsed_reference.reference_utc
         if show_errors:
             row.suppress_changes = True
-            row.time_entry.set_text(parsed_reference.normalized_text)
+            row.time_entry.set_text(
+                self.display_time(zoned_datetime(parsed_reference.reference_utc, row.timezone_name))
+            )
             row.time_entry.set_position(-1)
             row.suppress_changes = False
 
@@ -1071,6 +1114,10 @@ class WorldClockWindow(Gtk.Window):
         if entry is None:
             return
         self.config = self.config_manager.set_timezone_locked(timezone_name, not entry.locked)
+
+    def on_time_format_changed(self, combo: Gtk.ComboBoxText) -> None:
+        time_format = combo.get_active_id() or "system"
+        self.config = self.config_manager.set_time_format(time_format)
         self.rebuild_rows()
 
     def arm_dismissal(self) -> bool:

@@ -11,8 +11,9 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .configuration import ConfigManager, detect_local_timezone, ordered_timezones
-from .core import zoned_datetime
+from .configuration import ConfigManager, detect_local_timezone, effective_time_format
+from .configuration import ordered_timezones
+from .core import format_display_time, zoned_datetime
 from .waybar import (
     MODULE_MARKER_START,
     STYLE_MARKER_START,
@@ -22,6 +23,8 @@ from .waybar import (
     unpatch_style_text,
     write_text,
 )
+
+MODULE_ICON = ""
 
 
 def runtime_pid_path() -> Path:
@@ -86,7 +89,8 @@ def format_tooltip_clock_rows(rows: list[tuple[str, str]]) -> list[str]:
         return []
 
     widest_label = max(len(label) for label, _time_value in rows)
-    return [f"{label:<{widest_label}}  {time_value}" for label, time_value in rows]
+    widest_time = max(len(time_value) for _label, time_value in rows)
+    return [f"{label:<{widest_label}}  {time_value:>{widest_time}}" for label, time_value in rows]
 
 
 def module_payload(pid_path: Path) -> dict[str, object]:
@@ -94,13 +98,14 @@ def module_payload(pid_path: Path) -> dict[str, object]:
     local_timezone = detect_local_timezone()
     now = datetime.now(timezone.utc)
     entries = ordered_timezones(config.timezones, config.sort_mode, now)
+    time_format = effective_time_format(config.time_format)
     clock_rows: list[tuple[str, str]] = []
     for entry in entries:
         zoned = zoned_datetime(now, entry.timezone)
         label = entry.display_label()
         if entry.timezone == local_timezone:
             label = f"{label}  ·  Local"
-        clock_rows.append((label, zoned.strftime("%H:%M")))
+        clock_rows.append((label, format_display_time(zoned, time_format)))
 
     tooltip_lines = ["World Clock", ""]
     if clock_rows:
@@ -109,7 +114,7 @@ def module_payload(pid_path: Path) -> dict[str, object]:
         tooltip_lines.append("No timezones yet.")
 
     return {
-        "text": "󰥔",
+        "text": MODULE_ICON,
         "class": "active" if popup_running(pid_path) else "inactive",
         "tooltip": "\n".join(tooltip_lines),
     }

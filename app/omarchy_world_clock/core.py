@@ -68,6 +68,13 @@ def _normalized_time_text(hour: int, minute: int, second: int = 0) -> str:
     return f"{hour:02d}:{minute:02d}"
 
 
+def format_display_time(value: datetime, time_format: str) -> str:
+    if time_format == "ampm":
+        rendered = value.strftime("%I:%M %p")
+        return rendered[1:] if rendered.startswith("0") else rendered
+    return value.strftime("%H:%M")
+
+
 def _parse_compact_time(value: str) -> tuple[int, int, int, str] | None:
     if not value.isdigit() or len(value) > 4:
         return None

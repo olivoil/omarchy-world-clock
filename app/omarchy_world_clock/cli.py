@@ -11,8 +11,8 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .configuration import ConfigManager, detect_local_timezone
-from .core import friendly_timezone_name, zoned_datetime
+from .configuration import ConfigManager, detect_local_timezone, effective_time_format
+from .core import format_display_time, friendly_timezone_name, zoned_datetime
 from .waybar import (
     MODULE_MARKER_START,
     STYLE_MARKER_START,
@@ -88,17 +88,19 @@ def format_tooltip_clock_rows(rows: list[tuple[str, str]]) -> list[str]:
         return []
 
     widest_label = max(len(label) for label, _time_value in rows)
-    return [f"{label:<{widest_label}}  {time_value}" for label, time_value in rows]
+    widest_time = max(len(time_value) for _label, time_value in rows)
+    return [f"{label:<{widest_label}}  {time_value:>{widest_time}}" for label, time_value in rows]
 
 
 def module_payload(pid_path: Path) -> dict[str, object]:
     config = ConfigManager().load()
     local_timezone = detect_local_timezone()
     now = datetime.now(timezone.utc)
+    time_format = effective_time_format(config.time_format)
     clock_rows = [
         (
             f"Local  {friendly_timezone_name(local_timezone)}",
-            zoned_datetime(now, local_timezone).strftime("%H:%M"),
+            format_display_time(zoned_datetime(now, local_timezone), time_format),
         )
     ]
     entries = [entry for entry in config.timezones if entry.timezone != local_timezone]
@@ -114,7 +116,7 @@ def module_payload(pid_path: Path) -> dict[str, object]:
 
     for entry in entries:
         zoned = zoned_datetime(now, entry.timezone)
-        clock_rows.append((entry.display_label(), zoned.strftime("%H:%M")))
+        clock_rows.append((entry.display_label(), format_display_time(zoned, time_format)))
 
     tooltip_lines = ["World Clock", "", *format_tooltip_clock_rows(clock_rows)]
     if len(clock_rows) == 1:

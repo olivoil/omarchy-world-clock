@@ -15,9 +15,11 @@ from omarchy_world_clock.configuration import (
     TimezoneEntry,
     TimezoneResolver,
     TimezoneSearchResult,
+    detect_system_time_format,
     timezone_link_aliases,
 )
 from omarchy_world_clock.core import (
+    format_display_time,
     format_offset,
     parse_manual_reference,
     parse_manual_reference_details,
@@ -82,6 +84,10 @@ class CoreTests(unittest.TestCase):
         reference = datetime(2026, 1, 8, 12, 0, tzinfo=timezone.utc)
         zoned = zoned_datetime(reference, "Asia/Kolkata")
         self.assertEqual(format_offset(zoned.utcoffset()), "UTC+05:30")
+
+    def test_format_display_time_supports_ampm(self) -> None:
+        value = datetime(2026, 4, 16, 15, 5, tzinfo=timezone.utc)
+        self.assertEqual(format_display_time(value, "ampm"), "3:05 PM")
 
     def test_timezone_resolver_city_alias(self) -> None:
         resolver = TimezoneResolver(["Asia/Tokyo", "Europe/Paris"])
@@ -184,10 +190,12 @@ class CoreTests(unittest.TestCase):
             config = manager.load()
             self.assertEqual(config.timezones, [])
             self.assertEqual(config.sort_mode, "manual")
+            self.assertEqual(config.time_format, "system")
 
             manager.add_timezone("UTC", label="UTC")
             loaded = manager.load()
             self.assertEqual(loaded.timezones, [TimezoneEntry(timezone="UTC", label="UTC")])
+            self.assertEqual(loaded.time_format, "system")
 
             manager.remove_timezone("UTC")
             self.assertEqual(manager.load().timezones, [])
@@ -208,6 +216,7 @@ class CoreTests(unittest.TestCase):
                 ],
             )
             self.assertEqual(loaded.sort_mode, "manual")
+            self.assertEqual(loaded.time_format, "system")
 
     def test_config_canonicalizes_timezone_aliases(self) -> None:
         if not timezone_link_aliases():
@@ -238,9 +247,11 @@ class CoreTests(unittest.TestCase):
             manager.add_timezone("Asia/Kolkata", label="New Delhi")
             manager.move_timezone("Asia/Kolkata", -1)
             manager.set_sort_mode("alpha")
+            manager.set_time_format("ampm")
 
             loaded = manager.load()
             self.assertEqual(loaded.sort_mode, "alpha")
+            self.assertEqual(loaded.time_format, "ampm")
             self.assertEqual(
                 loaded.timezones,
                 [
@@ -248,6 +259,19 @@ class CoreTests(unittest.TestCase):
                     TimezoneEntry(timezone="America/Chicago", label="Austin"),
                 ],
             )
+
+    def test_detect_system_time_format_from_waybar_clock(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "config.jsonc"
+            path.write_text(
+                '{\n  "clock": {\n    "format": "{:L%A %I:%M %p}"\n  }\n}\n',
+                encoding="utf-8",
+            )
+
+            detect_system_time_format.cache_clear()
+            detected = detect_system_time_format((path,))
+
+        self.assertEqual(detected, "ampm")
 
 
 if __name__ == "__main__":

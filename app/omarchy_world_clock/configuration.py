@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import locale
 import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
+import re
 import unicodedata
 import urllib.parse
 import urllib.request
@@ -16,6 +18,8 @@ from .core import all_timezones, friendly_timezone_name
 DEFAULT_TIMEZONES: list[str] = []
 DEFAULT_SORT_MODE = "manual"
 VALID_SORT_MODES = {"manual", "alpha", "time"}
+DEFAULT_TIME_FORMAT = "system"
+VALID_TIME_FORMATS = {"system", "24h", "ampm"}
 STANDARD_TZ_REGIONS = {
     "Africa",
     "America",
@@ -37,6 +41,9 @@ MANUAL_CITY_ALIASES: dict[str, str] = {
     "New Delhi": "Asia/Kolkata",
     "Noida": "Asia/Kolkata",
 }
+WAYBAR_CLOCK_FORMAT_RE = re.compile(
+    r'"clock"\s*:\s*\{[\s\S]*?"format"\s*:\s*"(?P<format>(?:\\.|[^"\\])*)"',
+)
 
 
 @lru_cache(maxsize=1)
@@ -117,10 +124,81 @@ def detect_local_timezone() -> str:
     return "UTC"
 
 
+def waybar_clock_config_paths() -> tuple[Path, ...]:
+    return (
+        Path.home() / ".config" / "waybar" / "config.jsonc",
+        Path.home() / ".config" / "waybar" / "config",
+        Path.home() / ".local" / "share" / "omarchy" / "config" / "waybar" / "config.jsonc",
+    )
+
+
+def load_waybar_clock_format(paths: tuple[Path, ...] | None = None) -> str | None:
+    for path in paths or waybar_clock_config_paths():
+        if not path.exists():
+            continue
+        try:
+            contents = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        match = WAYBAR_CLOCK_FORMAT_RE.search(contents)
+        if match is None:
+            continue
+        raw_format = match.group("format")
+        try:
+            return bytes(raw_format, "utf-8").decode("unicode_escape")
+        except UnicodeDecodeError:
+            return raw_format
+    return None
+
+
+def infer_time_format(clock_format: str | None) -> str | None:
+    if not clock_format:
+        return None
+    if any(token in clock_format for token in ("%I", "%l", "%p", "%P", "%r")):
+        return "ampm"
+    if any(token in clock_format for token in ("%H", "%k", "%R", "%T")):
+        return "24h"
+    return None
+
+
+@lru_cache(maxsize=None)
+def detect_system_time_format(paths: tuple[Path, ...] | None = None) -> str:
+    clock_format = load_waybar_clock_format(paths)
+    inferred = infer_time_format(clock_format)
+    if inferred is not None:
+        return inferred
+
+    try:
+        locale_format = locale.nl_langinfo(locale.T_FMT)
+    except (AttributeError, ValueError):
+        locale_format = ""
+
+    inferred = infer_time_format(locale_format)
+    if inferred is not None:
+        return inferred
+
+    try:
+        if locale.nl_langinfo(locale.T_FMT_AMPM):
+            return "ampm"
+    except (AttributeError, ValueError):
+        pass
+
+    return "24h"
+
+
+def effective_time_format(time_format: str) -> str:
+    if time_format == "ampm":
+        return "ampm"
+    if time_format == "24h":
+        return "24h"
+    return detect_system_time_format()
+
+
 @dataclass
 class AppConfig:
     timezones: list["TimezoneEntry"]
     sort_mode: str = DEFAULT_SORT_MODE
+    time_format: str = DEFAULT_TIME_FORMAT
 
 
 @dataclass
@@ -202,7 +280,15 @@ class ConfigManager:
         if sort_mode not in VALID_SORT_MODES:
             sort_mode = DEFAULT_SORT_MODE
 
-        config = AppConfig(timezones=entries, sort_mode=sort_mode)
+        time_format = raw.get("time_format", DEFAULT_TIME_FORMAT)
+        if time_format not in VALID_TIME_FORMATS:
+            time_format = DEFAULT_TIME_FORMAT
+
+        config = AppConfig(
+            timezones=entries,
+            sort_mode=sort_mode,
+            time_format=time_format,
+        )
         self.save(config)
         return config
 
@@ -216,6 +302,9 @@ class ConfigManager:
                 for entry in config.timezones
             ],
             "sort_mode": config.sort_mode if config.sort_mode in VALID_SORT_MODES else DEFAULT_SORT_MODE,
+            "time_format": (
+                config.time_format if config.time_format in VALID_TIME_FORMATS else DEFAULT_TIME_FORMAT
+            ),
         }
         with self.path.open("w", encoding="utf-8") as handle:
             json.dump(payload, handle, indent=2)
@@ -260,6 +349,12 @@ class ConfigManager:
     def set_sort_mode(self, sort_mode: str) -> AppConfig:
         config = self.load()
         config.sort_mode = sort_mode if sort_mode in VALID_SORT_MODES else DEFAULT_SORT_MODE
+        self.save(config)
+        return config
+
+    def set_time_format(self, time_format: str) -> AppConfig:
+        config = self.load()
+        config.time_format = time_format if time_format in VALID_TIME_FORMATS else DEFAULT_TIME_FORMAT
         self.save(config)
         return config
 

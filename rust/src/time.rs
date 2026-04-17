@@ -139,10 +139,7 @@ fn parse_meridiem_time(value: &str) -> Option<(u32, u32, u32, String)> {
         (digits, 0)
     } else {
         let split_at = digits.len() - 2;
-        (
-            &digits[..split_at],
-            digits[split_at..].parse::<u32>().ok()?,
-        )
+        (&digits[..split_at], digits[split_at..].parse::<u32>().ok()?)
     };
 
     let mut hour = hour_text.parse::<u32>().ok()?;
@@ -220,8 +217,7 @@ pub fn parse_manual_reference_details(
         .date_naive()
         .and_hms_opt(hour, minute, second)
         .ok_or(MANUAL_REFERENCE_ERROR)?;
-    let reference_utc =
-        localize_naive_datetime(timezone, parsed).ok_or(MANUAL_REFERENCE_ERROR)?;
+    let reference_utc = localize_naive_datetime(timezone, parsed).ok_or(MANUAL_REFERENCE_ERROR)?;
     Ok(ParsedManualReference {
         reference_utc,
         normalized_text,
@@ -295,8 +291,7 @@ mod tests {
     #[test]
     fn parses_compact_manual_reference() {
         let reference = Utc.with_ymd_and_hms(2026, 4, 17, 12, 0, 0).unwrap();
-        let parsed =
-            parse_manual_reference_details("830", "America/Cancun", reference).unwrap();
+        let parsed = parse_manual_reference_details("830", "America/Cancun", reference).unwrap();
 
         assert_eq!(parsed.normalized_text, "08:30");
         assert_eq!(
@@ -310,8 +305,7 @@ mod tests {
     #[test]
     fn parses_meridiem_manual_reference() {
         let reference = Utc.with_ymd_and_hms(2026, 4, 17, 12, 0, 0).unwrap();
-        let parsed =
-            parse_manual_reference_details("3pm", "America/Cancun", reference).unwrap();
+        let parsed = parse_manual_reference_details("3pm", "America/Cancun", reference).unwrap();
 
         assert_eq!(parsed.normalized_text, "15:00");
         assert_eq!(
@@ -325,12 +319,8 @@ mod tests {
     #[test]
     fn parses_full_datetime_manual_reference() {
         let reference = Utc.with_ymd_and_hms(2026, 4, 17, 12, 0, 0).unwrap();
-        let parsed = parse_manual_reference_details(
-            "2026-04-18 09:45",
-            "Europe/Paris",
-            reference,
-        )
-        .unwrap();
+        let parsed =
+            parse_manual_reference_details("2026-04-18 09:45", "Europe/Paris", reference).unwrap();
 
         assert_eq!(parsed.normalized_text, "2026-04-18 09:45");
         assert_eq!(

@@ -29,12 +29,15 @@ struct RowWidgets {
     title: gtk::Label,
     context: gtk::Label,
     meta: gtk::Label,
+    lock_button: gtk::Button,
+    remove_button: gtk::Button,
     time_entry: gtk::Entry,
     dirty: Rc<Cell<bool>>,
     suppress_changes: Rc<Cell<bool>>,
 }
 
 struct PopupState {
+    config_manager: ConfigManager,
     config: AppConfig,
     local_timezone: String,
     time_format: String,
@@ -43,10 +46,16 @@ struct PopupState {
     rows: Vec<RowWidgets>,
     dismiss_armed: bool,
     live: bool,
+    edit_mode: bool,
     editing_timezone: Option<String>,
+    syncing_controls: bool,
     pending_apply_source: Option<glib::SourceId>,
     pending_apply_timezone: Option<String>,
     live_button: gtk::Button,
+    edit_button: gtk::Button,
+    sort_row: gtk::Box,
+    sort_combo: gtk::DropDown,
+    time_format_combo: gtk::DropDown,
     status_label: gtk::Label,
     self_handle: Weak<RefCell<PopupState>>,
 }
@@ -54,6 +63,10 @@ struct PopupState {
 struct PidGuard {
     path: PathBuf,
 }
+
+const SORT_OPTIONS: [(&str, &str); 3] = [("manual", "Manual"), ("alpha", "A-Z"), ("time", "Time")];
+const TIME_FORMAT_OPTIONS: [(&str, &str); 3] =
+    [("system", "System"), ("24h", "24h"), ("ampm", "AM/PM")];
 
 impl Drop for PidGuard {
     fn drop(&mut self) {
@@ -65,6 +78,24 @@ fn clear_box(container: &gtk::Box) {
     while let Some(child) = container.first_child() {
         container.remove(&child);
     }
+}
+
+fn dropdown_selection_index(options: &[(&str, &str)], value: &str) -> u32 {
+    options.iter().position(|(id, _)| *id == value).unwrap_or(0) as u32
+}
+
+fn dropdown_selection_value(options: &[(&str, &str)], index: u32, fallback: &str) -> String {
+    options
+        .get(index as usize)
+        .map(|(id, _)| (*id).to_string())
+        .unwrap_or_else(|| fallback.to_string())
+}
+
+fn cancel_pending_apply(state: &mut PopupState) {
+    if let Some(source_id) = state.pending_apply_source.take() {
+        source_id.remove();
+    }
+    state.pending_apply_timezone = None;
 }
 
 fn apply_css() -> Result<()> {
@@ -100,6 +131,14 @@ fn time_entry_placeholder(time_format: &str) -> &'static str {
         "h:mm AM"
     } else {
         "HH:MM"
+    }
+}
+
+fn time_entry_width_chars(time_format: &str) -> i32 {
+    if time_format == "ampm" {
+        11
+    } else {
+        8
     }
 }
 
@@ -173,9 +212,7 @@ fn flush_live_apply(
 fn update_live_button(state: &PopupState) {
     if state.live {
         state.live_button.set_sensitive(false);
-        state
-            .live_button
-            .set_tooltip_text(Some("Clocks are live."));
+        state.live_button.set_tooltip_text(Some("Clocks are live."));
         state.live_button.remove_css_class("active");
     } else {
         state.live_button.set_sensitive(true);
@@ -186,12 +223,79 @@ fn update_live_button(state: &PopupState) {
     }
 }
 
+fn update_row_lock_button(row: &RowWidgets) {
+    if row.entry.locked {
+        row.lock_button.add_css_class("active");
+        row.lock_button
+            .set_tooltip_text(Some("Unlock this timezone so it sorts with the rest."));
+    } else {
+        row.lock_button.remove_css_class("active");
+        row.lock_button
+            .set_tooltip_text(Some("Keep this timezone above unlocked rows."));
+    }
+}
+
+fn update_edit_mode(state: &PopupState) {
+    state.sort_row.set_visible(state.edit_mode);
+    if state.edit_mode {
+        state.edit_button.add_css_class("active");
+        state.edit_button.set_tooltip_text(Some("Leave edit mode."));
+    } else {
+        state.edit_button.remove_css_class("active");
+        state
+            .edit_button
+            .set_tooltip_text(Some("Manage timezones and popup settings."));
+    }
+
+    let can_remove = state.config.timezones.len() > 1;
+    for row in &state.rows {
+        row.lock_button.set_visible(state.edit_mode);
+        row.remove_button.set_visible(state.edit_mode);
+        row.remove_button.set_sensitive(can_remove);
+        update_row_lock_button(row);
+    }
+}
+
+fn sync_config_controls(state: &mut PopupState) {
+    state.syncing_controls = true;
+    state.sort_combo.set_selected(dropdown_selection_index(
+        &SORT_OPTIONS,
+        &state.config.sort_mode,
+    ));
+    state
+        .time_format_combo
+        .set_selected(dropdown_selection_index(
+            &TIME_FORMAT_OPTIONS,
+            &state.config.time_format,
+        ));
+    state.syncing_controls = false;
+}
+
+fn refresh_config_state(state: &mut PopupState, config: AppConfig) {
+    cancel_pending_apply(state);
+    state.config = config;
+    state.time_format = effective_time_format(&state.config.time_format);
+    if state.editing_timezone.as_ref().is_some_and(|timezone| {
+        !state
+            .config
+            .timezones
+            .iter()
+            .any(|entry| entry.timezone == *timezone)
+    }) {
+        state.editing_timezone = None;
+    }
+    clear_status(state);
+    sync_config_controls(state);
+    render_rows(state);
+}
+
 fn build_row(entry: &TimezoneEntry, time_format: &str) -> RowWidgets {
     let row = gtk::Box::new(Orientation::Horizontal, 16);
     row.add_css_class("clock-row");
 
     let info = gtk::Box::new(Orientation::Vertical, 2);
     info.set_hexpand(true);
+    info.set_valign(Align::Center);
 
     let title = gtk::Label::new(None);
     title.set_xalign(0.0);
@@ -214,13 +318,31 @@ fn build_row(entry: &TimezoneEntry, time_format: &str) -> RowWidgets {
     controls.set_halign(Align::End);
     controls.set_valign(Align::Center);
 
+    let lock_button = gtk::Button::from_icon_name("view-pin-symbolic");
+    lock_button.add_css_class("icon-button");
+    lock_button.add_css_class("lock-button");
+    lock_button.set_size_request(32, 32);
+    lock_button.set_valign(Align::Center);
+    lock_button.set_visible(false);
+    controls.append(&lock_button);
+
     let time_entry = gtk::Entry::new();
     gtk::prelude::EditableExt::set_alignment(&time_entry, 1.0);
-    time_entry.set_width_chars(8);
+    time_entry.set_width_chars(time_entry_width_chars(time_format));
     time_entry.set_max_length(19);
     time_entry.set_placeholder_text(Some(time_entry_placeholder(time_format)));
     time_entry.add_css_class("time-entry");
     controls.append(&time_entry);
+
+    let remove_button = gtk::Button::from_icon_name("edit-delete-symbolic");
+    remove_button.add_css_class("icon-button");
+    remove_button.add_css_class("remove-button");
+    remove_button.add_css_class("destructive");
+    remove_button.set_size_request(32, 32);
+    remove_button.set_valign(Align::Center);
+    remove_button.set_tooltip_text(Some("Remove timezone."));
+    remove_button.set_visible(false);
+    controls.append(&remove_button);
 
     row.append(&controls);
 
@@ -230,6 +352,8 @@ fn build_row(entry: &TimezoneEntry, time_format: &str) -> RowWidgets {
         title,
         context,
         meta,
+        lock_button,
+        remove_button,
         time_entry,
         dirty: Rc::new(Cell::new(false)),
         suppress_changes: Rc::new(Cell::new(false)),
@@ -298,6 +422,57 @@ fn bind_row_events(state_handle: &Rc<RefCell<PopupState>>, row: &RowWidgets) {
     row.time_entry.connect_activate(move |_| {
         let _ = flush_live_apply(&state_for_activate, &timezone_name, true);
     });
+
+    let timezone_name_for_lock = row.entry.timezone.clone();
+    let state_for_lock = state_handle.clone();
+    row.lock_button.connect_clicked(move |_| {
+        let (config_manager, locked) = {
+            let state = state_for_lock.borrow();
+            let locked = state
+                .config
+                .timezones
+                .iter()
+                .find(|entry| entry.timezone == timezone_name_for_lock)
+                .map(|entry| entry.locked)
+                .unwrap_or(false);
+            (state.config_manager.clone(), locked)
+        };
+
+        match config_manager.set_timezone_locked(&timezone_name_for_lock, !locked) {
+            Ok(config) => {
+                let mut state = state_for_lock.borrow_mut();
+                refresh_config_state(&mut state, config);
+            }
+            Err(error) => {
+                let state = state_for_lock.borrow();
+                set_status(&state, &error.to_string(), true);
+            }
+        }
+    });
+
+    let timezone_name_for_remove = row.entry.timezone.clone();
+    let state_for_remove = state_handle.clone();
+    row.remove_button.connect_clicked(move |_| {
+        let config_manager = {
+            let state = state_for_remove.borrow();
+            if state.config.timezones.len() <= 1 {
+                set_status(&state, "Keep at least one timezone in the popup.", true);
+                return;
+            }
+            state.config_manager.clone()
+        };
+
+        match config_manager.remove_timezone(&timezone_name_for_remove) {
+            Ok(config) => {
+                let mut state = state_for_remove.borrow_mut();
+                refresh_config_state(&mut state, config);
+            }
+            Err(error) => {
+                let state = state_for_remove.borrow();
+                set_status(&state, &error.to_string(), true);
+            }
+        }
+    });
 }
 
 fn format_title(entry: &TimezoneEntry, local_timezone: &str) -> String {
@@ -334,6 +509,11 @@ fn update_row_widgets(state: &mut PopupState) {
         row.meta.set_text(&row_metadata(&zoned));
         row.time_entry
             .set_placeholder_text(Some(time_entry_placeholder(&state.time_format)));
+        row.time_entry
+            .set_width_chars(time_entry_width_chars(&state.time_format));
+        row.remove_button
+            .set_sensitive(state.config.timezones.len() > 1);
+        update_row_lock_button(row);
 
         if state.editing_timezone.as_deref() == Some(row.entry.timezone.as_str()) {
             continue;
@@ -374,6 +554,7 @@ fn render_rows(state: &mut PopupState) {
         empty.append(&copy);
 
         state.rows_box.append(&empty);
+        update_edit_mode(state);
         return;
     }
 
@@ -394,6 +575,7 @@ fn render_rows(state: &mut PopupState) {
     }
 
     update_row_widgets(state);
+    update_edit_mode(state);
 }
 
 fn configure_layer_shell(window: &gtk::Window) -> Option<(i32, i32)> {
@@ -425,10 +607,7 @@ fn configure_layer_shell(window: &gtk::Window) -> Option<(i32, i32)> {
 
 fn reset_live_now(state_handle: &Rc<RefCell<PopupState>>) {
     let mut state = state_handle.borrow_mut();
-    if let Some(source_id) = state.pending_apply_source.take() {
-        source_id.remove();
-    }
-    state.pending_apply_timezone = None;
+    cancel_pending_apply(&mut state);
     state.live = true;
     state.reference_utc = Utc::now();
     for row in &state.rows {
@@ -505,6 +684,7 @@ fn apply_manual_entry(
 }
 
 fn build_window(
+    config_manager: ConfigManager,
     config: AppConfig,
     local_timezone: String,
     window: &gtk::Window,
@@ -520,14 +700,12 @@ fn build_window(
 
     let top_band = gtk::Box::new(Orientation::Vertical, 0);
     top_band.set_halign(Align::Center);
-    top_band.set_valign(Align::Start);
-    top_band.set_margin_top(POPUP_TOP_CONTENT_MARGIN);
-    top_band.set_margin_bottom(12);
+    top_band.set_valign(Align::Center);
     overlay.add_overlay(&top_band);
 
     let panel = gtk::Box::new(Orientation::Vertical, 14);
     panel.add_css_class("world-clock-panel");
-    panel.set_width_request(620);
+    panel.set_width_request(700);
     panel.set_halign(Align::Center);
     top_band.append(&panel);
 
@@ -540,9 +718,45 @@ fn build_window(
     title.add_css_class("panel-title");
     header.append(&title);
 
+    let header_actions = gtk::Box::new(Orientation::Horizontal, 8);
+    header.append(&header_actions);
+
     let live_button = gtk::Button::from_icon_name("view-refresh-symbolic");
     live_button.add_css_class("icon-button");
-    header.append(&live_button);
+    live_button.set_valign(Align::Center);
+    header_actions.append(&live_button);
+
+    let edit_button = gtk::Button::from_icon_name("emblem-system-symbolic");
+    edit_button.add_css_class("icon-button");
+    edit_button.set_valign(Align::Center);
+    header_actions.append(&edit_button);
+
+    let sort_row = gtk::Box::new(Orientation::Horizontal, 12);
+    sort_row.set_halign(Align::Start);
+    sort_row.set_visible(false);
+    panel.append(&sort_row);
+
+    let sort_label = gtk::Label::new(Some("Sort"));
+    sort_label.add_css_class("hint-label");
+    sort_row.append(&sort_label);
+
+    let sort_combo = gtk::DropDown::from_strings(&["Manual", "A-Z", "Time"]);
+    sort_combo.add_css_class("popup-select");
+    sort_combo.set_selected(dropdown_selection_index(&SORT_OPTIONS, &config.sort_mode));
+    sort_row.append(&sort_combo);
+
+    let format_label = gtk::Label::new(Some("Format"));
+    format_label.add_css_class("hint-label");
+    format_label.set_margin_start(16);
+    sort_row.append(&format_label);
+
+    let time_format_combo = gtk::DropDown::from_strings(&["System", "24h", "AM/PM"]);
+    time_format_combo.add_css_class("popup-select");
+    time_format_combo.set_selected(dropdown_selection_index(
+        &TIME_FORMAT_OPTIONS,
+        &config.time_format,
+    ));
+    sort_row.append(&time_format_combo);
 
     let rows_box = gtk::Box::new(Orientation::Vertical, 10);
     rows_box.set_margin_top(14);
@@ -557,6 +771,7 @@ fn build_window(
     window.set_child(Some(&overlay));
 
     let state = Rc::new(RefCell::new(PopupState {
+        config_manager,
         config,
         local_timezone,
         time_format: String::new(),
@@ -565,10 +780,16 @@ fn build_window(
         rows: Vec::new(),
         dismiss_armed: false,
         live: true,
+        edit_mode: false,
         editing_timezone: None,
+        syncing_controls: false,
         pending_apply_source: None,
         pending_apply_timezone: None,
         live_button: live_button.clone(),
+        edit_button: edit_button.clone(),
+        sort_row: sort_row.clone(),
+        sort_combo: sort_combo.clone(),
+        time_format_combo: time_format_combo.clone(),
         status_label,
         self_handle: Weak::new(),
     }));
@@ -580,9 +801,62 @@ fn build_window(
         update_live_button(&state_mut);
     }
 
+    let state_for_edit = state.clone();
+    edit_button.connect_clicked(move |_| {
+        let mut state = state_for_edit.borrow_mut();
+        state.edit_mode = !state.edit_mode;
+        clear_status(&state);
+        update_edit_mode(&state);
+    });
+
     let state_for_now = state.clone();
     live_button.connect_clicked(move |_| {
         reset_live_now(&state_for_now);
+    });
+
+    let state_for_sort = state.clone();
+    sort_combo.connect_selected_notify(move |combo| {
+        let config_manager = {
+            let state = state_for_sort.borrow();
+            if state.syncing_controls {
+                return;
+            }
+            state.config_manager.clone()
+        };
+        let sort_mode = dropdown_selection_value(&SORT_OPTIONS, combo.selected(), "manual");
+        match config_manager.set_sort_mode(&sort_mode) {
+            Ok(config) => {
+                let mut state = state_for_sort.borrow_mut();
+                refresh_config_state(&mut state, config);
+            }
+            Err(error) => {
+                let state = state_for_sort.borrow();
+                set_status(&state, &error.to_string(), true);
+            }
+        }
+    });
+
+    let state_for_time_format = state.clone();
+    time_format_combo.connect_selected_notify(move |combo| {
+        let config_manager = {
+            let state = state_for_time_format.borrow();
+            if state.syncing_controls {
+                return;
+            }
+            state.config_manager.clone()
+        };
+        let time_format =
+            dropdown_selection_value(&TIME_FORMAT_OPTIONS, combo.selected(), "system");
+        match config_manager.set_time_format(&time_format) {
+            Ok(config) => {
+                let mut state = state_for_time_format.borrow_mut();
+                refresh_config_state(&mut state, config);
+            }
+            Err(error) => {
+                let state = state_for_time_format.borrow();
+                set_status(&state, &error.to_string(), true);
+            }
+        }
     });
 
     let state_for_click = state.clone();
@@ -623,7 +897,7 @@ pub fn run_popup(pid_path: &Path, config_path: Option<PathBuf>) -> Result<()> {
     window.set_resizable(false);
     window.set_focusable(true);
     window.set_can_focus(true);
-    let state = build_window(config, local_timezone, &window);
+    let state = build_window(config_manager, config, local_timezone, &window);
     let _ = configure_layer_shell(&window);
 
     let key_controller = gtk::EventControllerKey::new();
@@ -639,7 +913,8 @@ pub fn run_popup(pid_path: &Path, config_path: Option<PathBuf>) -> Result<()> {
 
     let state_for_focus = state.clone();
     window.connect_is_active_notify(move |window| {
-        if state_for_focus.borrow().dismiss_armed && !window.is_active() {
+        let state = state_for_focus.borrow();
+        if state.dismiss_armed && !state.edit_mode && !window.is_active() {
             window.close();
         }
     });

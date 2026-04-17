@@ -101,6 +101,12 @@ window {{
   font-size: 12px;
 }}
 
+.hint-label {{
+  color: {muted_foreground};
+  font-size: 12px;
+  font-weight: 700;
+}}
+
 .status-label {{
   color: {accent};
   font-size: 12px;
@@ -136,9 +142,9 @@ button.icon-button {{
   background: transparent;
   border-color: {icon_button_border};
   border-radius: 999px;
-  min-width: 34px;
-  min-height: 34px;
-  padding: 6px;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
 }}
 
 button.icon-button:hover {{
@@ -153,6 +159,113 @@ button.icon-button:disabled {{
 button.icon-button.active {{
   background: {icon_button_active_background};
   border-color: {icon_button_active_border};
+}}
+
+button.icon-button image {{
+  color: {muted_foreground};
+  -gtk-icon-size: 15px;
+}}
+
+button.icon-button.active image {{
+  color: {foreground};
+}}
+
+button.lock-button {{
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
+  opacity: 0.28;
+}}
+
+button.lock-button image {{
+  margin-left: 1px;
+  margin-top: 1px;
+}}
+
+button.lock-button.active {{
+  opacity: 1.0;
+}}
+
+button.remove-button {{
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
+}}
+
+dropdown.popup-select {{
+  min-width: 152px;
+}}
+
+dropdown.popup-select > button {{
+  color: {foreground};
+  background: {time_chip_background};
+  border: 1px solid {time_chip_border};
+  border-radius: 12px;
+  min-height: 42px;
+  padding: 10px 16px;
+  font-size: 15px;
+  font-weight: 650;
+}}
+
+dropdown.popup-select > button:hover {{
+  background: {icon_button_hover_background};
+  border-color: {icon_button_hover_border};
+}}
+
+dropdown.popup-select > button:focus {{
+  border-color: {accent_focus_border};
+  box-shadow: 0 0 0 3px {accent_focus_shadow};
+}}
+
+dropdown.popup-select > button arrow {{
+  color: {muted_foreground};
+  margin-left: 14px;
+}}
+
+dropdown.popup-select popover.background contents {{
+  background: {panel_background};
+  border: 1px solid {panel_border};
+  border-radius: 14px;
+  min-width: 184px;
+  padding: 8px;
+  box-shadow: 0 16px 32px {shadow};
+}}
+
+dropdown.popup-select popover.background listview {{
+  background: transparent;
+}}
+
+dropdown.popup-select popover.background row {{
+  min-height: 44px;
+  padding: 8px 14px;
+  border-radius: 12px;
+}}
+
+dropdown.popup-select popover.background row:hover,
+dropdown.popup-select popover.background row:selected {{
+  background: {icon_button_hover_background};
+}}
+
+dropdown.popup-select popover.background row label {{
+  color: {foreground};
+  font-size: 16px;
+  font-weight: 650;
+}}
+
+dropdown.popup-select popover.background row:selected label {{
+  color: {foreground};
+}}
+
+dropdown.popup-select popover.background row check {{
+  color: {foreground};
+  margin-left: 14px;
+  min-width: 18px;
+  min-height: 18px;
+}}
+
+button.icon-button.destructive:hover {{
+  background: rgba(255, 139, 139, 0.12);
+  border-color: rgba(255, 139, 139, 0.28);
 }}
 
 .empty-state-title {{

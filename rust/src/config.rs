@@ -76,6 +76,7 @@ struct StoredConfig<'a> {
     time_format: &'a str,
 }
 
+#[derive(Debug, Clone)]
 pub struct ConfigManager {
     path: PathBuf,
 }
@@ -133,6 +134,83 @@ impl ConfigManager {
         fs::write(&self.path, format!("{text}\n"))
             .with_context(|| format!("failed to write {}", self.path.display()))?;
         Ok(())
+    }
+
+    pub fn add_timezone(&self, timezone_name: &str, label: &str) -> anyhow::Result<AppConfig> {
+        let mut config = self.load()?;
+        let timezone_name = canonical_timezone_name(timezone_name);
+        if timezone_name.is_empty() || !is_valid_timezone(&timezone_name) {
+            return Ok(config);
+        }
+
+        if !config
+            .timezones
+            .iter()
+            .any(|entry| entry.timezone == timezone_name)
+        {
+            config.timezones.push(TimezoneEntry {
+                timezone: timezone_name,
+                label: label.trim().to_string(),
+                locked: false,
+            });
+            config = self.normalize_config(config);
+            self.save(&config)?;
+        }
+        Ok(config)
+    }
+
+    pub fn remove_timezone(&self, timezone_name: &str) -> anyhow::Result<AppConfig> {
+        let mut config = self.load()?;
+        let timezone_name = canonical_timezone_name(timezone_name);
+        config
+            .timezones
+            .retain(|entry| entry.timezone != timezone_name);
+        config = self.normalize_config(config);
+        self.save(&config)?;
+        Ok(config)
+    }
+
+    pub fn set_sort_mode(&self, sort_mode: &str) -> anyhow::Result<AppConfig> {
+        let mut config = self.load()?;
+        config.sort_mode = if valid_sort_mode(sort_mode) {
+            sort_mode.to_string()
+        } else {
+            DEFAULT_SORT_MODE.to_string()
+        };
+        config = self.normalize_config(config);
+        self.save(&config)?;
+        Ok(config)
+    }
+
+    pub fn set_timezone_locked(
+        &self,
+        timezone_name: &str,
+        locked: bool,
+    ) -> anyhow::Result<AppConfig> {
+        let mut config = self.load()?;
+        let timezone_name = canonical_timezone_name(timezone_name);
+        if let Some(entry) = config
+            .timezones
+            .iter_mut()
+            .find(|entry| entry.timezone == timezone_name)
+        {
+            entry.locked = locked;
+        }
+        config = self.normalize_config(config);
+        self.save(&config)?;
+        Ok(config)
+    }
+
+    pub fn set_time_format(&self, time_format: &str) -> anyhow::Result<AppConfig> {
+        let mut config = self.load()?;
+        config.time_format = if valid_time_format(time_format) {
+            time_format.to_string()
+        } else {
+            DEFAULT_TIME_FORMAT.to_string()
+        };
+        config = self.normalize_config(config);
+        self.save(&config)?;
+        Ok(config)
     }
 
     fn config_from_raw(&self, raw: RawConfig, local_timezone: &str) -> AppConfig {
@@ -698,5 +776,62 @@ mod tests {
     fn canonicalizes_alias_when_system_tzdata_exposes_it() {
         let canonical = canonical_timezone_name("Asia/Calcutta");
         assert!(!canonical.is_empty());
+    }
+
+    #[test]
+    fn add_timezone_persists_unique_entries() {
+        let temp_dir = TempDir::new().unwrap();
+        let manager = manager_in(&temp_dir);
+        manager.load_with_local_timezone("UTC").unwrap();
+
+        let updated = manager.add_timezone("Asia/Tokyo", "Tokyo").unwrap();
+        let duplicated = manager.add_timezone("Asia/Tokyo", "Ignored").unwrap();
+
+        assert_eq!(updated.timezones.len(), 2);
+        assert_eq!(duplicated.timezones.len(), 2);
+        assert_eq!(duplicated.timezones[1].label, "Tokyo");
+    }
+
+    #[test]
+    fn remove_timezone_persists_change() {
+        let temp_dir = TempDir::new().unwrap();
+        let manager = manager_in(&temp_dir);
+        manager.load_with_local_timezone("UTC").unwrap();
+        manager.add_timezone("Asia/Tokyo", "Tokyo").unwrap();
+
+        let updated = manager.remove_timezone("Asia/Tokyo").unwrap();
+        assert_eq!(updated.timezones.len(), 1);
+        assert_eq!(updated.timezones[0].timezone, "UTC");
+    }
+
+    #[test]
+    fn set_timezone_locked_moves_entry_ahead_of_unlocked_rows() {
+        let temp_dir = TempDir::new().unwrap();
+        let manager = manager_in(&temp_dir);
+        manager.load_with_local_timezone("UTC").unwrap();
+        manager.add_timezone("Asia/Tokyo", "Tokyo").unwrap();
+
+        let updated = manager.set_timezone_locked("Asia/Tokyo", true).unwrap();
+        assert_eq!(updated.timezones[0].timezone, "Asia/Tokyo");
+        assert!(updated.timezones[0].locked);
+    }
+
+    #[test]
+    fn set_sort_mode_and_time_format_validate_values() {
+        let temp_dir = TempDir::new().unwrap();
+        let manager = manager_in(&temp_dir);
+        manager.load_with_local_timezone("UTC").unwrap();
+
+        let sort_updated = manager.set_sort_mode("alpha").unwrap();
+        assert_eq!(sort_updated.sort_mode, "alpha");
+
+        let format_updated = manager.set_time_format("ampm").unwrap();
+        assert_eq!(format_updated.time_format, "ampm");
+
+        let fallback = manager.set_sort_mode("bogus").unwrap();
+        assert_eq!(fallback.sort_mode, "manual");
+
+        let fallback_format = manager.set_time_format("bogus").unwrap();
+        assert_eq!(fallback_format.time_format, "system");
     }
 }

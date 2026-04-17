@@ -27,7 +27,7 @@ from .configuration import (
 )
 from .layout import (
     POPUP_TOP_CONTENT_MARGIN,
-    load_waybar_height,
+    load_window_border_size,
     load_window_gap,
     popup_top_margin,
 )
@@ -476,7 +476,10 @@ class WorldClockWindow(Gtk.Window):
         GtkLayerShell.set_margin(
             self,
             GtkLayerShell.Edge.TOP,
-            popup_top_margin(load_waybar_height(), load_window_gap()),
+            popup_top_margin(
+                load_window_gap(),
+                load_window_border_size(),
+            ),
         )
 
     def build_ui(self) -> None:

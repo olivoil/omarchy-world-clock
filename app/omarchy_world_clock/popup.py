@@ -408,14 +408,13 @@ class ClockRow(Gtk.Box):
 
     def update_lock_button(self) -> None:
         context = self.lock_button.get_style_context()
+        icon_name = "view-pin-symbolic"
         if self.entry.locked:
             context.add_class("active")
             self.lock_button.set_tooltip_text("Unlock this timezone so it sorts with the rest.")
-            icon_name = "object-locked-symbolic"
         else:
             context.remove_class("active")
             self.lock_button.set_tooltip_text("Keep this timezone above unlocked rows.")
-            icon_name = "object-unlocked-symbolic"
         self.lock_image.set_from_icon_name(icon_name, Gtk.IconSize.MENU)
 
     def on_focus_in(self, *_args: object) -> bool:

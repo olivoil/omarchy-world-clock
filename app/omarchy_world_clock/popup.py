@@ -85,7 +85,7 @@ window {{
   background: {rgba(palette.background, 0.94)};
   border: 1px solid {rgba(palette.accent, 0.42)};
   border-radius: 18px;
-  padding: 18px;
+  padding: 18px 18px 12px 18px;
   box-shadow: 0 18px 36px {rgba("#000000", 0.30)};
 }}
 
@@ -511,6 +511,7 @@ class WorldClockWindow(Gtk.Window):
         panel.pack_start(header, False, False, 0)
 
         titles = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        titles.set_valign(Gtk.Align.CENTER)
         header.pack_start(titles, True, True, 0)
 
         title = Gtk.Label(xalign=0)
@@ -557,7 +558,7 @@ class WorldClockWindow(Gtk.Window):
         sort_row.pack_start(self.sort_combo, False, False, 0)
 
         self.rows_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        self.rows_box.set_margin_top(8)
+        self.rows_box.set_margin_top(14)
         panel.pack_start(self.rows_box, False, False, 0)
 
         footer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)

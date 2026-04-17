@@ -34,7 +34,7 @@ from .layout import (
 from .core import (
     all_timezones,
     format_offset,
-    parse_manual_reference,
+    parse_manual_reference_details,
     zoned_datetime,
 )
 
@@ -890,7 +890,7 @@ class WorldClockWindow(Gtk.Window):
             return False
 
         try:
-            self.reference_utc = parse_manual_reference(
+            parsed_reference = parse_manual_reference_details(
                 row.time_entry.get_text(),
                 row.timezone_name,
                 self.reference_utc,
@@ -900,6 +900,13 @@ class WorldClockWindow(Gtk.Window):
                 row.set_error(True)
                 self.show_status(str(exc), error=True)
             return False
+
+        self.reference_utc = parsed_reference.reference_utc
+        if show_errors:
+            row.suppress_changes = True
+            row.time_entry.set_text(parsed_reference.normalized_text)
+            row.time_entry.set_position(-1)
+            row.suppress_changes = False
 
         self.live = False
         for clock_row in self.rows:

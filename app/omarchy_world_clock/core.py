@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, available_timezones
 
@@ -10,6 +11,21 @@ DATETIME_FORMATS = (
     "%Y/%m/%d %H:%M",
     "%Y/%m/%d %H:%M:%S",
 )
+DECIMAL_HOUR_FRACTIONS = {
+    "0": 0,
+    "00": 0,
+    "25": 15,
+    "5": 30,
+    "50": 30,
+    "75": 45,
+}
+MANUAL_REFERENCE_ERROR = "Use HH:MM, 830, 8.5, or YYYY-MM-DD HH:MM."
+
+
+@dataclass(frozen=True)
+class ParsedManualReference:
+    reference_utc: datetime
+    normalized_text: str
 
 
 def all_timezones() -> list[str]:
@@ -45,14 +61,68 @@ def zoned_datetime(reference_utc: datetime, timezone_name: str) -> datetime:
     return reference_utc.astimezone(ZoneInfo(timezone_name))
 
 
-def parse_manual_reference(
+def _normalized_time_text(hour: int, minute: int, second: int = 0) -> str:
+    if second:
+        return f"{hour:02d}:{minute:02d}:{second:02d}"
+    return f"{hour:02d}:{minute:02d}"
+
+
+def _parse_compact_time(value: str) -> tuple[int, int, int, str] | None:
+    if not value.isdigit() or len(value) > 4:
+        return None
+
+    if len(value) <= 2:
+        hour = int(value)
+        minute = 0
+    else:
+        hour = int(value[:-2])
+        minute = int(value[-2:])
+
+    if hour > 23 or minute > 59:
+        return None
+    return hour, minute, 0, _normalized_time_text(hour, minute)
+
+
+def _parse_decimal_hour(value: str) -> tuple[int, int, int, str] | None:
+    hour_text, separator, fraction_text = value.partition(".")
+    if separator != "." or not hour_text.isdigit() or not fraction_text:
+        return None
+
+    hour = int(hour_text)
+    minute = DECIMAL_HOUR_FRACTIONS.get(fraction_text)
+    if hour > 23 or minute is None:
+        return None
+    return hour, minute, 0, _normalized_time_text(hour, minute)
+
+
+def _parse_time_only(value: str) -> tuple[int, int, int, str] | None:
+    for fmt in TIME_ONLY_FORMATS:
+        try:
+            parsed = datetime.strptime(value, fmt)
+        except ValueError:
+            continue
+        return (
+            parsed.hour,
+            parsed.minute,
+            parsed.second,
+            _normalized_time_text(parsed.hour, parsed.minute, parsed.second),
+        )
+
+    compact = _parse_compact_time(value)
+    if compact is not None:
+        return compact
+
+    return _parse_decimal_hour(value)
+
+
+def parse_manual_reference_details(
     raw_value: str,
     timezone_name: str,
     reference_utc: datetime,
-) -> datetime:
+) -> ParsedManualReference:
     value = raw_value.strip()
     if not value:
-        raise ValueError("Enter HH:MM or YYYY-MM-DD HH:MM.")
+        raise ValueError(MANUAL_REFERENCE_ERROR)
 
     zone = ZoneInfo(timezone_name)
     base = zoned_datetime(reference_utc, timezone_name)
@@ -62,22 +132,38 @@ def parse_manual_reference(
             parsed = datetime.strptime(value, fmt)
         except ValueError:
             continue
-        return parsed.replace(tzinfo=zone).astimezone(timezone.utc)
-
-    for fmt in TIME_ONLY_FORMATS:
-        try:
-            parsed = datetime.strptime(value, fmt)
-        except ValueError:
-            continue
-        candidate = datetime(
-            base.year,
-            base.month,
-            base.day,
-            parsed.hour,
-            parsed.minute,
-            parsed.second,
-            tzinfo=zone,
+        zoned = parsed.replace(tzinfo=zone)
+        normalized_text = parsed.strftime(
+            "%Y-%m-%d %H:%M:%S" if parsed.second else "%Y-%m-%d %H:%M"
         )
-        return candidate.astimezone(timezone.utc)
+        return ParsedManualReference(
+            reference_utc=zoned.astimezone(timezone.utc),
+            normalized_text=normalized_text,
+        )
 
-    raise ValueError("Use HH:MM or YYYY-MM-DD HH:MM.")
+    parsed_time = _parse_time_only(value)
+    if parsed_time is None:
+        raise ValueError(MANUAL_REFERENCE_ERROR)
+
+    hour, minute, second, normalized_text = parsed_time
+    candidate = datetime(
+        base.year,
+        base.month,
+        base.day,
+        hour,
+        minute,
+        second,
+        tzinfo=zone,
+    )
+    return ParsedManualReference(
+        reference_utc=candidate.astimezone(timezone.utc),
+        normalized_text=normalized_text,
+    )
+
+
+def parse_manual_reference(
+    raw_value: str,
+    timezone_name: str,
+    reference_utc: datetime,
+) -> datetime:
+    return parse_manual_reference_details(raw_value, timezone_name, reference_utc).reference_utc

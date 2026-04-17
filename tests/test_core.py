@@ -17,7 +17,12 @@ from omarchy_world_clock.configuration import (
     TimezoneSearchResult,
     timezone_link_aliases,
 )
-from omarchy_world_clock.core import format_offset, parse_manual_reference, zoned_datetime
+from omarchy_world_clock.core import (
+    format_offset,
+    parse_manual_reference,
+    parse_manual_reference_details,
+    zoned_datetime,
+)
 
 
 class CoreTests(unittest.TestCase):
@@ -26,6 +31,25 @@ class CoreTests(unittest.TestCase):
         parsed = parse_manual_reference("09:30", "America/New_York", reference)
         zoned = zoned_datetime(parsed, "America/New_York")
         self.assertEqual(zoned.strftime("%Y-%m-%d %H:%M"), "2026-04-16 09:30")
+
+    def test_parse_time_only_accepts_compact_three_digits(self) -> None:
+        reference = datetime(2026, 4, 16, 18, 0, tzinfo=timezone.utc)
+        parsed = parse_manual_reference("830", "America/New_York", reference)
+        zoned = zoned_datetime(parsed, "America/New_York")
+        self.assertEqual(zoned.strftime("%Y-%m-%d %H:%M"), "2026-04-16 08:30")
+
+    def test_parse_time_only_accepts_compact_four_digits(self) -> None:
+        reference = datetime(2026, 4, 16, 18, 0, tzinfo=timezone.utc)
+        parsed = parse_manual_reference("0830", "America/New_York", reference)
+        zoned = zoned_datetime(parsed, "America/New_York")
+        self.assertEqual(zoned.strftime("%Y-%m-%d %H:%M"), "2026-04-16 08:30")
+
+    def test_parse_time_only_accepts_decimal_half_hour(self) -> None:
+        reference = datetime(2026, 4, 16, 18, 0, tzinfo=timezone.utc)
+        parsed = parse_manual_reference_details("8.5", "America/New_York", reference)
+        zoned = zoned_datetime(parsed.reference_utc, "America/New_York")
+        self.assertEqual(parsed.normalized_text, "08:30")
+        self.assertEqual(zoned.strftime("%Y-%m-%d %H:%M"), "2026-04-16 08:30")
 
     def test_parse_full_datetime(self) -> None:
         reference = datetime(2026, 4, 16, 18, 0, tzinfo=timezone.utc)

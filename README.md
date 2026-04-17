@@ -129,6 +129,7 @@ Example:
 
 - Product behavior spec: [docs/specs.md](docs/specs.md)
 - Rust + GTK4 migration notes: [docs/porting-notes.md](docs/porting-notes.md)
+- Rust preview build and side-by-side install guide: [rust/README.md](rust/README.md)
 - Copyable Codex handoff prompt for the Rust port:
   [docs/rust-gtk4-port-prompt.md](docs/rust-gtk4-port-prompt.md)
 

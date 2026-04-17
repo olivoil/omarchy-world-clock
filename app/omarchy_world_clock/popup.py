@@ -95,7 +95,6 @@ window {{
   font-size: 18px;
 }}
 
-.panel-subtitle,
 .clock-context,
 .clock-meta,
 .hint-label {{
@@ -160,11 +159,6 @@ button:focus {{
   border-color: {rgba(palette.accent, 0.75)};
 }}
 
-button.suggested-action {{
-  background: {rgba(palette.accent, 0.15)};
-  border-color: {rgba(palette.accent, 0.45)};
-}}
-
 button.icon-button {{
   background: transparent;
   border-color: {rgba(palette.foreground, 0.06)};
@@ -177,6 +171,10 @@ button.icon-button {{
 button.icon-button:hover {{
   background: {rgba(palette.foreground, 0.06)};
   border-color: {rgba(palette.foreground, 0.16)};
+}}
+
+button.icon-button:disabled {{
+  opacity: 0.28;
 }}
 
 button.icon-button.active {{
@@ -520,18 +518,16 @@ class WorldClockWindow(Gtk.Window):
         title.get_style_context().add_class("panel-title")
         titles.pack_start(title, False, False, 0)
 
-        subtitle = Gtk.Label(xalign=0)
-        subtitle.set_text("Type HH:MM in any clock to convert every row.")
-        subtitle.get_style_context().add_class("panel-subtitle")
-        titles.pack_start(subtitle, False, False, 0)
-
         header_actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         header.pack_start(header_actions, False, False, 0)
 
-        self.now_button = Gtk.Button(label="Now")
-        self.now_button.get_style_context().add_class("suggested-action")
-        self.now_button.connect("clicked", self.on_now_clicked)
-        header_actions.pack_start(self.now_button, False, False, 0)
+        self.live_button = Gtk.Button()
+        self.live_button.get_style_context().add_class("icon-button")
+        self.live_button.set_image(
+            Gtk.Image.new_from_icon_name("view-refresh-symbolic", Gtk.IconSize.MENU)
+        )
+        self.live_button.connect("clicked", self.on_now_clicked)
+        header_actions.pack_start(self.live_button, False, False, 0)
 
         self.edit_button = Gtk.Button()
         self.edit_button.get_style_context().add_class("icon-button")
@@ -684,12 +680,15 @@ class WorldClockWindow(Gtk.Window):
         return self.config.sort_mode == "time" and self.editing_row is None
 
     def update_mode_button(self) -> None:
+        context = self.live_button.get_style_context()
         if self.live:
-            self.now_button.set_label("Now")
-            self.now_button.set_tooltip_text("Clocks are live.")
+            self.live_button.set_sensitive(False)
+            self.live_button.set_tooltip_text("Clocks are live.")
+            context.remove_class("active")
         else:
-            self.now_button.set_label("Reset")
-            self.now_button.set_tooltip_text("Return to the current time.")
+            self.live_button.set_sensitive(True)
+            self.live_button.set_tooltip_text("Return to the current time.")
+            context.add_class("active")
 
     def update_edit_mode(self) -> None:
         if self.edit_mode:

@@ -186,10 +186,10 @@ button.remove-button {{
 }}
 
 button.move-button {{
-  min-width: 28px;
-  min-height: 16px;
+  min-width: 34px;
+  min-height: 22px;
   padding: 0;
-  font-size: 11px;
+  font-size: 13px;
 }}
 
 button.move-button:disabled,
@@ -280,6 +280,7 @@ class ClockRow(Gtk.Box):
 
         controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         controls.set_halign(Gtk.Align.END)
+        controls.set_valign(Gtk.Align.CENTER)
 
         self.time_entry = Gtk.Entry()
         self.time_entry.set_alignment(1.0)
@@ -295,14 +296,15 @@ class ClockRow(Gtk.Box):
 
         self.move_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         self.move_box.set_no_show_all(True)
-        self.move_up_button = Gtk.Button(label="˄")
+        self.move_box.set_valign(Gtk.Align.CENTER)
+        self.move_up_button = Gtk.Button(label="↑")
         self.move_up_button.get_style_context().add_class("move-button")
         self.move_up_button.set_sensitive(manual_sort and can_move_up)
         self.move_up_button.set_tooltip_text("Move timezone up")
         self.move_up_button.connect("clicked", self.on_move_up)
         self.move_box.pack_start(self.move_up_button, False, False, 0)
 
-        self.move_down_button = Gtk.Button(label="˅")
+        self.move_down_button = Gtk.Button(label="↓")
         self.move_down_button.get_style_context().add_class("move-button")
         self.move_down_button.set_sensitive(manual_sort and can_move_down)
         self.move_down_button.set_tooltip_text("Move timezone down")
@@ -313,6 +315,7 @@ class ClockRow(Gtk.Box):
         self.remove_button = Gtk.Button(label="x")
         self.remove_button.set_no_show_all(True)
         self.remove_button.get_style_context().add_class("remove-button")
+        self.remove_button.set_valign(Gtk.Align.CENTER)
         self.remove_button.set_sensitive(removable)
         if removable:
             self.remove_button.set_tooltip_text("Remove timezone")

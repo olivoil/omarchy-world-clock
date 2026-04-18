@@ -142,20 +142,6 @@ pub fn style_block() -> String {
         "#custom-world-clock.active {".to_string(),
         "  opacity: 1;".to_string(),
         "}".to_string(),
-        String::new(),
-        "tooltip {".to_string(),
-        "  color: @foreground;".to_string(),
-        "  font: 12px 'JetBrainsMono Nerd Font';".to_string(),
-        "  font-weight: 400;".to_string(),
-        "  text-shadow: none;".to_string(),
-        "}".to_string(),
-        String::new(),
-        "tooltip label {".to_string(),
-        "  color: inherit;".to_string(),
-        "  font: 12px 'JetBrainsMono Nerd Font';".to_string(),
-        "  font-weight: 400;".to_string(),
-        "  text-shadow: none;".to_string(),
-        "}".to_string(),
         STYLE_MARKER_END.to_string(),
     ]
     .join("\n")
@@ -350,6 +336,15 @@ fn pad_left(value: &str, width: usize) -> String {
     format!("{}{value}", " ".repeat(padding))
 }
 
+fn escape_pango_text(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
 pub fn format_tooltip_clock_rows(rows: &[(String, String)]) -> Vec<String> {
     if rows.is_empty() {
         return Vec::new();
@@ -375,6 +370,17 @@ pub fn format_tooltip_clock_rows(rows: &[(String, String)]) -> Vec<String> {
             )
         })
         .collect()
+}
+
+fn format_tooltip_markup(rows: &[(String, String)]) -> String {
+    let rows = format_tooltip_clock_rows(rows)
+        .into_iter()
+        .map(|row| escape_pango_text(&row))
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!(
+        "<span font_family=\"JetBrainsMono Nerd Font\" size=\"small\" weight=\"normal\">{rows}</span>"
+    )
 }
 
 pub fn module_payload(pid_path: &Path) -> anyhow::Result<ModulePayload> {
@@ -449,7 +455,7 @@ fn module_payload_from_config_with_time_format(
         tooltip: if rows.is_empty() {
             "No additional timezones yet.".to_string()
         } else {
-            format_tooltip_clock_rows(&rows).join("\n")
+            format_tooltip_markup(&rows)
         },
     }
 }
@@ -457,7 +463,7 @@ fn module_payload_from_config_with_time_format(
 #[cfg(test)]
 mod tests {
     use super::{
-        format_tooltip_clock_rows, module_payload_from_config,
+        format_tooltip_clock_rows, format_tooltip_markup, module_payload_from_config,
         module_payload_from_config_with_time_format, patch_config_text, patch_style_text,
         unpatch_config_text, unpatch_style_text,
     };
@@ -525,6 +531,25 @@ mod tests {
     }
 
     #[test]
+    fn tooltip_markup_scopes_font_to_world_clock_payload() {
+        let rows = vec![
+            ("R&D <HQ>".to_string(), "09:30".to_string()),
+            ("Paris".to_string(), "15:30".to_string()),
+        ];
+
+        let tooltip = format_tooltip_markup(&rows);
+
+        assert!(tooltip.starts_with(
+            "<span font_family=\"JetBrainsMono Nerd Font\" size=\"small\" weight=\"normal\">"
+        ));
+        assert!(tooltip.ends_with("</span>"));
+        assert!(tooltip.contains("R&amp;D &lt;HQ&gt;"));
+        assert!(!tooltip.contains("R&D <HQ>"));
+        assert!(tooltip.contains("Paris"));
+        assert!(tooltip.contains("15:30"));
+    }
+
+    #[test]
     fn module_payload_marks_local_timezone_and_uses_ampm() {
         let config = AppConfig {
             timezones: vec![
@@ -549,6 +574,7 @@ mod tests {
 
         assert_eq!(payload.text, "");
         assert_eq!(payload.class, "active");
+        assert!(payload.tooltip.starts_with("<span "));
         assert!(!payload.tooltip.contains("World Clock"));
         assert!(!payload.tooltip.contains("Home"));
         assert!(payload.tooltip.contains("Tokyo"));
@@ -657,12 +683,12 @@ mod tests {
     fn patch_style_is_idempotent() {
         let patched = patch_style_text(WAYBAR_STYLE);
         assert!(patched.contains("#custom-world-clock"));
-        assert!(patched.contains("tooltip label"));
+        assert!(!patched.contains("tooltip {"));
+        assert!(!patched.contains("tooltip label"));
         assert_eq!(patched, patch_style_text(&patched));
 
         let unpatched = unpatch_style_text(&patched);
         assert!(!unpatched.contains("#custom-world-clock"));
-        assert!(!unpatched.contains("tooltip label"));
     }
 
     #[test]

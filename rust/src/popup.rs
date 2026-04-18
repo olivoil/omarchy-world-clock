@@ -1,6 +1,6 @@
 use crate::config::{
-    detect_local_timezone, effective_time_format, ordered_timezones, AppConfig, ConfigManager,
-    TimezoneEntry,
+    all_timezones, detect_local_timezone, effective_time_format, ordered_timezones, AppConfig,
+    ConfigManager, RemotePlaceSearch, TimezoneEntry, TimezoneResolver, TimezoneSearchResult,
 };
 use crate::layout::{
     load_window_border_size, load_window_gap, popup_top_margin, POPUP_TOP_CONTENT_MARGIN,
@@ -17,15 +17,19 @@ use gtk::prelude::*;
 use gtk::{Align, Orientation};
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 use std::cell::{Cell, RefCell};
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::{Rc, Weak};
+use std::sync::{mpsc, Arc, Mutex};
+use std::thread;
 use std::time::Duration;
 
 #[derive(Clone)]
 struct RowWidgets {
     entry: TimezoneEntry,
     root: gtk::Box,
+    drag_handle: gtk::Box,
     title: gtk::Label,
     context: gtk::Label,
     meta: gtk::Label,
@@ -39,14 +43,22 @@ struct RowWidgets {
 struct PopupState {
     config_manager: ConfigManager,
     config: AppConfig,
+    resolver: TimezoneResolver,
+    place_search: Arc<Mutex<RemotePlaceSearch>>,
+    remote_search_sender: mpsc::Sender<RemoteSearchMessage>,
     local_timezone: String,
     time_format: String,
     reference_utc: DateTime<Utc>,
+    rows_overlay: gtk::Overlay,
     rows_box: gtk::Box,
+    row_separators: Vec<gtk::Separator>,
+    drag_layer: gtk::Fixed,
+    insertion_marker: gtk::Box,
     rows: Vec<RowWidgets>,
     dismiss_armed: bool,
     live: bool,
     edit_mode: bool,
+    add_panel_visible: bool,
     editing_timezone: Option<String>,
     syncing_controls: bool,
     pending_apply_source: Option<glib::SourceId>,
@@ -56,12 +68,35 @@ struct PopupState {
     sort_row: gtk::Box,
     sort_combo: gtk::DropDown,
     time_format_combo: gtk::DropDown,
+    footer_separator: gtk::Separator,
+    add_stack: gtk::Stack,
+    add_toggle_button: gtk::Button,
+    add_panel: gtk::Box,
+    add_entry: gtk::Entry,
+    search_results_scroller: gtk::ScrolledWindow,
+    search_results_box: gtk::Box,
+    local_search_results: Vec<TimezoneSearchResult>,
+    remote_search_results: Vec<TimezoneSearchResult>,
+    search_results: Vec<TimezoneSearchResult>,
+    search_generation: u64,
+    drag_source_timezone: Option<String>,
+    active_drop_index: Option<usize>,
+    drag_start_rows_box_y: f64,
+    drag_start_row_top_y: f64,
+    drag_row_overlay_x: f64,
+    drag_ghost: Option<gtk::Widget>,
     status_label: gtk::Label,
     self_handle: Weak<RefCell<PopupState>>,
 }
 
 struct PidGuard {
     path: PathBuf,
+}
+
+struct RemoteSearchMessage {
+    generation: u64,
+    query: String,
+    results: Vec<TimezoneSearchResult>,
 }
 
 const SORT_OPTIONS: [(&str, &str); 3] = [("manual", "Manual"), ("alpha", "A-Z"), ("time", "Time")];
@@ -78,6 +113,16 @@ fn clear_box(container: &gtk::Box) {
     while let Some(child) = container.first_child() {
         container.remove(&child);
     }
+}
+
+fn box_children(container: &gtk::Box) -> Vec<gtk::Widget> {
+    let mut children = Vec::new();
+    let mut current = container.first_child();
+    while let Some(child) = current {
+        current = child.next_sibling();
+        children.push(child);
+    }
+    children
 }
 
 fn dropdown_selection_index(options: &[(&str, &str)], value: &str) -> u32 {
@@ -221,6 +266,18 @@ fn time_entry_width_chars(time_format: &str) -> i32 {
     }
 }
 
+fn selected_entries(state: &PopupState) -> Vec<TimezoneEntry> {
+    ordered_timezones(
+        &state.config.timezones,
+        &state.config.sort_mode,
+        state.reference_utc,
+    )
+}
+
+fn row_can_reorder(state: &PopupState, entry: &TimezoneEntry) -> bool {
+    state.config.sort_mode == "manual" && !entry.locked
+}
+
 fn set_row_error(row: &RowWidgets, enabled: bool) {
     if enabled {
         row.time_entry.add_css_class("error");
@@ -319,19 +376,96 @@ fn update_edit_mode(state: &PopupState) {
     if state.edit_mode {
         state.edit_button.add_css_class("active");
         state.edit_button.set_tooltip_text(Some("Leave edit mode."));
+        state.footer_separator.set_visible(true);
+        state.add_stack.set_visible(true);
+        if state.add_panel_visible {
+            state.add_stack.set_visible_child_name("panel");
+            state.add_panel.set_visible(true);
+            if state.add_entry.text().trim().is_empty() {
+                state.search_results_scroller.set_visible(false);
+            }
+        } else {
+            state.add_stack.set_visible_child_name("toggle");
+            state.add_toggle_button.set_visible(true);
+        }
     } else {
         state.edit_button.remove_css_class("active");
         state
             .edit_button
             .set_tooltip_text(Some("Manage timezones and popup settings."));
+        state.footer_separator.set_visible(false);
+        state.add_stack.set_visible(false);
     }
 
     let can_remove = state.config.timezones.len() > 1;
     for row in &state.rows {
+        row.drag_handle
+            .set_visible(state.edit_mode && row_can_reorder(state, &row.entry));
         row.lock_button.set_visible(state.edit_mode);
         row.remove_button.set_visible(state.edit_mode);
         row.remove_button.set_sensitive(can_remove);
         update_row_lock_button(row);
+    }
+    update_row_separators(state);
+}
+
+fn update_row_separators(state: &PopupState) {
+    let show_separators = !(state.edit_mode && state.config.sort_mode == "manual");
+    for separator in &state.row_separators {
+        separator.set_visible(show_separators);
+    }
+}
+
+fn merge_search_results(
+    local_results: &[TimezoneSearchResult],
+    remote_results: &[TimezoneSearchResult],
+    limit: usize,
+) -> Vec<TimezoneSearchResult> {
+    let mut seen_timezones = HashSet::new();
+    let mut results = Vec::new();
+    for result in local_results.iter().chain(remote_results.iter()) {
+        if !seen_timezones.insert(result.timezone.clone()) {
+            continue;
+        }
+        results.push(result.clone());
+        if results.len() >= limit {
+            break;
+        }
+    }
+    results
+}
+
+fn clear_search_results(state: &mut PopupState) {
+    clear_box(&state.search_results_box);
+    state.local_search_results.clear();
+    state.remote_search_results.clear();
+    state.search_results.clear();
+    state.search_results_scroller.set_visible(false);
+}
+
+fn set_add_panel_visible(state_handle: &Rc<RefCell<PopupState>>, visible: bool) {
+    let focus_entry = {
+        let mut state = state_handle.borrow_mut();
+        state.add_panel_visible = visible;
+        if visible {
+            state.add_stack.set_visible_child_name("panel");
+            state.add_panel.set_visible(true);
+            if state.add_entry.text().trim().is_empty() {
+                state.search_results_scroller.set_visible(false);
+            }
+            Some(state.add_entry.clone())
+        } else {
+            state.add_entry.set_text("");
+            clear_search_results(&mut state);
+            state.add_stack.set_visible_child_name("toggle");
+            None
+        }
+    };
+
+    if let Some(entry) = focus_entry {
+        glib::idle_add_local_once(move || {
+            let _ = entry.grab_focus();
+        });
     }
 }
 
@@ -371,6 +505,18 @@ fn refresh_config_state(state: &mut PopupState, config: AppConfig) {
 fn build_row(entry: &TimezoneEntry, time_format: &str) -> RowWidgets {
     let row = gtk::Box::new(Orientation::Horizontal, 16);
     row.add_css_class("clock-row");
+
+    let drag_handle = gtk::Box::new(Orientation::Horizontal, 0);
+    drag_handle.set_visible(false);
+    drag_handle.set_valign(Align::Center);
+    drag_handle.set_margin_end(4);
+    drag_handle.add_css_class("drag-handle");
+    drag_handle.set_tooltip_text(Some("Drag to reorder."));
+
+    let drag_label = gtk::Label::new(Some("≡"));
+    drag_label.add_css_class("drag-handle-label");
+    drag_handle.append(&drag_label);
+    row.append(&drag_handle);
 
     let info = gtk::Box::new(Orientation::Vertical, 2);
     info.set_hexpand(true);
@@ -428,6 +574,7 @@ fn build_row(entry: &TimezoneEntry, time_format: &str) -> RowWidgets {
     RowWidgets {
         entry: entry.clone(),
         root: row,
+        drag_handle,
         title,
         context,
         meta,
@@ -552,6 +699,54 @@ fn bind_row_events(state_handle: &Rc<RefCell<PopupState>>, row: &RowWidgets) {
             }
         }
     });
+
+    let drag_gesture = gtk::GestureDrag::new();
+    drag_gesture.set_button(1);
+
+    let timezone_name_for_drag_begin = row.entry.timezone.clone();
+    let state_for_drag_begin = state_handle.clone();
+    drag_gesture.connect_drag_begin(move |_, _, _| {
+        begin_drag(&state_for_drag_begin, &timezone_name_for_drag_begin);
+    });
+
+    let timezone_name_for_drag_update = row.entry.timezone.clone();
+    let state_for_drag_update = state_handle.clone();
+    drag_gesture.connect_drag_update(move |_, _, offset_y| {
+        let mut state = state_for_drag_update.borrow_mut();
+        if state.drag_source_timezone.as_deref() != Some(timezone_name_for_drag_update.as_str()) {
+            return;
+        }
+        set_drag_ghost_position(&state, offset_y);
+        let rows_box_y = state.drag_start_rows_box_y + offset_y;
+        update_drag_position(&mut state, rows_box_y);
+    });
+
+    let timezone_name_for_drag_end = row.entry.timezone.clone();
+    let state_for_drag_end = state_handle.clone();
+    drag_gesture.connect_drag_end(move |_, _, offset_y| {
+        let insert_index = {
+            let mut state = state_for_drag_end.borrow_mut();
+            if state.drag_source_timezone.as_deref() != Some(timezone_name_for_drag_end.as_str()) {
+                return;
+            }
+            set_drag_ghost_position(&state, offset_y);
+            let rows_box_y = state.drag_start_rows_box_y + offset_y;
+            update_drag_position(&mut state, rows_box_y);
+            let insert_index = state.active_drop_index;
+            end_drag(&mut state);
+            insert_index
+        };
+
+        if let Some(insert_index) = insert_index {
+            let _ = reorder_timezone_to_index(
+                &state_for_drag_end,
+                &timezone_name_for_drag_end,
+                insert_index,
+            );
+        }
+    });
+
+    row.drag_handle.add_controller(drag_gesture);
 }
 
 fn format_title(entry: &TimezoneEntry, local_timezone: &str) -> String {
@@ -608,8 +803,10 @@ fn update_row_widgets(state: &mut PopupState) {
 }
 
 fn render_rows(state: &mut PopupState) {
+    clear_drop_slot(state);
     clear_box(&state.rows_box);
     state.rows.clear();
+    state.row_separators.clear();
 
     let entries = ordered_timezones(
         &state.config.timezones,
@@ -625,9 +822,7 @@ fn render_rows(state: &mut PopupState) {
         title.add_css_class("empty-state-title");
         empty.append(&title);
 
-        let copy = gtk::Label::new(Some(
-            "Add timezones in the Python app, then reopen this preview.",
-        ));
+        let copy = gtk::Label::new(Some("Use edit mode to add or restore a timezone."));
         copy.set_xalign(0.0);
         copy.add_css_class("empty-state-copy");
         empty.append(&copy);
@@ -647,14 +842,517 @@ fn render_rows(state: &mut PopupState) {
         state.rows.push(widgets);
 
         if index + 1 < entries.len() {
-            state
-                .rows_box
-                .append(&gtk::Separator::new(Orientation::Horizontal));
+            let separator = gtk::Separator::new(Orientation::Horizontal);
+            state.rows_box.append(&separator);
+            state.row_separators.push(separator);
         }
     }
 
     update_row_widgets(state);
     update_edit_mode(state);
+}
+
+fn render_search_results(state_handle: &Rc<RefCell<PopupState>>) {
+    let results = state_handle.borrow().search_results.clone();
+    let state = state_handle.borrow();
+    clear_box(&state.search_results_box);
+
+    if results.is_empty() {
+        state.search_results_scroller.set_visible(false);
+        return;
+    }
+
+    for result in results {
+        let button = gtk::Button::new();
+        button.set_halign(Align::Fill);
+        button.set_hexpand(true);
+        button.add_css_class("search-result-button");
+
+        let content = gtk::Box::new(Orientation::Vertical, 2);
+        content.set_halign(Align::Start);
+
+        let title = gtk::Label::new(Some(&result.title));
+        title.set_xalign(0.0);
+        title.add_css_class("search-result-title");
+        content.append(&title);
+
+        let meta = gtk::Label::new(Some(&result.subtitle));
+        meta.set_xalign(0.0);
+        meta.add_css_class("search-result-meta");
+        content.append(&meta);
+
+        button.set_child(Some(&content));
+
+        let state_for_click = state_handle.clone();
+        let result_for_click = result.clone();
+        button.connect_clicked(move |_| {
+            add_timezone(
+                &state_for_click,
+                &result_for_click.timezone,
+                &result_for_click.title,
+            );
+        });
+
+        state.search_results_box.append(&button);
+    }
+
+    state.search_results_scroller.set_visible(true);
+}
+
+fn update_search_results(state_handle: &Rc<RefCell<PopupState>>) {
+    let query = state_handle.borrow().add_entry.text().trim().to_string();
+    let mut remote_search = None;
+    {
+        let mut state = state_handle.borrow_mut();
+        state.search_generation = state.search_generation.wrapping_add(1);
+        state.remote_search_results.clear();
+
+        if query.is_empty() {
+            clear_search_results(&mut state);
+            return;
+        }
+
+        state.local_search_results = state.resolver.search(&query, 8);
+        state.search_results =
+            merge_search_results(&state.local_search_results, &state.remote_search_results, 8);
+
+        if state.local_search_results.is_empty() && TimezoneResolver::normalize(&query).len() >= 3 {
+            remote_search = Some((
+                state.search_generation,
+                state.remote_search_sender.clone(),
+                state.place_search.clone(),
+                query.clone(),
+            ));
+        }
+    }
+    render_search_results(state_handle);
+
+    if let Some((generation, sender, place_search, query)) = remote_search {
+        thread::spawn(move || {
+            let results = place_search
+                .lock()
+                .map(|mut search| search.search(&query, 8))
+                .unwrap_or_default();
+            let _ = sender.send(RemoteSearchMessage {
+                generation,
+                query,
+                results,
+            });
+        });
+    }
+}
+
+fn label_for_input(state: &PopupState, raw_value: &str, timezone_name: &str) -> String {
+    let value = raw_value.trim();
+    if value.is_empty() {
+        return String::new();
+    }
+    if value.eq_ignore_ascii_case(timezone_name) {
+        return value.to_string();
+    }
+    if value
+        .replace('_', " ")
+        .eq_ignore_ascii_case(&timezone_name.replace('_', " "))
+    {
+        return value.to_string();
+    }
+    let matches = state.resolver.search(value, 1);
+    if matches
+        .first()
+        .is_some_and(|result| result.timezone == timezone_name)
+    {
+        return matches[0].title.clone();
+    }
+    value.to_string()
+}
+
+fn single_visible_search_match(
+    state: &PopupState,
+    raw_value: &str,
+) -> Option<TimezoneSearchResult> {
+    if state.search_results.len() != 1 {
+        return None;
+    }
+    let normalized_value = TimezoneResolver::normalize(raw_value);
+    if normalized_value.is_empty() {
+        return None;
+    }
+    let result = state.search_results[0].clone();
+    if TimezoneResolver::normalize(&result.title).starts_with(&normalized_value) {
+        return Some(result);
+    }
+    None
+}
+
+fn submit_add_timezone(state_handle: &Rc<RefCell<PopupState>>) {
+    let raw_value = state_handle.borrow().add_entry.text().trim().to_string();
+    let timezone_name = {
+        let state = state_handle.borrow();
+        state.resolver.resolve(&raw_value)
+    };
+
+    let Some(timezone_name) = timezone_name else {
+        let single_match = {
+            let state = state_handle.borrow();
+            single_visible_search_match(&state, &raw_value)
+        };
+        if let Some(result) = single_match {
+            add_timezone(state_handle, &result.timezone, &result.title);
+            return;
+        }
+
+        let state = state_handle.borrow();
+        if state.search_results.is_empty() {
+            set_status(
+                &state,
+                "Enter a valid timezone, city, or abbreviation like IST.",
+                true,
+            );
+        } else {
+            set_status(&state, "Pick one of the matching timezones below.", true);
+        }
+        return;
+    };
+
+    let label = {
+        let state = state_handle.borrow();
+        label_for_input(&state, &raw_value, &timezone_name)
+    };
+    add_timezone(state_handle, &timezone_name, &label);
+}
+
+fn add_timezone(state_handle: &Rc<RefCell<PopupState>>, timezone_name: &str, label: &str) {
+    let display_name = if label.trim().is_empty() {
+        timezone_name.to_string()
+    } else {
+        label.trim().to_string()
+    };
+
+    {
+        let state = state_handle.borrow();
+        if state
+            .config
+            .timezones
+            .iter()
+            .any(|entry| entry.timezone == timezone_name)
+        {
+            set_status(
+                &state,
+                &format!("{display_name} is already in the list."),
+                true,
+            );
+            return;
+        }
+    }
+
+    let config_manager = state_handle.borrow().config_manager.clone();
+    match config_manager.add_timezone(timezone_name, label) {
+        Ok(config) => {
+            set_add_panel_visible(state_handle, false);
+            let mut state = state_handle.borrow_mut();
+            refresh_config_state(&mut state, config);
+            set_status(&state, &format!("Added {display_name}."), false);
+        }
+        Err(error) => {
+            let state = state_handle.borrow();
+            set_status(&state, &error.to_string(), true);
+        }
+    }
+}
+
+fn reorder_timezone(
+    state_handle: &Rc<RefCell<PopupState>>,
+    timezone_name: &str,
+    target_timezone_name: &str,
+    place_after: bool,
+) -> bool {
+    {
+        let state = state_handle.borrow();
+        if state.config.sort_mode != "manual" {
+            return false;
+        }
+        let source_entry = state
+            .config
+            .timezones
+            .iter()
+            .find(|entry| entry.timezone == timezone_name);
+        let target_entry = state
+            .config
+            .timezones
+            .iter()
+            .find(|entry| entry.timezone == target_timezone_name);
+        let (Some(source_entry), Some(target_entry)) = (source_entry, target_entry) else {
+            return false;
+        };
+        if source_entry.locked || target_entry.locked {
+            return false;
+        }
+    }
+
+    let config_manager = state_handle.borrow().config_manager.clone();
+    match config_manager.reorder_timezone(timezone_name, target_timezone_name, place_after) {
+        Ok(config) => {
+            let mut state = state_handle.borrow_mut();
+            if config.timezones == state.config.timezones {
+                return false;
+            }
+            refresh_config_state(&mut state, config);
+            true
+        }
+        Err(error) => {
+            let state = state_handle.borrow();
+            set_status(&state, &error.to_string(), true);
+            false
+        }
+    }
+}
+
+fn reorder_timezone_to_index(
+    state_handle: &Rc<RefCell<PopupState>>,
+    timezone_name: &str,
+    insert_index: usize,
+) -> bool {
+    let entries = selected_entries(&state_handle.borrow());
+    if entries.is_empty() || insert_index > entries.len() {
+        return false;
+    }
+    let (target_timezone_name, place_after) = if insert_index == entries.len() {
+        (entries.last().unwrap().timezone.clone(), true)
+    } else {
+        (entries[insert_index].timezone.clone(), false)
+    };
+    reorder_timezone(
+        state_handle,
+        timezone_name,
+        &target_timezone_name,
+        place_after,
+    )
+}
+
+fn build_drag_preview(state: &PopupState, row: &RowWidgets) -> gtk::Widget {
+    let preview = gtk::Box::new(Orientation::Horizontal, 14);
+    preview.add_css_class("clock-row");
+    preview.add_css_class("drag-preview");
+
+    let handle_label = gtk::Label::new(Some("≡"));
+    handle_label.add_css_class("drag-handle-label");
+    preview.append(&handle_label);
+
+    let info = gtk::Box::new(Orientation::Vertical, 2);
+    info.set_hexpand(true);
+
+    let title = gtk::Label::new(Some(&row.title.text()));
+    title.set_xalign(0.0);
+    title.add_css_class("clock-title");
+    info.append(&title);
+
+    let context = gtk::Label::new(Some(&row.entry.timezone));
+    context.set_xalign(0.0);
+    context.add_css_class("clock-context");
+    info.append(&context);
+    preview.append(&info);
+
+    let time_label = gtk::Label::new(Some(&format_display_time(
+        &zoned_datetime(state.reference_utc, &row.entry.timezone),
+        &state.time_format,
+    )));
+    time_label.set_xalign(1.0);
+    time_label.add_css_class("drag-preview-time");
+    preview.append(&time_label);
+
+    let width = row.root.allocation().width();
+    if width > 0 {
+        preview.set_size_request(width, -1);
+    }
+
+    preview.upcast::<gtk::Widget>()
+}
+
+fn begin_drag(state_handle: &Rc<RefCell<PopupState>>, timezone_name: &str) {
+    let mut state = state_handle.borrow_mut();
+    let Some(row_index) = state
+        .rows
+        .iter()
+        .position(|row| row.entry.timezone == timezone_name)
+    else {
+        return;
+    };
+    if !state.edit_mode || !row_can_reorder(&state, &state.rows[row_index].entry) {
+        return;
+    }
+
+    state.rows_overlay.queue_allocate();
+    state.rows_box.queue_allocate();
+    let (rows_box_y, overlay_x, overlay_y, ghost) = {
+        let row = &state.rows[row_index];
+        let row_allocation = row.root.allocation();
+        let translated = row.root.translate_coordinates(
+            &state.rows_box,
+            0.0,
+            f64::from(row_allocation.height()) / 2.0,
+        );
+        let overlay_origin = row
+            .root
+            .translate_coordinates(&state.rows_overlay, 0.0, 0.0);
+        let (Some((_, rows_box_y)), Some((overlay_x, overlay_y))) = (translated, overlay_origin)
+        else {
+            return;
+        };
+        let ghost = build_drag_preview(&state, row);
+        (rows_box_y, overlay_x, overlay_y, ghost)
+    };
+
+    end_drag(&mut state);
+
+    state.drag_layer.put(&ghost, overlay_x, overlay_y);
+    ghost.set_visible(true);
+    if let Some(row) = state.rows.get(row_index) {
+        row.root.add_css_class("dragging");
+    }
+
+    state.drag_source_timezone = Some(timezone_name.to_string());
+    state.drag_start_rows_box_y = rows_box_y;
+    state.drag_start_row_top_y = overlay_y;
+    state.drag_row_overlay_x = overlay_x;
+    state.drag_ghost = Some(ghost);
+}
+
+fn set_drag_ghost_position(state: &PopupState, offset_y: f64) {
+    if let Some(ghost) = &state.drag_ghost {
+        let ghost_y = state.drag_start_row_top_y + offset_y;
+        state
+            .drag_layer
+            .move_(ghost, state.drag_row_overlay_x, ghost_y);
+        ghost.queue_draw();
+    }
+}
+
+fn update_drag_position(state: &mut PopupState, rows_box_y: f64) {
+    let Some(source_timezone) = state.drag_source_timezone.as_deref() else {
+        clear_drop_slot(state);
+        return;
+    };
+
+    let unlocked_rows = state
+        .rows
+        .iter()
+        .enumerate()
+        .filter(|(_, row)| !row.entry.locked && row.entry.timezone != source_timezone)
+        .collect::<Vec<_>>();
+    if unlocked_rows.is_empty() {
+        clear_drop_slot(state);
+        return;
+    }
+
+    let mut insert_index = unlocked_rows
+        .last()
+        .map(|(index, _)| index + 1)
+        .unwrap_or(0);
+    for (row_index, row) in unlocked_rows {
+        let midpoint = row
+            .root
+            .translate_coordinates(
+                &state.rows_box,
+                0.0,
+                f64::from(row.root.allocation().height()) / 2.0,
+            )
+            .map(|(_, midpoint)| midpoint);
+        let Some(midpoint) = midpoint else {
+            continue;
+        };
+        if rows_box_y < midpoint {
+            insert_index = row_index;
+            break;
+        }
+    }
+
+    if !can_drop_at_index(state, insert_index) {
+        clear_drop_slot(state);
+        return;
+    }
+    show_drop_marker(state, insert_index);
+}
+
+fn can_drop_at_index(state: &PopupState, insert_index: usize) -> bool {
+    let Some(source_timezone) = state.drag_source_timezone.as_deref() else {
+        return false;
+    };
+    let entries = selected_entries(state);
+    let Some(source_index) = entries
+        .iter()
+        .position(|entry| entry.timezone == source_timezone)
+    else {
+        return false;
+    };
+    let effective_index = if source_index < insert_index {
+        insert_index.saturating_sub(1)
+    } else {
+        insert_index
+    };
+    effective_index != source_index
+}
+
+fn clear_drop_slot(state: &mut PopupState) {
+    if state.active_drop_index.is_none() && state.insertion_marker.parent().is_none() {
+        return;
+    }
+    if state.insertion_marker.parent().is_some() {
+        state.rows_box.remove(&state.insertion_marker);
+    }
+    state.insertion_marker.set_visible(false);
+    state.active_drop_index = None;
+}
+
+fn show_drop_marker(state: &mut PopupState, insert_index: usize) {
+    if state.active_drop_index == Some(insert_index) && state.insertion_marker.parent().is_some() {
+        return;
+    }
+
+    let insertion_marker: &gtk::Widget = state.insertion_marker.upcast_ref();
+    let children = box_children(&state.rows_box)
+        .into_iter()
+        .filter(|child| child != insertion_marker)
+        .collect::<Vec<_>>();
+    let marker_position = if insert_index < state.rows.len() {
+        let row_root: &gtk::Widget = state.rows[insert_index].root.upcast_ref();
+        children
+            .iter()
+            .position(|child| child == row_root)
+            .unwrap_or(children.len())
+    } else {
+        children.len()
+    };
+    let previous_sibling = if marker_position == 0 {
+        None
+    } else {
+        Some(children[marker_position - 1].clone())
+    };
+
+    if state.insertion_marker.parent().is_some() {
+        state.rows_box.remove(&state.insertion_marker);
+    }
+    state
+        .rows_box
+        .insert_child_after(&state.insertion_marker, previous_sibling.as_ref());
+    state.insertion_marker.set_visible(true);
+    state.rows_box.queue_allocate();
+    state.active_drop_index = Some(insert_index);
+}
+
+fn end_drag(state: &mut PopupState) {
+    clear_drop_slot(state);
+    if let Some(ghost) = state.drag_ghost.take() {
+        state.drag_layer.remove(&ghost);
+    }
+    if let Some(source_timezone) = state.drag_source_timezone.take() {
+        if let Some(row) = state
+            .rows
+            .iter()
+            .find(|row| row.entry.timezone == source_timezone)
+        {
+            row.root.remove_css_class("dragging");
+        }
+    }
 }
 
 fn configure_layer_shell(window: &gtk::Window) -> Option<(i32, i32)> {
@@ -830,29 +1528,108 @@ fn build_window(
     let time_format_combo = build_dropdown(&TIME_FORMAT_OPTIONS, &config.time_format);
     sort_row.append(&time_format_combo);
 
+    let rows_overlay = gtk::Overlay::new();
+    rows_overlay.set_margin_top(14);
+    panel.append(&rows_overlay);
+
     let rows_box = gtk::Box::new(Orientation::Vertical, 10);
-    rows_box.set_margin_top(14);
-    panel.append(&rows_box);
+    rows_overlay.set_child(Some(&rows_box));
+
+    let drag_layer = gtk::Fixed::new();
+    drag_layer.set_hexpand(true);
+    drag_layer.set_vexpand(true);
+    drag_layer.set_can_target(false);
+    rows_overlay.add_overlay(&drag_layer);
+    rows_overlay.set_measure_overlay(&drag_layer, false);
+
+    let insertion_marker = gtk::Box::new(Orientation::Horizontal, 0);
+    insertion_marker.set_visible(false);
+    insertion_marker.set_size_request(-1, 4);
+    insertion_marker.set_hexpand(true);
+    insertion_marker.set_halign(Align::Fill);
+    insertion_marker.set_margin_top(2);
+    insertion_marker.set_margin_bottom(2);
+    insertion_marker.add_css_class("drag-insert-marker");
+
+    let footer = gtk::Box::new(Orientation::Vertical, 10);
+    panel.append(&footer);
+
+    let footer_separator = gtk::Separator::new(Orientation::Horizontal);
+    footer_separator.set_visible(false);
+    footer.append(&footer_separator);
+
+    let add_stack = gtk::Stack::new();
+    add_stack.set_hhomogeneous(false);
+    add_stack.set_vhomogeneous(false);
+    add_stack.set_visible(false);
+    footer.append(&add_stack);
+
+    let add_toggle_button = gtk::Button::with_label("+ Add timezone");
+    add_toggle_button.add_css_class("add-toggle");
+    add_stack.add_named(&add_toggle_button, Some("toggle"));
+
+    let add_panel = gtk::Box::new(Orientation::Vertical, 10);
+    add_stack.add_named(&add_panel, Some("panel"));
+
+    let add_box = gtk::Box::new(Orientation::Horizontal, 8);
+    add_panel.append(&add_box);
+
+    let add_entry = gtk::Entry::new();
+    add_entry.set_hexpand(true);
+    add_entry.set_placeholder_text(Some("Add timezone: Europe/Paris, Tokyo, or Asia/Kolkata"));
+    add_entry.add_css_class("search-entry");
+    add_box.append(&add_entry);
+
+    let add_button = gtk::Button::with_label("Add");
+    add_box.append(&add_button);
+
+    let search_results_scroller = gtk::ScrolledWindow::new();
+    search_results_scroller.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
+    search_results_scroller.set_overlay_scrolling(true);
+    search_results_scroller.set_propagate_natural_height(true);
+    search_results_scroller.set_max_content_height(210);
+    search_results_scroller.set_visible(false);
+    add_panel.append(&search_results_scroller);
+
+    let search_results_box = gtk::Box::new(Orientation::Vertical, 6);
+    search_results_scroller.set_child(Some(&search_results_box));
+
+    let hint = gtk::Label::new(Some("Search by timezone, city, or abbreviation like IST."));
+    hint.set_xalign(0.0);
+    hint.add_css_class("hint-label");
+    add_panel.append(&hint);
 
     let status_label = gtk::Label::new(None);
     status_label.set_xalign(0.0);
     status_label.add_css_class("status-label");
     status_label.set_visible(false);
-    panel.append(&status_label);
+    footer.append(&status_label);
 
     window.set_child(Some(&overlay));
+    let (remote_search_sender, remote_search_receiver) = mpsc::channel::<RemoteSearchMessage>();
 
     let state = Rc::new(RefCell::new(PopupState {
         config_manager,
         config,
+        resolver: TimezoneResolver::new(Some(all_timezones())),
+        place_search: Arc::new(Mutex::new(RemotePlaceSearch::new(
+            Some(all_timezones()),
+            None,
+        ))),
+        remote_search_sender,
         local_timezone,
         time_format: String::new(),
         reference_utc: Utc::now(),
+        rows_overlay,
         rows_box,
+        row_separators: Vec::new(),
+        drag_layer,
+        insertion_marker,
         rows: Vec::new(),
         dismiss_armed: false,
         live: true,
         edit_mode: false,
+        add_panel_visible: false,
         editing_timezone: None,
         syncing_controls: false,
         pending_apply_source: None,
@@ -862,6 +1639,23 @@ fn build_window(
         sort_row: sort_row.clone(),
         sort_combo: sort_combo.clone(),
         time_format_combo: time_format_combo.clone(),
+        footer_separator: footer_separator.clone(),
+        add_stack: add_stack.clone(),
+        add_toggle_button: add_toggle_button.clone(),
+        add_panel: add_panel.clone(),
+        add_entry: add_entry.clone(),
+        search_results_scroller: search_results_scroller.clone(),
+        search_results_box: search_results_box.clone(),
+        local_search_results: Vec::new(),
+        remote_search_results: Vec::new(),
+        search_results: Vec::new(),
+        search_generation: 0,
+        drag_source_timezone: None,
+        active_drop_index: None,
+        drag_start_rows_box_y: 0.0,
+        drag_start_row_top_y: 0.0,
+        drag_row_overlay_x: 0.0,
+        drag_ghost: None,
         status_label,
         self_handle: Weak::new(),
     }));
@@ -869,15 +1663,54 @@ fn build_window(
     {
         let mut state_mut = state.borrow_mut();
         state_mut.time_format = effective_time_format(&state_mut.config.time_format);
+        sync_config_controls(&mut state_mut);
         render_rows(&mut state_mut);
         update_live_button(&state_mut);
+        update_edit_mode(&state_mut);
     }
+    set_add_panel_visible(&state, false);
+
+    let state_for_remote_results = state.clone();
+    let window_weak_for_remote_results = window.downgrade();
+    glib::timeout_add_local(Duration::from_millis(50), move || {
+        if window_weak_for_remote_results.upgrade().is_none() {
+            return ControlFlow::Break;
+        }
+
+        let mut should_render = false;
+        while let Ok(message) = remote_search_receiver.try_recv() {
+            let mut state = state_for_remote_results.borrow_mut();
+            if message.generation != state.search_generation
+                || state.add_entry.text().trim() != message.query
+            {
+                continue;
+            }
+
+            state.remote_search_results = message.results;
+            state.search_results =
+                merge_search_results(&state.local_search_results, &state.remote_search_results, 8);
+            should_render = true;
+        }
+
+        if should_render {
+            render_search_results(&state_for_remote_results);
+        }
+
+        ControlFlow::Continue
+    });
 
     let state_for_edit = state.clone();
     edit_button.connect_clicked(move |_| {
-        let mut state = state_for_edit.borrow_mut();
-        state.edit_mode = !state.edit_mode;
-        clear_status(&state);
+        let leaving_edit_mode = {
+            let mut state = state_for_edit.borrow_mut();
+            state.edit_mode = !state.edit_mode;
+            clear_status(&state);
+            !state.edit_mode
+        };
+        if leaving_edit_mode {
+            set_add_panel_visible(&state_for_edit, false);
+        }
+        let state = state_for_edit.borrow();
         update_edit_mode(&state);
     });
 
@@ -929,6 +1762,27 @@ fn build_window(
                 set_status(&state, &error.to_string(), true);
             }
         }
+    });
+
+    let state_for_toggle_add = state.clone();
+    add_toggle_button.connect_clicked(move |_| {
+        let visible = !state_for_toggle_add.borrow().add_panel_visible;
+        set_add_panel_visible(&state_for_toggle_add, visible);
+    });
+
+    let state_for_add_change = state.clone();
+    add_entry.connect_changed(move |_| {
+        update_search_results(&state_for_add_change);
+    });
+
+    let state_for_add_activate = state.clone();
+    add_entry.connect_activate(move |_| {
+        submit_add_timezone(&state_for_add_activate);
+    });
+
+    let state_for_add_click = state.clone();
+    add_button.connect_clicked(move |_| {
+        submit_add_timezone(&state_for_add_click);
     });
 
     let state_for_click = state.clone();

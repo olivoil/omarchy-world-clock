@@ -1,8 +1,9 @@
 use crate::time::{friendly_timezone_name, zoned_datetime};
 use anyhow::Context;
-use chrono::{DateTime, Utc};
-use chrono_tz::Tz;
+use chrono::{DateTime, Datelike, TimeZone, Utc};
+use chrono_tz::{Tz, TZ_VARIANTS};
 use regex::Regex;
+use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::env;
@@ -12,6 +13,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::str::FromStr;
 use std::sync::OnceLock;
+use std::time::Duration;
+use unicode_normalization::{char::is_combining_mark, UnicodeNormalization};
 
 pub const CONFIG_VERSION: u64 = 3;
 pub const LOCAL_TIMEZONE_MIGRATION_VERSION: u64 = 2;
@@ -20,6 +23,29 @@ pub const DEFAULT_TIME_FORMAT: &str = "system";
 
 const VALID_SORT_MODES: [&str; 3] = ["manual", "alpha", "time"];
 const VALID_TIME_FORMATS: [&str; 3] = ["system", "24h", "ampm"];
+const STANDARD_TZ_REGIONS: [&str; 10] = [
+    "Africa",
+    "America",
+    "Antarctica",
+    "Arctic",
+    "Asia",
+    "Atlantic",
+    "Australia",
+    "Europe",
+    "Indian",
+    "Pacific",
+];
+const MANUAL_CITY_ALIASES: [(&str, &str); 9] = [
+    ("Austin", "America/Chicago"),
+    ("Bangalore", "Asia/Kolkata"),
+    ("Bengaluru", "Asia/Kolkata"),
+    ("Delhi", "Asia/Kolkata"),
+    ("Faridabad", "Asia/Kolkata"),
+    ("Gurgaon", "Asia/Kolkata"),
+    ("Gurugram", "Asia/Kolkata"),
+    ("New Delhi", "Asia/Kolkata"),
+    ("Noida", "Asia/Kolkata"),
+];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AppConfig {
@@ -45,6 +71,65 @@ impl TimezoneEntry {
         }
         trimmed.to_string()
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TimezoneSearchResult {
+    pub timezone: String,
+    pub title: String,
+    pub subtitle: String,
+}
+
+#[derive(Debug, Clone)]
+struct AliasRecord {
+    alias: String,
+    normalized_alias: String,
+    alias_words: Vec<String>,
+    timezone: String,
+}
+
+#[derive(Debug, Clone)]
+struct TimezoneRecord {
+    timezone: String,
+    normalized_timezone: String,
+    city: String,
+    normalized_city: String,
+    search_words: Vec<String>,
+    abbreviations: Vec<String>,
+    abbreviations_folded: Vec<String>,
+    search_blob: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct TimezoneResolver {
+    zones: Vec<String>,
+    alias_records: Vec<AliasRecord>,
+    alias_lookup: HashMap<String, Vec<AliasRecord>>,
+    direct_lookup: HashMap<String, String>,
+    city_lookup: HashMap<String, Vec<String>>,
+    normalized_timezone_lookup: HashMap<String, Vec<String>>,
+    abbreviation_lookup: HashMap<String, Vec<String>>,
+    records: Vec<TimezoneRecord>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RemotePlaceSearch {
+    zones: HashSet<String>,
+    timeout: f64,
+    cache: HashMap<String, Vec<TimezoneSearchResult>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RemotePlaceResponse {
+    results: Option<Vec<RemotePlaceResult>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RemotePlaceResult {
+    timezone: Option<String>,
+    name: Option<String>,
+    admin1: Option<String>,
+    country: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -165,6 +250,49 @@ impl ConfigManager {
         config
             .timezones
             .retain(|entry| entry.timezone != timezone_name);
+        config = self.normalize_config(config);
+        self.save(&config)?;
+        Ok(config)
+    }
+
+    pub fn reorder_timezone(
+        &self,
+        timezone_name: &str,
+        target_timezone_name: &str,
+        place_after: bool,
+    ) -> anyhow::Result<AppConfig> {
+        let mut config = self.load()?;
+        let timezone_name = canonical_timezone_name(timezone_name);
+        let target_timezone_name = canonical_timezone_name(target_timezone_name);
+        if timezone_name == target_timezone_name {
+            return Ok(config);
+        }
+
+        let source_index = config
+            .timezones
+            .iter()
+            .position(|entry| entry.timezone == timezone_name);
+        let target_index = config
+            .timezones
+            .iter()
+            .position(|entry| entry.timezone == target_timezone_name);
+        let (Some(source_index), Some(target_index)) = (source_index, target_index) else {
+            return Ok(config);
+        };
+
+        let source_entry = &config.timezones[source_index];
+        let target_entry = &config.timezones[target_index];
+        if source_entry.locked || target_entry.locked {
+            return Ok(config);
+        }
+
+        let entry = config.timezones.remove(source_index);
+        let mut target_index = target_index;
+        if source_index < target_index {
+            target_index -= 1;
+        }
+        let insert_index = target_index + usize::from(place_after);
+        config.timezones.insert(insert_index, entry);
         config = self.normalize_config(config);
         self.save(&config)?;
         Ok(config)
@@ -640,6 +768,582 @@ pub fn effective_time_format(time_format: &str) -> String {
         "24h" => "24h".to_string(),
         _ => detect_system_time_format_with_paths(None),
     }
+}
+
+pub fn all_timezones() -> Vec<String> {
+    TZ_VARIANTS
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+}
+
+pub fn canonical_timezone_names<I, S>(zones: I) -> Vec<String>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    let mut canonical = Vec::new();
+    let mut seen = HashSet::new();
+    for timezone_name in zones {
+        let resolved = canonical_timezone_name(timezone_name.as_ref());
+        if resolved.is_empty() || !seen.insert(resolved.clone()) {
+            continue;
+        }
+        canonical.push(resolved);
+    }
+    canonical
+}
+
+impl TimezoneResolver {
+    pub fn new(zones: Option<Vec<String>>) -> Self {
+        let zones = canonical_timezone_names(zones.unwrap_or_else(all_timezones));
+        let direct_lookup = zones
+            .iter()
+            .map(|zone| (zone.to_lowercase(), zone.clone()))
+            .collect::<HashMap<_, _>>();
+
+        let mut resolver = Self {
+            zones: zones.clone(),
+            alias_records: Vec::new(),
+            alias_lookup: HashMap::new(),
+            direct_lookup,
+            city_lookup: HashMap::new(),
+            normalized_timezone_lookup: HashMap::new(),
+            abbreviation_lookup: HashMap::new(),
+            records: Vec::new(),
+        };
+
+        resolver.records = zones
+            .iter()
+            .map(|timezone_name| resolver.build_record(timezone_name))
+            .collect::<Vec<_>>();
+        resolver.alias_records = resolver.build_alias_records();
+
+        for alias in &resolver.alias_records {
+            resolver
+                .alias_lookup
+                .entry(alias.normalized_alias.clone())
+                .or_default()
+                .push(alias.clone());
+        }
+
+        for record in &resolver.records {
+            push_lookup_value(
+                &mut resolver.normalized_timezone_lookup,
+                &record.normalized_timezone,
+                &record.timezone,
+            );
+            push_lookup_value(
+                &mut resolver.city_lookup,
+                &record.normalized_city,
+                &record.timezone,
+            );
+            for abbreviation in &record.abbreviations_folded {
+                push_lookup_value(
+                    &mut resolver.abbreviation_lookup,
+                    abbreviation,
+                    &record.timezone,
+                );
+            }
+        }
+
+        resolver
+    }
+
+    pub fn resolve(&self, raw_value: &str) -> Option<String> {
+        let candidate = raw_value.trim();
+        if candidate.is_empty() {
+            return None;
+        }
+
+        if let Some(exact) = self.direct_lookup.get(&candidate.to_lowercase()) {
+            return Some(exact.clone());
+        }
+
+        let normalized = Self::normalize(candidate);
+        let exact_normalized = self
+            .normalized_timezone_lookup
+            .get(&normalized)
+            .cloned()
+            .unwrap_or_default();
+        if exact_normalized.len() == 1 {
+            return exact_normalized.first().cloned();
+        }
+
+        let alias_matches = self
+            .alias_lookup
+            .get(&normalized)
+            .cloned()
+            .unwrap_or_default();
+        if !alias_matches.is_empty() {
+            let timezones = alias_matches
+                .iter()
+                .map(|alias| alias.timezone.clone())
+                .collect::<HashSet<_>>();
+            if timezones.len() == 1 {
+                return timezones.into_iter().next();
+            }
+        }
+
+        let city_matches = self
+            .city_lookup
+            .get(&normalized)
+            .cloned()
+            .unwrap_or_default();
+        if city_matches.len() == 1 {
+            return city_matches.first().cloned();
+        }
+
+        let abbreviation_matches = self
+            .abbreviation_lookup
+            .get(&normalized)
+            .cloned()
+            .unwrap_or_default();
+        if abbreviation_matches.len() == 1 {
+            return abbreviation_matches.first().cloned();
+        }
+
+        let matches = self.search(candidate, 2);
+        if matches.len() == 1 {
+            return matches.first().map(|item| item.timezone.clone());
+        }
+        None
+    }
+
+    pub fn search(&self, raw_value: &str, limit: usize) -> Vec<TimezoneSearchResult> {
+        let query = Self::normalize(raw_value);
+        if query.is_empty() {
+            return Vec::new();
+        }
+
+        let mut alias_scored = self
+            .alias_records
+            .iter()
+            .filter_map(|alias| {
+                self.score_alias(alias, &query)
+                    .map(|score| (score, alias.alias.clone(), alias.timezone.clone(), alias))
+            })
+            .collect::<Vec<_>>();
+        let mut scored = self
+            .records
+            .iter()
+            .filter_map(|record| {
+                self.score_record(record, &query)
+                    .map(|score| (score, record.city.clone(), record.timezone.clone(), record))
+            })
+            .collect::<Vec<_>>();
+
+        alias_scored.sort_by(|left, right| {
+            right
+                .0
+                .cmp(&left.0)
+                .then_with(|| left.1.cmp(&right.1))
+                .then_with(|| left.2.cmp(&right.2))
+        });
+        scored.sort_by(|left, right| {
+            right
+                .0
+                .cmp(&left.0)
+                .then_with(|| left.1.cmp(&right.1))
+                .then_with(|| left.2.cmp(&right.2))
+        });
+
+        let mut results = Vec::new();
+        let mut seen_timezones = HashSet::new();
+
+        for (_, _, _, alias) in alias_scored {
+            if !seen_timezones.insert(alias.timezone.clone()) {
+                continue;
+            }
+            let Some(record) = self.direct_lookup_record(&alias.timezone) else {
+                continue;
+            };
+            let abbreviation_text = if record.abbreviations.is_empty() {
+                "Timezone".to_string()
+            } else {
+                record.abbreviations.join(" / ")
+            };
+            results.push(TimezoneSearchResult {
+                timezone: alias.timezone.clone(),
+                title: alias.alias.clone(),
+                subtitle: format!("{}  ·  {}", alias.timezone, abbreviation_text),
+            });
+            if results.len() >= limit {
+                return results;
+            }
+        }
+
+        for (_, _, _, record) in scored {
+            if !seen_timezones.insert(record.timezone.clone()) {
+                continue;
+            }
+            let abbreviation_text = if record.abbreviations.is_empty() {
+                "Timezone".to_string()
+            } else {
+                record.abbreviations.join(" / ")
+            };
+            results.push(TimezoneSearchResult {
+                timezone: record.timezone.clone(),
+                title: record.city.clone(),
+                subtitle: format!("{}  ·  {}", record.timezone, abbreviation_text),
+            });
+            if results.len() >= limit {
+                break;
+            }
+        }
+
+        results
+    }
+
+    pub fn normalize(value: &str) -> String {
+        let without_marks = value
+            .nfkd()
+            .filter(|character| !is_combining_mark(*character))
+            .collect::<String>();
+        let translated = without_marks
+            .chars()
+            .map(|character| match character {
+                '/' | '_' | '-' | '.' | ',' | ':' | '(' | ')' | '\'' => ' ',
+                _ => character,
+            })
+            .collect::<String>();
+        translated
+            .to_lowercase()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    fn build_alias_records(&self) -> Vec<AliasRecord> {
+        let mut aliases = HashMap::new();
+        for (alias, timezone_name) in MANUAL_CITY_ALIASES {
+            self.add_alias_record(&mut aliases, alias, timezone_name);
+        }
+
+        for (alias, timezone_name) in timezone_link_aliases() {
+            self.add_alias_record(&mut aliases, alias, timezone_name);
+
+            let mut alias_parts = alias.split('/');
+            let alias_region = alias_parts.next().unwrap_or_default();
+            let alias_city = alias_parts.next().unwrap_or_default();
+            let mut timezone_parts = timezone_name.split('/');
+            let timezone_region = timezone_parts.next().unwrap_or_default();
+            if !alias_region.is_empty()
+                && alias_region == timezone_region
+                && STANDARD_TZ_REGIONS.contains(&alias_region)
+                && Self::is_city_alias_candidate(alias_city)
+            {
+                self.add_alias_record(&mut aliases, &alias_city.replace('_', " "), timezone_name);
+            }
+        }
+
+        let mut values = aliases.into_values().collect::<Vec<_>>();
+        values.sort_by(|left, right| {
+            left.alias
+                .cmp(&right.alias)
+                .then_with(|| left.timezone.cmp(&right.timezone))
+        });
+        values
+    }
+
+    fn add_alias_record(
+        &self,
+        aliases: &mut HashMap<(String, String), AliasRecord>,
+        alias: &str,
+        timezone_name: &str,
+    ) {
+        let canonical_timezone = canonical_timezone_name(timezone_name);
+        if !self.zones.contains(&canonical_timezone) {
+            return;
+        }
+
+        let normalized_alias = Self::normalize(alias);
+        if normalized_alias.is_empty() {
+            return;
+        }
+
+        let key = (alias.to_string(), canonical_timezone.clone());
+        if aliases.contains_key(&key) {
+            return;
+        }
+
+        aliases.insert(
+            key,
+            AliasRecord {
+                alias: alias.to_string(),
+                normalized_alias: normalized_alias.clone(),
+                alias_words: unique_words(&normalized_alias),
+                timezone: canonical_timezone,
+            },
+        );
+    }
+
+    fn is_city_alias_candidate(value: &str) -> bool {
+        let letters = value
+            .chars()
+            .filter(|character| character.is_alphabetic())
+            .collect::<Vec<_>>();
+        if letters.len() < 4 {
+            return false;
+        }
+        value.to_uppercase() != value
+    }
+
+    fn direct_lookup_record(&self, timezone_name: &str) -> Option<&TimezoneRecord> {
+        self.records
+            .iter()
+            .find(|record| record.timezone == timezone_name)
+    }
+
+    fn build_record(&self, timezone_name: &str) -> TimezoneRecord {
+        let now_utc = Utc::now();
+        let zone = Tz::from_str(timezone_name).unwrap_or(chrono_tz::UTC);
+        let year = now_utc.year();
+        let seasonal_samples = vec![
+            now_utc,
+            Utc.with_ymd_and_hms(year, 1, 15, 0, 0, 0).unwrap(),
+            Utc.with_ymd_and_hms(year, 7, 15, 0, 0, 0).unwrap(),
+            now_utc + chrono::Duration::days(182),
+        ];
+
+        let mut abbreviations = Vec::new();
+        for moment in seasonal_samples {
+            let abbreviation = moment.with_timezone(&zone).format("%Z").to_string();
+            if !abbreviation.is_empty() && !abbreviations.contains(&abbreviation) {
+                abbreviations.push(abbreviation);
+            }
+        }
+
+        let city = timezone_name
+            .split('/')
+            .next_back()
+            .unwrap_or(timezone_name)
+            .replace('_', " ");
+        let search_blob = timezone_name.replace(['_', '-'], " ");
+        let normalized_timezone = Self::normalize(&timezone_name.replace('/', " "));
+        let normalized_city = Self::normalize(&city);
+        let search_blob_normalized = Self::normalize(&search_blob);
+        let search_words = unique_words(&search_blob_normalized);
+        let abbreviations_folded = abbreviations
+            .iter()
+            .map(|value| value.to_lowercase())
+            .collect::<Vec<_>>();
+
+        TimezoneRecord {
+            timezone: timezone_name.to_string(),
+            normalized_timezone,
+            city,
+            normalized_city,
+            search_words,
+            abbreviations,
+            abbreviations_folded,
+            search_blob: search_blob_normalized,
+        }
+    }
+
+    fn score_record(&self, record: &TimezoneRecord, query: &str) -> Option<i32> {
+        if query == record.timezone.to_lowercase() {
+            return Some(1400);
+        }
+        if query == record.normalized_timezone {
+            return Some(1360);
+        }
+        if query == record.normalized_city {
+            return Some(1320);
+        }
+        if record.abbreviations_folded.iter().any(|item| item == query) {
+            return Some(if record.abbreviations_folded.len() == 1 {
+                1280
+            } else {
+                1260
+            });
+        }
+        if record.normalized_timezone.starts_with(query) {
+            return Some(1180);
+        }
+        if record
+            .search_words
+            .iter()
+            .any(|word| word.starts_with(query))
+        {
+            return Some(1120);
+        }
+        if record.normalized_city.contains(query) {
+            return Some(1060);
+        }
+        if record.normalized_timezone.contains(query) {
+            return Some(1000);
+        }
+        if record
+            .abbreviations_folded
+            .iter()
+            .any(|abbreviation| abbreviation.contains(query))
+        {
+            return Some(960);
+        }
+        if record.search_blob.contains(query) {
+            return Some(920);
+        }
+        None
+    }
+
+    fn score_alias(&self, alias: &AliasRecord, query: &str) -> Option<i32> {
+        if query == alias.normalized_alias {
+            return Some(1500);
+        }
+        if alias.normalized_alias.starts_with(query) {
+            return Some(1440);
+        }
+        if alias.alias_words.iter().any(|word| word.starts_with(query)) {
+            return Some(1400);
+        }
+        if alias.normalized_alias.contains(query) {
+            return Some(1340);
+        }
+        None
+    }
+}
+
+impl RemotePlaceSearch {
+    const ENDPOINT: &'static str = "https://geocoding-api.open-meteo.com/v1/search";
+
+    pub fn new(zones: Option<Vec<String>>, timeout: Option<f64>) -> Self {
+        Self {
+            zones: canonical_timezone_names(zones.unwrap_or_else(all_timezones))
+                .into_iter()
+                .collect(),
+            timeout: timeout.unwrap_or(2.5),
+            cache: HashMap::new(),
+        }
+    }
+
+    pub fn search(&mut self, raw_value: &str, limit: usize) -> Vec<TimezoneSearchResult> {
+        let query = raw_value.split_whitespace().collect::<Vec<_>>().join(" ");
+        let query_key = TimezoneResolver::normalize(&query);
+        if query_key.len() < 3 {
+            return Vec::new();
+        }
+
+        let cached = if let Some(cached) = self.cache.get(&query_key) {
+            cached.clone()
+        } else {
+            let fetched = self.fetch(&query);
+            self.cache.insert(query_key.clone(), fetched.clone());
+            fetched
+        };
+
+        cached.into_iter().take(limit).collect()
+    }
+
+    fn fetch(&self, query: &str) -> Vec<TimezoneSearchResult> {
+        let Ok(client) = Client::builder()
+            .timeout(Duration::from_secs_f64(self.timeout))
+            .build()
+        else {
+            return Vec::new();
+        };
+
+        let Ok(response) = client
+            .get(Self::ENDPOINT)
+            .query(&[("name", query), ("count", "12"), ("format", "json")])
+            .header(reqwest::header::ACCEPT, "application/json")
+            .header(reqwest::header::USER_AGENT, "omarchy-world-clock/1.0")
+            .send()
+        else {
+            return Vec::new();
+        };
+
+        let Ok(payload) = response.json::<RemotePlaceResponse>() else {
+            return Vec::new();
+        };
+
+        let mut results = Vec::new();
+        let mut seen_timezones = HashSet::new();
+        for item in payload.results.unwrap_or_default() {
+            let Some(raw_timezone) = item.timezone.as_deref() else {
+                continue;
+            };
+
+            let timezone_name = canonical_timezone_name(raw_timezone.trim());
+            if !self.zones.contains(&timezone_name) || !seen_timezones.insert(timezone_name.clone())
+            {
+                continue;
+            }
+
+            let Some(title) = Self::format_title(&item) else {
+                continue;
+            };
+
+            let mut subtitle_parts = vec![timezone_name.clone()];
+            let location_summary = Self::format_location_summary(&item);
+            if !location_summary.is_empty() {
+                subtitle_parts.push(location_summary);
+            }
+
+            results.push(TimezoneSearchResult {
+                timezone: timezone_name,
+                title,
+                subtitle: subtitle_parts.join("  ·  "),
+            });
+        }
+
+        results
+    }
+
+    fn format_title(item: &RemotePlaceResult) -> Option<String> {
+        let parts = Self::unique_parts([
+            item.name.as_deref(),
+            item.admin1.as_deref(),
+            item.country.as_deref(),
+        ]);
+        if parts.is_empty() {
+            None
+        } else {
+            Some(parts.join(", "))
+        }
+    }
+
+    fn format_location_summary(item: &RemotePlaceResult) -> String {
+        Self::unique_parts([item.admin1.as_deref(), item.country.as_deref()]).join(", ")
+    }
+
+    fn unique_parts<'a>(values: impl IntoIterator<Item = Option<&'a str>>) -> Vec<String> {
+        let mut parts = Vec::new();
+        let mut seen = HashSet::new();
+        for value in values {
+            let Some(value) = value else {
+                continue;
+            };
+            let cleaned = value.split_whitespace().collect::<Vec<_>>().join(" ");
+            if cleaned.is_empty() {
+                continue;
+            }
+            let folded = cleaned.to_lowercase();
+            if !seen.insert(folded) {
+                continue;
+            }
+            parts.push(cleaned);
+        }
+        parts
+    }
+}
+
+fn push_lookup_value(lookup: &mut HashMap<String, Vec<String>>, key: &str, value: &str) {
+    let entry = lookup.entry(key.to_string()).or_default();
+    if !entry.iter().any(|existing| existing == value) {
+        entry.push(value.to_string());
+    }
+}
+
+fn unique_words(value: &str) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut seen = HashSet::new();
+    for word in value.split_whitespace() {
+        if seen.insert(word.to_string()) {
+            words.push(word.to_string());
+        }
+    }
+    words
 }
 
 #[cfg(test)]

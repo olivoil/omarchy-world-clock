@@ -95,6 +95,42 @@ window {{
   font-size: 14px;
 }}
 
+.clock-row {{
+  border-radius: 14px;
+}}
+
+.clock-row.dragging {{
+  opacity: 0.18;
+}}
+
+.clock-row.drag-preview {{
+  background: {panel_background};
+  border: 1px solid {drag_preview_border};
+  border-radius: 14px;
+  padding: 10px 12px;
+  box-shadow: 0 14px 28px {drag_shadow};
+}}
+
+.drag-preview-time {{
+  color: {foreground};
+  font-family: "JetBrainsMono Nerd Font Mono", "JetBrains Mono", monospace;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}}
+
+.drag-insert-marker {{
+  min-height: 4px;
+  border-radius: 999px;
+  background: {drag_insert};
+}}
+
+.drag-handle-label {{
+  color: {drag_handle};
+  font-size: 20px;
+  font-weight: 700;
+}}
+
 .clock-context,
 .clock-meta {{
   color: {muted_foreground};
@@ -136,6 +172,37 @@ window {{
 
 .time-entry.error {{
   border-color: rgba(255, 139, 139, 0.92);
+}}
+
+entry.search-entry {{
+  color: {foreground};
+  caret-color: {accent};
+  background: {time_chip_background};
+  border: 1px solid {time_chip_border};
+  border-radius: 10px;
+  padding: 9px 12px;
+  font-size: 15px;
+}}
+
+entry.search-entry:focus {{
+  border-color: {accent_focus_border};
+  box-shadow: 0 0 0 3px {accent_focus_shadow};
+}}
+
+button {{
+  color: {foreground};
+  background: {button_background};
+  border: 1px solid {button_border};
+  border-radius: 10px;
+  padding: 8px 12px;
+}}
+
+button:hover {{
+  background: {button_hover_background};
+}}
+
+button:focus {{
+  border-color: {accent_focus_border};
 }}
 
 button.icon-button {{
@@ -190,6 +257,10 @@ button.remove-button {{
   min-width: 32px;
   min-height: 32px;
   padding: 0;
+}}
+
+button.remove-button:disabled {{
+  opacity: 0.28;
 }}
 
 dropdown.popup-select {{
@@ -277,6 +348,31 @@ button.icon-button.destructive:hover {{
   border-color: rgba(255, 139, 139, 0.28);
 }}
 
+button.search-result-button {{
+  padding: 10px 12px;
+  border-radius: 12px;
+}}
+
+button.search-result-button:hover {{
+  background: {search_result_hover_background};
+  border-color: {search_result_hover_border};
+}}
+
+button.add-toggle {{
+  padding: 9px 14px;
+}}
+
+.search-result-title {{
+  color: {foreground};
+  font-size: 14px;
+  font-weight: 700;
+}}
+
+.search-result-meta {{
+  color: {muted_foreground};
+  font-size: 12px;
+}}
+
 .empty-state-title {{
   color: {foreground};
   font-size: 15px;
@@ -295,6 +391,7 @@ separator {{
         panel_background = rgba(&palette.background, 0.94),
         panel_border = rgba(&palette.accent, 0.42),
         shadow = rgba("#000000", 0.30),
+        drag_shadow = rgba("#000000", 0.24),
         accent = palette.accent,
         foreground = palette.foreground,
         muted_foreground = rgba(&palette.foreground, 0.72),
@@ -302,11 +399,19 @@ separator {{
         time_chip_border = rgba(&palette.foreground, 0.12),
         accent_focus_border = rgba(&palette.accent, 0.75),
         accent_focus_shadow = rgba(&palette.accent, 0.14),
+        drag_preview_border = rgba(&palette.accent, 0.34),
+        drag_insert = rgba(&palette.accent, 0.78),
+        drag_handle = rgba(&palette.foreground, 0.44),
+        button_background = rgba(&palette.background, 0.72),
+        button_border = rgba(&palette.foreground, 0.10),
+        button_hover_background = rgba(&palette.background, 0.86),
         icon_button_border = rgba(&palette.foreground, 0.06),
         icon_button_hover_background = rgba(&palette.foreground, 0.06),
         icon_button_hover_border = rgba(&palette.foreground, 0.16),
         icon_button_active_background = rgba(&palette.accent, 0.10),
         icon_button_active_border = rgba(&palette.accent, 0.30),
+        search_result_hover_background = rgba(&palette.accent, 0.12),
+        search_result_hover_border = rgba(&palette.accent, 0.35),
         separator = rgba(&palette.foreground, 0.09),
     )
 }

@@ -79,7 +79,7 @@ window {{
   background: {panel_background};
   border: 1px solid {panel_border};
   border-radius: 18px;
-  padding: 18px 18px 12px 18px;
+  padding: 18px 26px 20px 26px;
   box-shadow: 0 18px 36px {shadow};
 }}
 

@@ -794,8 +794,11 @@ fn render_read_view(state: &mut PopupState) {
         card.set_size_request(READ_CARD_WIDTH, -1);
         card_shell.set_child(Some(&card));
 
-        let title = gtk::Label::new(Some(&entry.display_label()));
+        let title = gtk::Label::new(Some(&read_card_title(&entry)));
         title.set_xalign(0.0);
+        title.set_wrap(false);
+        title.set_ellipsize(gtk::pango::EllipsizeMode::End);
+        title.set_single_line_mode(true);
         title.add_css_class("timezone-card-title");
         card.append(&title);
 
@@ -821,18 +824,6 @@ fn render_read_view(state: &mut PopupState) {
 
         card.append(&footer);
 
-        let controls = gtk::Fixed::new();
-        controls.set_halign(Align::Start);
-        controls.set_valign(Align::Start);
-        controls.set_size_request(READ_CARD_WIDTH + 24, 40);
-        controls.set_overflow(gtk::Overflow::Visible);
-        controls.add_css_class("timezone-card-controls");
-        controls.set_visible(show_card_controls);
-        controls.set_opacity(if show_card_controls { 1.0 } else { 0.0 });
-        controls.set_sensitive(show_card_controls);
-        card_shell.add_overlay(&controls);
-        card_shell.set_measure_overlay(&controls, false);
-
         let remove_button = gtk::Button::from_icon_name("edit-delete-symbolic");
         remove_button.add_css_class("icon-button");
         remove_button.add_css_class("card-control-button");
@@ -840,8 +831,20 @@ fn render_read_view(state: &mut PopupState) {
         remove_button.add_css_class("destructive");
         remove_button.set_size_request(36, 36);
         remove_button.set_tooltip_text(Some("Remove timezone."));
+
+        let controls = gtk::Fixed::new();
+        controls.set_halign(Align::Start);
+        controls.set_valign(Align::Start);
+        controls.set_size_request(READ_CARD_WIDTH + 18, 36);
+        controls.set_overflow(gtk::Overflow::Visible);
+        controls.set_visible(show_card_controls);
+        controls.set_opacity(if show_card_controls { 1.0 } else { 0.0 });
+        controls.set_sensitive(show_card_controls);
+        controls.put(&remove_button, f64::from(READ_CARD_WIDTH - 18), 0.0);
+        card_shell.add_overlay(&controls);
+        card_shell.set_measure_overlay(&controls, false);
+
         remove_button.set_sensitive(show_card_controls);
-        controls.put(&remove_button, f64::from(READ_CARD_WIDTH - 24), 4.0);
 
         if let Some(state_handle) = state_handle.as_ref() {
             let state_for_remove = state_handle.clone();
@@ -1382,6 +1385,16 @@ fn format_title(entry: &TimezoneEntry, local_timezone: &str) -> String {
         title = format!("{title}  ·  Local");
     }
     title
+}
+
+fn read_card_title(entry: &TimezoneEntry) -> String {
+    let label = entry.display_label();
+    label
+        .split(',')
+        .map(str::trim)
+        .find(|part| !part.is_empty())
+        .unwrap_or(&label)
+        .to_string()
 }
 
 fn update_row_widgets(state: &mut PopupState) {
@@ -2911,7 +2924,7 @@ pub fn run_popup(pid_path: &Path, config_path: Option<PathBuf>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        map_coordinates_to_lng_lat, read_entry_count, sort_read_entries_by_time,
+        map_coordinates_to_lng_lat, read_card_title, read_entry_count, sort_read_entries_by_time,
         timeline_side_hours, timeline_tick_relative_minutes, visible_read_entries, READ_CARD_LIMIT,
     };
     use crate::config::TimezoneEntry;
@@ -3038,6 +3051,24 @@ mod tests {
         let side_hours = timeline_side_hours(&anchor, &entries, reference_utc);
 
         assert_eq!(side_hours, 12);
+    }
+
+    #[test]
+    fn read_card_title_prefers_the_first_location_segment() {
+        let entry = TimezoneEntry {
+            timezone: "America/Vancouver".to_string(),
+            label: "Vancouver Island, British Columbia, Canada".to_string(),
+            locked: false,
+        };
+
+        assert_eq!(read_card_title(&entry), "Vancouver Island");
+    }
+
+    #[test]
+    fn read_card_title_falls_back_to_the_friendly_timezone_name() {
+        let entry = entry("America/Argentina/Buenos_Aires");
+
+        assert_eq!(read_card_title(&entry), "Buenos Aires");
     }
 
     #[test]

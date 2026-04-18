@@ -1,11 +1,7 @@
 [package]
-name = "omarchy-world-clock-rs"
+name = "omarchy-world-clock"
 version = "0.1.0"
 edition = "2021"
-
-[[bin]]
-name = "omarchy-world-clock"
-path = "src/main.rs"
 
 [dependencies]
 anyhow = "1.0"

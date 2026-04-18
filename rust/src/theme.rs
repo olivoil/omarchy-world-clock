@@ -147,6 +147,38 @@ flowbox.timezone-card-grid {{
   box-shadow: 0 14px 32px {card_shadow};
 }}
 
+.timezone-card.manageable {{
+  padding-top: 54px;
+}}
+
+.timezone-card.dragging {{
+  opacity: 0.82;
+}}
+
+.timezone-card.drag-preview {{
+  background: color-mix(in srgb, {card_background} 92%, {accent} 8%);
+  border-color: color-mix(in srgb, {card_border} 45%, {accent} 55%);
+  box-shadow: 0 22px 46px {card_shadow};
+}}
+
+.timezone-card.drag-placeholder {{
+  background: color-mix(in srgb, {card_background} 72%, transparent 28%);
+  border: 1px dashed color-mix(in srgb, {card_border} 35%, {accent} 65%);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, {card_border} 15%, {accent} 85%);
+}}
+
+.timezone-card-controls {{
+  margin: 0;
+}}
+
+.card-control-button {{
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
+  background: {time_chip_background};
+  border: 1px solid {time_chip_border};
+}}
+
 .timezone-card-title {{
   color: {foreground};
   font-size: 19px;

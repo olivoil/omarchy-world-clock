@@ -20,6 +20,7 @@ use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::rc::{Rc, Weak};
 use std::sync::{mpsc, Arc, Mutex};
@@ -56,6 +57,7 @@ struct PopupState {
     insertion_marker: gtk::Box,
     rows: Vec<RowWidgets>,
     dismiss_armed: bool,
+    allow_close: bool,
     live: bool,
     edit_mode: bool,
     add_panel_visible: bool,
@@ -119,6 +121,30 @@ fn clear_box(container: &gtk::Box) {
     while let Some(child) = container.first_child() {
         container.remove(&child);
     }
+}
+
+fn debug_popup_event(message: &str) {
+    if std::env::var_os("OMARCHY_WORLD_CLOCK_DEBUG").is_none() {
+        return;
+    }
+
+    if let Ok(mut file) = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("/tmp/owc-popup-debug.log")
+    {
+        let _ = writeln!(file, "{message}");
+    }
+}
+
+fn request_window_close(
+    state_handle: &Rc<RefCell<PopupState>>,
+    window: &gtk::Window,
+    reason: &str,
+) {
+    debug_popup_event(&format!("request_window_close reason={reason}"));
+    state_handle.borrow_mut().allow_close = true;
+    window.close();
 }
 
 fn box_children(container: &gtk::Box) -> Vec<gtk::Widget> {
@@ -629,7 +655,8 @@ fn clear_search_results(state: &mut PopupState) {
 }
 
 fn set_add_panel_visible(state_handle: &Rc<RefCell<PopupState>>, visible: bool) {
-    let focus_entry = {
+    debug_popup_event(&format!("set_add_panel_visible visible={visible}"));
+    let (focus_entry, entry_to_clear) = {
         let mut state = state_handle.borrow_mut();
         state.add_panel_visible = visible;
         if visible {
@@ -638,20 +665,30 @@ fn set_add_panel_visible(state_handle: &Rc<RefCell<PopupState>>, visible: bool) 
             if state.add_entry.text().trim().is_empty() {
                 state.search_results_scroller.set_visible(false);
             }
-            Some(state.add_entry.clone())
+            (Some(state.add_entry.clone()), None)
         } else {
-            state.add_entry.set_text("");
             clear_search_results(&mut state);
             state.add_stack.set_visible_child_name("toggle");
-            None
+            (None, Some(state.add_entry.clone()))
         }
     };
+
+    if let Some(entry) = entry_to_clear {
+        entry.set_text("");
+    }
 
     if let Some(entry) = focus_entry {
         glib::idle_add_local_once(move || {
             let _ = entry.grab_focus();
         });
     }
+}
+
+fn focus_add_toggle_button(state_handle: &Rc<RefCell<PopupState>>) {
+    let button = state_handle.borrow().add_toggle_button.clone();
+    glib::idle_add_local_once(move || {
+        let _ = button.grab_focus();
+    });
 }
 
 fn sync_config_controls(state: &mut PopupState) {
@@ -1185,10 +1222,15 @@ fn add_timezone(state_handle: &Rc<RefCell<PopupState>>, timezone_name: &str, lab
     let config_manager = state_handle.borrow().config_manager.clone();
     match config_manager.add_timezone(timezone_name, label) {
         Ok(config) => {
+            debug_popup_event(&format!(
+                "add_timezone success timezone={timezone_name} label={display_name}"
+            ));
             set_add_panel_visible(state_handle, false);
             let mut state = state_handle.borrow_mut();
             refresh_config_state(&mut state, config);
             set_status(&state, &format!("Added {display_name}."), false);
+            drop(state);
+            focus_add_toggle_button(state_handle);
         }
         Err(error) => {
             let state = state_handle.borrow();
@@ -1489,7 +1531,7 @@ fn configure_layer_shell(window: &gtk::Window) -> Option<(i32, i32)> {
     window.init_layer_shell();
     window.set_namespace(Some("omarchy-world-clock-rs"));
     window.set_layer(Layer::Overlay);
-    window.set_keyboard_mode(KeyboardMode::OnDemand);
+    window.set_keyboard_mode(KeyboardMode::Exclusive);
     window.set_anchor(Edge::Top, true);
     window.set_anchor(Edge::Bottom, true);
     window.set_anchor(Edge::Left, true);
@@ -1802,6 +1844,7 @@ fn build_window(
         insertion_marker,
         rows: Vec::new(),
         dismiss_armed: false,
+        allow_close: false,
         live: true,
         edit_mode: false,
         add_panel_visible: false,
@@ -1983,6 +2026,13 @@ fn build_window(
 
     let state_for_toggle_add = state.clone();
     add_toggle_button.connect_clicked(move |_| {
+        {
+            let state = state_for_toggle_add.borrow();
+            debug_popup_event(&format!(
+                "add_toggle_clicked edit_mode={} add_panel_visible={}",
+                state.edit_mode, state.add_panel_visible
+            ));
+        }
         let visible = !state_for_toggle_add.borrow().add_panel_visible;
         set_add_panel_visible(&state_for_toggle_add, visible);
     });
@@ -2004,14 +2054,31 @@ fn build_window(
 
     let state_for_click = state.clone();
     let window_for_click = window.clone();
+    let overlay_for_click = overlay.clone();
+    let panel_for_click = panel.clone().upcast::<gtk::Widget>();
     let dismiss_click = gtk::GestureClick::new();
     dismiss_click.set_button(0);
-    dismiss_click.connect_pressed(move |_, _, _, _| {
-        if state_for_click.borrow().dismiss_armed {
-            window_for_click.close();
+    dismiss_click.connect_pressed(move |_, _, x, y| {
+        let state = state_for_click.borrow();
+        debug_popup_event(&format!(
+            "dismiss_click pressed x={x:.1} y={y:.1} dismiss_armed={} edit_mode={}",
+            state.dismiss_armed, state.edit_mode
+        ));
+        if !state.dismiss_armed || state.edit_mode {
+            return;
         }
+        drop(state);
+
+        if let Some(picked) = overlay_for_click.pick(x, y, gtk::PickFlags::DEFAULT) {
+            if picked == panel_for_click || picked.is_ancestor(&panel_for_click) {
+                debug_popup_event("dismiss_click inside_panel");
+                return;
+            }
+        }
+
+        request_window_close(&state_for_click, &window_for_click, "dismiss_click");
     });
-    dismiss_area.add_controller(dismiss_click);
+    overlay.add_controller(dismiss_click);
 
     state
 }
@@ -2048,10 +2115,11 @@ pub fn run_popup(pid_path: &Path, config_path: Option<PathBuf>) -> Result<()> {
     let _ = configure_layer_shell(&window);
 
     let key_controller = gtk::EventControllerKey::new();
+    let state_for_escape = state.clone();
     let window_for_escape = window.clone();
     key_controller.connect_key_pressed(move |_, key, _, _| {
         if key == gdk::Key::Escape {
-            window_for_escape.close();
+            request_window_close(&state_for_escape, &window_for_escape, "escape");
             return Propagation::Stop;
         }
         Propagation::Proceed
@@ -2061,14 +2129,29 @@ pub fn run_popup(pid_path: &Path, config_path: Option<PathBuf>) -> Result<()> {
     let state_for_focus = state.clone();
     window.connect_is_active_notify(move |window| {
         let state = state_for_focus.borrow();
+        debug_popup_event(&format!(
+            "is_active_notify active={} dismiss_armed={} edit_mode={}",
+            window.is_active(),
+            state.dismiss_armed,
+            state.edit_mode
+        ));
         if state.dismiss_armed && !state.edit_mode && !window.is_active() {
-            window.close();
+            drop(state);
+            request_window_close(&state_for_focus, window, "focus_lost_read_mode");
         }
     });
 
     let main_loop = MainLoop::new(None, false);
+    let state_for_close = state.clone();
     let main_loop_for_close = main_loop.clone();
     window.connect_close_request(move |_| {
+        debug_popup_event(&format!(
+            "close_request allow_close={}",
+            state_for_close.borrow().allow_close
+        ));
+        if !state_for_close.borrow().allow_close {
+            return Propagation::Stop;
+        }
         main_loop_for_close.quit();
         Propagation::Proceed
     });

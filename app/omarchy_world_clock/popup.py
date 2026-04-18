@@ -1139,6 +1139,10 @@ class WorldClockWindow(Gtk.Window):
         self.add_entry.grab_focus()
         return False
 
+    def focus_add_toggle(self) -> bool:
+        self.add_toggle_button.grab_focus()
+        return False
+
     def set_add_panel_visible(self, visible: bool) -> None:
         if visible:
             self.add_panel.show_all()
@@ -1355,6 +1359,7 @@ class WorldClockWindow(Gtk.Window):
 
         self.config = self.config_manager.add_timezone(timezone_name, label=label)
         self.set_add_panel_visible(False)
+        GLib.idle_add(self.focus_add_toggle)
         self.show_status(f"Added {label or timezone_name}.")
         self.rebuild_rows()
 

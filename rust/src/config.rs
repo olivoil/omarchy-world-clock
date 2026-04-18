@@ -22,7 +22,6 @@ pub const DEFAULT_SORT_MODE: &str = "manual";
 pub const DEFAULT_TIME_FORMAT: &str = "system";
 
 const VALID_SORT_MODES: [&str; 3] = ["manual", "alpha", "time"];
-const VALID_TIME_FORMATS: [&str; 3] = ["system", "24h", "ampm"];
 const STANDARD_TZ_REGIONS: [&str; 10] = [
     "Africa",
     "America",
@@ -331,22 +330,25 @@ impl ConfigManager {
 
     pub fn set_time_format(&self, time_format: &str) -> anyhow::Result<AppConfig> {
         let mut config = self.load()?;
-        config.time_format = if valid_time_format(time_format) {
-            time_format.to_string()
-        } else {
-            DEFAULT_TIME_FORMAT.to_string()
-        };
+        let _ = time_format;
+        config.time_format = DEFAULT_TIME_FORMAT.to_string();
         config = self.normalize_config(config);
         self.save(&config)?;
         Ok(config)
     }
 
     fn config_from_raw(&self, raw: RawConfig, local_timezone: &str) -> AppConfig {
-        let config_version = raw.version.unwrap_or(1);
+        let RawConfig {
+            version,
+            timezones,
+            sort_mode,
+            time_format,
+        } = raw;
+        let config_version = version.unwrap_or(1);
         let mut seen = HashSet::new();
         let mut entries = Vec::new();
 
-        for raw_entry in raw.timezones.unwrap_or_default() {
+        for raw_entry in timezones.unwrap_or_default() {
             let Some(entry) = self.parse_entry(raw_entry) else {
                 continue;
             };
@@ -372,19 +374,14 @@ impl ConfigManager {
             }
         }
 
-        let sort_mode = raw
-            .sort_mode
+        let sort_mode = sort_mode
             .filter(|value| valid_sort_mode(value))
             .unwrap_or_else(|| DEFAULT_SORT_MODE.to_string());
-        let time_format = raw
-            .time_format
-            .filter(|value| valid_time_format(value))
-            .unwrap_or_else(|| DEFAULT_TIME_FORMAT.to_string());
-
+        let _ = time_format;
         self.normalize_config(AppConfig {
             timezones: entries,
             sort_mode,
-            time_format,
+            time_format: DEFAULT_TIME_FORMAT.to_string(),
         })
     }
 
@@ -444,11 +441,7 @@ impl ConfigManager {
             } else {
                 DEFAULT_SORT_MODE.to_string()
             },
-            time_format: if valid_time_format(&config.time_format) {
-                config.time_format
-            } else {
-                DEFAULT_TIME_FORMAT.to_string()
-            },
+            time_format: DEFAULT_TIME_FORMAT.to_string(),
         }
     }
 
@@ -474,10 +467,6 @@ impl ConfigManager {
 
 fn valid_sort_mode(value: &str) -> bool {
     VALID_SORT_MODES.contains(&value)
-}
-
-fn valid_time_format(value: &str) -> bool {
-    VALID_TIME_FORMATS.contains(&value)
 }
 
 fn home_dir() -> PathBuf {
@@ -1530,7 +1519,7 @@ mod tests {
         assert_eq!(sort_updated.sort_mode, "alpha");
 
         let format_updated = manager.set_time_format("ampm").unwrap();
-        assert_eq!(format_updated.time_format, "ampm");
+        assert_eq!(format_updated.time_format, "system");
 
         let fallback = manager.set_sort_mode("bogus").unwrap();
         assert_eq!(fallback.sort_mode, "manual");

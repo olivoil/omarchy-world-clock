@@ -1,5 +1,6 @@
 use crate::config::{
     detect_local_timezone, effective_time_format, ordered_timezones, AppConfig, ConfigManager,
+    DEFAULT_TIME_FORMAT,
 };
 use crate::runtime::popup_running;
 use crate::time::{format_display_time, zoned_datetime};
@@ -71,8 +72,24 @@ pub fn module_payload_from_config(
     local_timezone: &str,
     popup_active: bool,
 ) -> ModulePayload {
+    let time_format = effective_time_format(DEFAULT_TIME_FORMAT);
+    module_payload_from_config_with_time_format(
+        config,
+        now,
+        local_timezone,
+        popup_active,
+        &time_format,
+    )
+}
+
+fn module_payload_from_config_with_time_format(
+    config: &AppConfig,
+    now: DateTime<Utc>,
+    local_timezone: &str,
+    popup_active: bool,
+    time_format: &str,
+) -> ModulePayload {
     let entries = ordered_timezones(&config.timezones, &config.sort_mode, now);
-    let time_format = effective_time_format(&config.time_format);
     let rows: Vec<(String, String)> = entries
         .iter()
         .map(|entry| {
@@ -101,7 +118,10 @@ pub fn module_payload_from_config(
 
 #[cfg(test)]
 mod tests {
-    use super::{format_tooltip_clock_rows, module_payload_from_config};
+    use super::{
+        format_tooltip_clock_rows, module_payload_from_config,
+        module_payload_from_config_with_time_format,
+    };
     use crate::config::{AppConfig, TimezoneEntry};
     use chrono::{TimeZone, Utc};
 
@@ -145,7 +165,8 @@ mod tests {
         };
         let now = Utc.with_ymd_and_hms(2026, 4, 16, 20, 26, 0).unwrap();
 
-        let payload = module_payload_from_config(&config, now, "UTC", true);
+        let payload =
+            module_payload_from_config_with_time_format(&config, now, "UTC", true, "ampm");
 
         assert_eq!(payload.text, "");
         assert_eq!(payload.class, "active");

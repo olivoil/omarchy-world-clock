@@ -1,6 +1,6 @@
 use crate::config::{
     all_timezones, detect_local_timezone, effective_time_format, AppConfig, ConfigManager,
-    RemotePlaceSearch, TimezoneEntry, TimezoneResolver, TimezoneSearchResult,
+    RemotePlaceSearch, TimezoneEntry, TimezoneResolver, TimezoneSearchResult, DEFAULT_TIME_FORMAT,
 };
 use crate::layout::{
     load_window_border_size, load_window_gap, popup_top_margin, POPUP_TOP_CONTENT_MARGIN,
@@ -62,15 +62,12 @@ struct PopupState {
     edit_mode: bool,
     add_panel_visible: bool,
     editing_timezone: Option<String>,
-    syncing_controls: bool,
     pending_apply_source: Option<glib::SourceId>,
     pending_apply_timezone: Option<String>,
     content_stack: gtk::Stack,
     panel_title: gtk::Label,
-    format_row: gtk::Box,
     live_button: gtk::Button,
     edit_button: gtk::Button,
-    time_format_combo: gtk::DropDown,
     read_summary_time: gtk::Label,
     read_summary_location: gtk::Label,
     timeline_area: gtk::DrawingArea,
@@ -107,8 +104,6 @@ struct RemoteSearchMessage {
     results: Vec<TimezoneSearchResult>,
 }
 
-const TIME_FORMAT_OPTIONS: [(&str, &str); 3] =
-    [("system", "System"), ("24h", "24h"), ("ampm", "AM/PM")];
 const READ_PANEL_TARGET_HEIGHT: i32 = 540;
 const READ_PANEL_WIDTH: i32 = (READ_PANEL_TARGET_HEIGHT * 16) / 9;
 const READ_TIMELINE_WIDTH: i32 = READ_PANEL_WIDTH - 60;
@@ -164,96 +159,6 @@ fn box_children(container: &gtk::Box) -> Vec<gtk::Widget> {
     children
 }
 
-fn dropdown_selection_index(options: &[(&str, &str)], value: &str) -> u32 {
-    options.iter().position(|(id, _)| *id == value).unwrap_or(0) as u32
-}
-
-fn dropdown_selection_value(options: &[(&str, &str)], index: u32, fallback: &str) -> String {
-    options
-        .get(index as usize)
-        .map(|(id, _)| (*id).to_string())
-        .unwrap_or_else(|| fallback.to_string())
-}
-
-fn update_dropdown_list_item(list_item: &gtk::ListItem) {
-    let Some(container) = list_item
-        .child()
-        .and_then(|child| child.downcast::<gtk::Box>().ok())
-    else {
-        return;
-    };
-    let Some(label) = container
-        .first_child()
-        .and_then(|child| child.downcast::<gtk::Label>().ok())
-    else {
-        return;
-    };
-    let Some(checkmark) = container
-        .last_child()
-        .and_then(|child| child.downcast::<gtk::Label>().ok())
-    else {
-        return;
-    };
-
-    if let Some(item) = list_item
-        .item()
-        .and_then(|item| item.downcast::<gtk::StringObject>().ok())
-    {
-        label.set_text(item.string().as_str());
-    } else {
-        label.set_text("");
-    }
-
-    checkmark.set_visible(list_item.is_selected());
-}
-
-fn build_dropdown(options: &[(&str, &str)], active_value: &str) -> gtk::DropDown {
-    let labels: Vec<&str> = options.iter().map(|(_, label)| *label).collect();
-    let dropdown = gtk::DropDown::from_strings(&labels);
-    dropdown.add_css_class("popup-select");
-    dropdown.set_selected(dropdown_selection_index(options, active_value));
-
-    let factory = gtk::SignalListItemFactory::new();
-    factory.connect_setup(|_, object| {
-        let Some(list_item) = object.downcast_ref::<gtk::ListItem>() else {
-            return;
-        };
-
-        let row = gtk::Box::new(Orientation::Horizontal, 12);
-        row.set_hexpand(true);
-        row.set_halign(Align::Fill);
-        row.add_css_class("popup-select-row");
-
-        let label = gtk::Label::new(None);
-        label.set_hexpand(true);
-        label.set_xalign(0.0);
-        label.add_css_class("popup-select-item-label");
-        row.append(&label);
-
-        let checkmark = gtk::Label::new(Some("✓"));
-        checkmark.set_halign(Align::End);
-        checkmark.set_xalign(1.0);
-        checkmark.add_css_class("popup-select-item-check");
-        row.append(&checkmark);
-
-        list_item.set_child(Some(&row));
-
-        let list_item = list_item.clone();
-        list_item.connect_selected_notify(|item| {
-            update_dropdown_list_item(item);
-        });
-    });
-    factory.connect_bind(|_, object| {
-        let Some(list_item) = object.downcast_ref::<gtk::ListItem>() else {
-            return;
-        };
-        update_dropdown_list_item(list_item);
-    });
-    dropdown.set_list_factory(Some(&factory));
-
-    dropdown
-}
-
 fn cancel_pending_apply(state: &mut PopupState) {
     if let Some(source_id) = state.pending_apply_source.take() {
         source_id.remove();
@@ -307,6 +212,7 @@ fn time_entry_width_chars(time_format: &str) -> i32 {
 
 fn sanitize_popup_config(mut config: AppConfig) -> AppConfig {
     config.sort_mode = "manual".to_string();
+    config.time_format = DEFAULT_TIME_FORMAT.to_string();
     for entry in &mut config.timezones {
         entry.locked = false;
     }
@@ -607,7 +513,6 @@ fn update_edit_mode(state: &PopupState) {
         .content_stack
         .set_visible_child_name(if state.edit_mode { "edit" } else { "read" });
     state.panel_title.set_visible(state.edit_mode);
-    state.format_row.set_visible(state.edit_mode);
     if state.edit_mode {
         state.edit_button.add_css_class("active");
         state.edit_button.set_tooltip_text(Some("Leave edit mode."));
@@ -713,21 +618,10 @@ fn focus_add_toggle_button(state_handle: &Rc<RefCell<PopupState>>) {
     });
 }
 
-fn sync_config_controls(state: &mut PopupState) {
-    state.syncing_controls = true;
-    state
-        .time_format_combo
-        .set_selected(dropdown_selection_index(
-            &TIME_FORMAT_OPTIONS,
-            &state.config.time_format,
-        ));
-    state.syncing_controls = false;
-}
-
 fn refresh_config_state(state: &mut PopupState, config: AppConfig) {
     cancel_pending_apply(state);
     state.config = sanitize_popup_config(config);
-    state.time_format = effective_time_format(&state.config.time_format);
+    state.time_format = effective_time_format(DEFAULT_TIME_FORMAT);
     if state.editing_timezone.as_ref().is_some_and(|timezone| {
         !state
             .config
@@ -738,7 +632,6 @@ fn refresh_config_state(state: &mut PopupState, config: AppConfig) {
         state.editing_timezone = None;
     }
     clear_status(state);
-    sync_config_controls(state);
     render_rows(state);
 }
 
@@ -1768,18 +1661,6 @@ fn build_window(
     let edit_root = gtk::Box::new(Orientation::Vertical, 14);
     content_stack.add_named(&edit_root, Some("edit"));
 
-    let format_row = gtk::Box::new(Orientation::Horizontal, 12);
-    format_row.set_halign(Align::Start);
-    format_row.set_visible(false);
-    edit_root.append(&format_row);
-
-    let format_label = gtk::Label::new(Some("Format"));
-    format_label.add_css_class("hint-label");
-    format_row.append(&format_label);
-
-    let time_format_combo = build_dropdown(&TIME_FORMAT_OPTIONS, &config.time_format);
-    format_row.append(&time_format_combo);
-
     let rows_overlay = gtk::Overlay::new();
     rows_overlay.set_margin_top(6);
     edit_root.append(&rows_overlay);
@@ -1884,15 +1765,12 @@ fn build_window(
         edit_mode: false,
         add_panel_visible: false,
         editing_timezone: None,
-        syncing_controls: false,
         pending_apply_source: None,
         pending_apply_timezone: None,
         content_stack: content_stack.clone(),
         panel_title: title.clone(),
-        format_row: format_row.clone(),
         live_button: live_button.clone(),
         edit_button: edit_button.clone(),
-        time_format_combo: time_format_combo.clone(),
         read_summary_time: read_summary_time.clone(),
         read_summary_location: read_summary_location.clone(),
         timeline_area: timeline_area.clone(),
@@ -1979,8 +1857,7 @@ fn build_window(
 
     {
         let mut state_mut = state.borrow_mut();
-        state_mut.time_format = effective_time_format(&state_mut.config.time_format);
-        sync_config_controls(&mut state_mut);
+        state_mut.time_format = effective_time_format(DEFAULT_TIME_FORMAT);
         render_rows(&mut state_mut);
         update_live_button(&state_mut);
         update_edit_mode(&state_mut);
@@ -2034,29 +1911,6 @@ fn build_window(
     let state_for_now = state.clone();
     live_button.connect_clicked(move |_| {
         reset_live_now(&state_for_now);
-    });
-
-    let state_for_time_format = state.clone();
-    time_format_combo.connect_selected_notify(move |combo| {
-        let config_manager = {
-            let state = state_for_time_format.borrow();
-            if state.syncing_controls {
-                return;
-            }
-            state.config_manager.clone()
-        };
-        let time_format =
-            dropdown_selection_value(&TIME_FORMAT_OPTIONS, combo.selected(), "system");
-        match config_manager.set_time_format(&time_format) {
-            Ok(config) => {
-                let mut state = state_for_time_format.borrow_mut();
-                refresh_config_state(&mut state, config);
-            }
-            Err(error) => {
-                let state = state_for_time_format.borrow();
-                set_status(&state, &error.to_string(), true);
-            }
-        }
     });
 
     let state_for_toggle_add = state.clone();

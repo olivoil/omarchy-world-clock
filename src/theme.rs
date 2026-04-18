@@ -525,6 +525,7 @@ button.icon-button.destructive:hover {{
 
 button.search-result-button {{
   background: rgba(255, 255, 255, 0.01);
+  border-color: transparent;
   padding: 10px 12px;
   border-radius: 12px;
   box-shadow: none;
@@ -532,7 +533,12 @@ button.search-result-button {{
 
 button.search-result-button:hover {{
   background: {search_result_hover_background};
-  border-color: {search_result_hover_border};
+  border-color: transparent;
+}}
+
+button.search-result-button:focus {{
+  border-color: transparent;
+  box-shadow: 0 0 0 3px {accent_focus_shadow};
 }}
 
 button.add-toggle {{
@@ -592,7 +598,6 @@ separator {{
         icon_button_active_background = rgba(&palette.accent, 0.10),
         icon_button_active_border = rgba(&palette.accent, 0.30),
         search_result_hover_background = rgba(&palette.accent, 0.12),
-        search_result_hover_border = rgba(&palette.accent, 0.35),
         separator = rgba(&palette.foreground, 0.09),
     )
 }

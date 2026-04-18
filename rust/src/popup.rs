@@ -132,9 +132,11 @@ const READ_CARD_SPACING: i32 = 18;
 const READ_CARD_WIDTH: i32 =
     (READ_TIMELINE_WIDTH - (READ_CARD_SPACING * (READ_CARD_COLUMNS - 1))) / READ_CARD_COLUMNS;
 const ADD_SEARCH_RESULT_LIMIT: usize = 8;
-const ADD_MAP_HEIGHT: i32 = 400;
+const ADD_MAP_HEIGHT: i32 = READ_TIMELINE_WIDTH / 2;
+const ADD_MAP_ASPECT_RATIO: f32 = 2.0;
 const ADD_MAP_HOVER_CARD_WIDTH: i32 = 272;
 const ADD_MAP_HOVER_CARD_HEIGHT: i32 = 140;
+const WORLD_MAP_ASSET_BYTES: &[u8] = include_bytes!("../assets/world-map.png");
 
 const MAP_REGIONS: [MapRegion; 11] = [
     MapRegion {
@@ -590,6 +592,16 @@ fn color_components(hex_value: &str, fallback: (f64, f64, f64)) -> (f64, f64, f6
         .unwrap_or(fallback)
 }
 
+fn load_world_map_texture() -> Option<gdk::Texture> {
+    match gdk::Texture::from_bytes(&glib::Bytes::from_static(WORLD_MAP_ASSET_BYTES)) {
+        Ok(texture) => Some(texture),
+        Err(error) => {
+            debug_popup_event(&format!("world_map_texture_load_failed error={error}"));
+            None
+        }
+    }
+}
+
 fn draw_polygon(
     context: &gtk::cairo::Context,
     width: f64,
@@ -620,35 +632,14 @@ fn draw_polygon(
     let _ = context.stroke();
 }
 
-fn draw_add_map(state: &PopupState, context: &gtk::cairo::Context, width: f64, height: f64) {
+fn draw_add_map_fallback(context: &gtk::cairo::Context, width: f64, height: f64) {
     let palette = load_palette();
     let background = color_components(&palette.background, (0.04, 0.09, 0.18));
     let foreground = color_components(&palette.foreground, (0.85, 0.88, 0.94));
-    let accent = color_components(&palette.accent, (0.98, 0.66, 0.41));
 
     context.set_source_rgba(background.0, background.1, background.2, 0.12);
     context.rectangle(0.0, 0.0, width, height);
     let _ = context.fill();
-
-    for region in MAP_REGIONS {
-        let (left, top, right, bottom) = region.bounds;
-        let is_hovered = state
-            .hovered_map_region
-            .is_some_and(|index| MAP_REGIONS[index].timezone == region.timezone);
-        context.set_source_rgba(
-            accent.0,
-            accent.1,
-            accent.2,
-            if is_hovered { 0.20 } else { 0.10 },
-        );
-        context.rectangle(
-            left * width,
-            top * height,
-            (right - left) * width,
-            (bottom - top) * height,
-        );
-        let _ = context.fill();
-    }
 
     for points in WORLD_LANDMASSES {
         draw_polygon(
@@ -659,6 +650,37 @@ fn draw_add_map(state: &PopupState, context: &gtk::cairo::Context, width: f64, h
             (foreground.0, foreground.1, foreground.2, 0.10),
             (foreground.0, foreground.1, foreground.2, 0.16),
         );
+    }
+}
+
+fn draw_add_map_overlay(
+    state: &PopupState,
+    context: &gtk::cairo::Context,
+    width: f64,
+    height: f64,
+) {
+    let palette = load_palette();
+    let foreground = color_components(&palette.foreground, (0.85, 0.88, 0.94));
+    let accent = color_components(&palette.accent, (0.98, 0.66, 0.41));
+
+    for region in MAP_REGIONS {
+        let (left, top, right, bottom) = region.bounds;
+        let is_hovered = state
+            .hovered_map_region
+            .is_some_and(|index| MAP_REGIONS[index].timezone == region.timezone);
+        context.set_source_rgba(
+            accent.0,
+            accent.1,
+            accent.2,
+            if is_hovered { 0.16 } else { 0.07 },
+        );
+        context.rectangle(
+            left * width,
+            top * height,
+            (right - left) * width,
+            (bottom - top) * height,
+        );
+        let _ = context.fill();
     }
 
     context.set_source_rgba(foreground.0, foreground.1, foreground.2, 0.10);
@@ -1956,6 +1978,7 @@ fn build_window(
     let panel = gtk::Box::new(Orientation::Vertical, 14);
     panel.add_css_class("world-clock-panel");
     panel.set_width_request(READ_PANEL_WIDTH);
+    panel.set_size_request(READ_PANEL_WIDTH, -1);
     panel.set_halign(Align::Center);
     top_band.append(&panel);
 
@@ -2102,16 +2125,57 @@ fn build_window(
     add_map_shell.add_css_class("add-map-shell");
     add_map_shell.set_halign(Align::Center);
     add_map_shell.set_width_request(READ_TIMELINE_WIDTH);
+    add_map_shell.set_size_request(READ_TIMELINE_WIDTH, ADD_MAP_HEIGHT);
+    add_map_shell.set_overflow(gtk::Overflow::Hidden);
     add_root.append(&add_map_shell);
+
+    let add_map_frame = gtk::AspectFrame::new(0.5, 0.5, ADD_MAP_ASPECT_RATIO, false);
+    add_map_frame.set_halign(Align::Center);
+    add_map_frame.set_valign(Align::Center);
+    add_map_frame.set_size_request(READ_TIMELINE_WIDTH, ADD_MAP_HEIGHT);
+    add_map_frame.set_overflow(gtk::Overflow::Hidden);
+    add_map_shell.set_child(Some(&add_map_frame));
+
+    let add_map_texture = load_world_map_texture();
+    let add_map_picture = if let Some(texture) = add_map_texture.as_ref() {
+        gtk::Picture::for_paintable(texture)
+    } else {
+        gtk::Picture::new()
+    };
+    add_map_picture.set_can_shrink(true);
+    add_map_picture.set_content_fit(gtk::ContentFit::Contain);
+    add_map_picture.set_width_request(READ_TIMELINE_WIDTH);
+    add_map_picture.set_height_request(ADD_MAP_HEIGHT);
+    add_map_picture.set_halign(Align::Center);
+    add_map_picture.set_valign(Align::Center);
+    add_map_picture.add_css_class("add-map-picture");
+    add_map_frame.set_child(Some(&add_map_picture));
+
+    let add_map_fallback = gtk::DrawingArea::new();
+    add_map_fallback.set_content_width(READ_TIMELINE_WIDTH);
+    add_map_fallback.set_width_request(READ_TIMELINE_WIDTH);
+    add_map_fallback.set_content_height(ADD_MAP_HEIGHT);
+    add_map_fallback.set_visible(add_map_texture.is_none());
+    add_map_fallback.set_can_target(false);
+    add_map_fallback.set_halign(Align::Center);
+    add_map_fallback.set_valign(Align::Center);
+    add_map_shell.add_overlay(&add_map_fallback);
+    add_map_shell.set_measure_overlay(&add_map_fallback, false);
 
     let add_map_area = gtk::DrawingArea::new();
     add_map_area.set_content_width(READ_TIMELINE_WIDTH);
     add_map_area.set_width_request(READ_TIMELINE_WIDTH);
     add_map_area.set_content_height(ADD_MAP_HEIGHT);
-    add_map_shell.set_child(Some(&add_map_area));
+    add_map_area.set_halign(Align::Center);
+    add_map_area.set_valign(Align::Center);
+    add_map_shell.add_overlay(&add_map_area);
+    add_map_shell.set_measure_overlay(&add_map_area, false);
 
     let add_map_hover_layer = gtk::Fixed::new();
     add_map_hover_layer.set_can_target(false);
+    add_map_hover_layer.set_size_request(READ_TIMELINE_WIDTH, ADD_MAP_HEIGHT);
+    add_map_hover_layer.set_halign(Align::Center);
+    add_map_hover_layer.set_valign(Align::Center);
     add_map_shell.add_overlay(&add_map_hover_layer);
     add_map_shell.set_measure_overlay(&add_map_hover_layer, false);
 
@@ -2293,7 +2357,11 @@ fn build_window(
     let state_for_add_map = state.clone();
     add_map_area.set_draw_func(move |_, context, width, height| {
         let state = state_for_add_map.borrow();
-        draw_add_map(&state, context, width as f64, height as f64);
+        draw_add_map_overlay(&state, context, width as f64, height as f64);
+    });
+
+    add_map_fallback.set_draw_func(move |_, context, width, height| {
+        draw_add_map_fallback(context, width as f64, height as f64);
     });
 
     {

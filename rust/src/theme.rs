@@ -139,6 +139,10 @@ flowbox.timezone-card-grid {{
   margin-top: 4px;
 }}
 
+.timezone-card-shell {{
+  margin-top: 0;
+}}
+
 .timezone-card {{
   background: {card_background};
   border: 1px solid {card_border};
@@ -147,36 +151,34 @@ flowbox.timezone-card-grid {{
   box-shadow: 0 14px 32px {card_shadow};
 }}
 
-.timezone-card.manageable {{
-  padding-top: 54px;
-}}
-
-.timezone-card.dragging {{
-  opacity: 0.82;
-}}
-
-.timezone-card.drag-preview {{
-  background: color-mix(in srgb, {card_background} 92%, {accent} 8%);
-  border-color: color-mix(in srgb, {card_border} 45%, {accent} 55%);
-  box-shadow: 0 22px 46px {card_shadow};
-}}
-
-.timezone-card.drag-placeholder {{
-  background: color-mix(in srgb, {card_background} 72%, transparent 28%);
-  border: 1px dashed color-mix(in srgb, {card_border} 35%, {accent} 65%);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, {card_border} 15%, {accent} 85%);
-}}
-
 .timezone-card-controls {{
   margin: 0;
 }}
 
-.card-control-button {{
-  min-width: 32px;
-  min-height: 32px;
+button.card-control-button {{
+  min-width: 36px;
+  min-height: 36px;
   padding: 0;
-  background: {time_chip_background};
-  border: 1px solid {time_chip_border};
+  background: {panel_background};
+  border: 1px solid {panel_border};
+  border-radius: 999px;
+}}
+
+button.card-control-button:hover {{
+  background: {icon_button_hover_background};
+  border-color: {icon_button_hover_border};
+}}
+
+button.card-hover-delete {{
+  min-width: 36px;
+  min-height: 36px;
+  padding: 0;
+  border-radius: 999px;
+  box-shadow: 0 10px 22px {card_shadow};
+}}
+
+button.card-hover-delete image {{
+  color: {foreground};
 }}
 
 .timezone-card-title {{

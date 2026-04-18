@@ -159,8 +159,8 @@ button.card-control-button {{
   min-width: 36px;
   min-height: 36px;
   padding: 0;
-  background: {panel_background};
-  border: 1px solid {panel_border};
+  background: {button_background};
+  border: 1px solid {time_chip_border};
   border-radius: 999px;
 }}
 

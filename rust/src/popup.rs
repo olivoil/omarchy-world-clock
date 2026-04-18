@@ -731,11 +731,11 @@ fn render_read_view(state: &mut PopupState) {
 
         card.append(&footer);
 
-        let controls = gtk::Box::new(Orientation::Horizontal, 0);
-        controls.set_halign(Align::End);
+        let controls = gtk::Fixed::new();
+        controls.set_halign(Align::Start);
         controls.set_valign(Align::Start);
-        controls.set_margin_top(0);
-        controls.set_margin_end(-18);
+        controls.set_size_request(READ_CARD_WIDTH + 24, 40);
+        controls.set_overflow(gtk::Overflow::Visible);
         controls.add_css_class("timezone-card-controls");
         controls.set_visible(show_card_controls);
         controls.set_opacity(if show_card_controls { 1.0 } else { 0.0 });
@@ -751,7 +751,7 @@ fn render_read_view(state: &mut PopupState) {
         remove_button.set_size_request(36, 36);
         remove_button.set_tooltip_text(Some("Remove timezone."));
         remove_button.set_sensitive(show_card_controls);
-        controls.append(&remove_button);
+        controls.put(&remove_button, f64::from(READ_CARD_WIDTH - 24), 4.0);
 
         if let Some(state_handle) = state_handle.as_ref() {
             let state_for_remove = state_handle.clone();

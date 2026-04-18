@@ -757,6 +757,9 @@ fn build_read_card(entry: &TimezoneEntry, time_format: &str) -> ReadCardWidgets 
 
     let title = gtk::Label::new(None);
     title.set_xalign(0.0);
+    title.set_wrap(false);
+    title.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    title.set_single_line_mode(true);
     title.add_css_class("timezone-card-title");
     card.append(&title);
 
@@ -788,9 +791,8 @@ fn build_read_card(entry: &TimezoneEntry, time_format: &str) -> ReadCardWidgets 
     let controls = gtk::Fixed::new();
     controls.set_halign(Align::Start);
     controls.set_valign(Align::Start);
-    controls.set_size_request(READ_CARD_WIDTH + 24, 40);
+    controls.set_size_request(READ_CARD_WIDTH + 18, 36);
     controls.set_overflow(gtk::Overflow::Visible);
-    controls.add_css_class("timezone-card-controls");
     card_shell.add_overlay(&controls);
     card_shell.set_measure_overlay(&controls, false);
 
@@ -801,7 +803,7 @@ fn build_read_card(entry: &TimezoneEntry, time_format: &str) -> ReadCardWidgets 
     remove_button.add_css_class("destructive");
     remove_button.set_size_request(36, 36);
     remove_button.set_tooltip_text(Some("Remove timezone."));
-    controls.put(&remove_button, f64::from(READ_CARD_WIDTH - 24), 4.0);
+    controls.put(&remove_button, f64::from(READ_CARD_WIDTH - 18), 0.0);
 
     ReadCardWidgets {
         entry: entry.clone(),
@@ -883,7 +885,7 @@ fn update_read_cards(
     for (card, entry) in state.read_cards.iter_mut().zip(update_entries.iter()) {
         card.entry = entry.clone();
         let zoned = zoned_datetime(reference_utc, &entry.timezone);
-        card.title.set_text(&entry.display_label());
+        card.title.set_text(&read_card_title(entry));
         card.timezone_label.set_text(&entry.timezone);
         card.delta_label
             .set_text(&relative_time_label(anchor, &zoned));
@@ -1535,6 +1537,16 @@ fn format_title(entry: &TimezoneEntry, local_timezone: &str) -> String {
         title = format!("{title}  ·  Local");
     }
     title
+}
+
+fn read_card_title(entry: &TimezoneEntry) -> String {
+    let label = entry.display_label();
+    label
+        .split(',')
+        .map(str::trim)
+        .find(|part| !part.is_empty())
+        .unwrap_or(&label)
+        .to_string()
 }
 
 fn update_row_widgets(state: &mut PopupState) {
@@ -3167,7 +3179,7 @@ pub fn run_popup(pid_path: &Path, config_path: Option<PathBuf>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        map_coordinates_to_lng_lat, read_entry_count, sort_read_entries_by_time,
+        map_coordinates_to_lng_lat, read_card_title, read_entry_count, sort_read_entries_by_time,
         timeline_side_hours, timeline_tick_relative_minutes, visible_read_entries, READ_CARD_LIMIT,
     };
     use crate::config::TimezoneEntry;
@@ -3294,6 +3306,24 @@ mod tests {
         let side_hours = timeline_side_hours(&anchor, &entries, reference_utc);
 
         assert_eq!(side_hours, 12);
+    }
+
+    #[test]
+    fn read_card_title_prefers_the_first_location_segment() {
+        let entry = TimezoneEntry {
+            timezone: "America/Vancouver".to_string(),
+            label: "Vancouver Island, British Columbia, Canada".to_string(),
+            locked: false,
+        };
+
+        assert_eq!(read_card_title(&entry), "Vancouver Island");
+    }
+
+    #[test]
+    fn read_card_title_falls_back_to_the_friendly_timezone_name() {
+        let entry = entry("America/Argentina/Buenos_Aires");
+
+        assert_eq!(read_card_title(&entry), "Buenos Aires");
     }
 
     #[test]

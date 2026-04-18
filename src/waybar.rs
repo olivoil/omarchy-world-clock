@@ -289,7 +289,9 @@ pub fn patch_config_text(text: &str, command_path: &str) -> Result<String> {
 
 pub fn unpatch_config_text(text: &str) -> Result<String> {
     let text = patch_modules_center(text, false)?;
-    let text = module_marker_block_regex().replace(&text, "\n").into_owned();
+    let text = module_marker_block_regex()
+        .replace(&text, "\n")
+        .into_owned();
     let text = legacy_module_marker_block_regex()
         .replace(&text, "\n")
         .into_owned();
@@ -428,9 +430,9 @@ fn module_payload_from_config_with_time_format(
 #[cfg(test)]
 mod tests {
     use super::{
-        format_tooltip_clock_rows, module_payload_from_config, patch_config_text, patch_style_text,
+        format_tooltip_clock_rows, module_payload_from_config,
+        module_payload_from_config_with_time_format, patch_config_text, patch_style_text,
         unpatch_config_text, unpatch_style_text,
-        module_payload_from_config_with_time_format,
     };
     use crate::config::{AppConfig, TimezoneEntry};
     use chrono::{TimeZone, Utc};
@@ -541,8 +543,7 @@ mod tests {
 
     #[test]
     fn patch_config_inserts_module_once() {
-        let patched =
-            patch_config_text(WAYBAR_CONFIG, "~/.local/bin/omarchy-world-clock").unwrap();
+        let patched = patch_config_text(WAYBAR_CONFIG, "~/.local/bin/omarchy-world-clock").unwrap();
         assert!(patched.contains(
             "\"modules-center\": [\"clock\", \"custom/world-clock\", \"custom/update\"]"
         ));
@@ -565,8 +566,7 @@ mod tests {
 
     #[test]
     fn unpatch_config_removes_module() {
-        let patched =
-            patch_config_text(WAYBAR_CONFIG, "~/.local/bin/omarchy-world-clock").unwrap();
+        let patched = patch_config_text(WAYBAR_CONFIG, "~/.local/bin/omarchy-world-clock").unwrap();
         let unpatched = unpatch_config_text(&patched).unwrap();
         assert!(!unpatched.contains("\"custom/world-clock\""));
         assert!(unpatched.contains("\"modules-center\": [\"clock\", \"custom/update\"]"));

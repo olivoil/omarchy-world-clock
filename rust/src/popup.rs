@@ -110,6 +110,11 @@ struct RemoteSearchMessage {
 const TIME_FORMAT_OPTIONS: [(&str, &str); 3] =
     [("system", "System"), ("24h", "24h"), ("ampm", "AM/PM")];
 const READ_TIMELINE_WIDTH: i32 = 700;
+const READ_CARD_COLUMNS: i32 = 3;
+const READ_CARD_LIMIT: usize = 9;
+const READ_CARD_SPACING: i32 = 18;
+const READ_CARD_WIDTH: i32 =
+    (READ_TIMELINE_WIDTH - (READ_CARD_SPACING * (READ_CARD_COLUMNS - 1))) / READ_CARD_COLUMNS;
 
 impl Drop for PidGuard {
     fn drop(&mut self) {
@@ -310,18 +315,21 @@ fn selected_entries(state: &PopupState) -> Vec<TimezoneEntry> {
     state.config.timezones.clone()
 }
 
-fn read_entries(state: &PopupState) -> Vec<TimezoneEntry> {
-    let mut entries = state
-        .config
-        .timezones
+fn visible_read_entries(entries: &[TimezoneEntry], local_timezone: &str) -> Vec<TimezoneEntry> {
+    let mut visible = entries
         .iter()
-        .filter(|entry| entry.timezone != state.local_timezone)
+        .filter(|entry| entry.timezone != local_timezone)
+        .take(READ_CARD_LIMIT)
         .cloned()
         .collect::<Vec<_>>();
-    if entries.is_empty() {
-        entries = state.config.timezones.clone();
+    if visible.is_empty() {
+        visible = entries.iter().take(READ_CARD_LIMIT).cloned().collect();
     }
-    entries
+    visible
+}
+
+fn read_entries(state: &PopupState) -> Vec<TimezoneEntry> {
+    visible_read_entries(&state.config.timezones, &state.local_timezone)
 }
 
 fn row_can_reorder(state: &PopupState, _entry: &TimezoneEntry) -> bool {
@@ -548,7 +556,7 @@ fn render_read_view(state: &mut PopupState) {
 
         let card = gtk::Box::new(Orientation::Vertical, 16);
         card.add_css_class("timezone-card");
-        card.set_size_request(320, -1);
+        card.set_size_request(READ_CARD_WIDTH, -1);
 
         let title = gtk::Label::new(Some(&entry.display_label()));
         title.set_xalign(0.0);
@@ -1724,9 +1732,11 @@ fn build_window(
 
     let cards_flow = gtk::FlowBox::new();
     cards_flow.set_selection_mode(SelectionMode::None);
-    cards_flow.set_max_children_per_line(2);
-    cards_flow.set_row_spacing(18);
-    cards_flow.set_column_spacing(18);
+    cards_flow.set_halign(Align::Center);
+    cards_flow.set_width_request(READ_TIMELINE_WIDTH);
+    cards_flow.set_max_children_per_line(READ_CARD_COLUMNS as u32);
+    cards_flow.set_row_spacing(READ_CARD_SPACING as u32);
+    cards_flow.set_column_spacing(READ_CARD_SPACING as u32);
     cards_flow.add_css_class("timezone-card-grid");
     read_root.append(&cards_flow);
 
@@ -2182,4 +2192,54 @@ pub fn run_popup(pid_path: &Path, config_path: Option<PathBuf>) -> Result<()> {
     window.present();
     main_loop.run();
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{visible_read_entries, READ_CARD_LIMIT};
+    use crate::config::TimezoneEntry;
+
+    fn entry(timezone: &str) -> TimezoneEntry {
+        TimezoneEntry {
+            timezone: timezone.to_string(),
+            label: String::new(),
+            locked: false,
+        }
+    }
+
+    #[test]
+    fn visible_read_entries_skips_local_and_caps_to_limit() {
+        let entries = vec![
+            entry("America/Cancun"),
+            entry("Europe/Paris"),
+            entry("Asia/Tokyo"),
+            entry("Europe/Lisbon"),
+            entry("America/Los_Angeles"),
+            entry("America/New_York"),
+            entry("Asia/Kolkata"),
+            entry("Australia/Sydney"),
+            entry("Europe/Berlin"),
+            entry("Europe/London"),
+            entry("Asia/Singapore"),
+        ];
+
+        let visible = visible_read_entries(&entries, "America/Cancun");
+
+        assert_eq!(visible.len(), READ_CARD_LIMIT);
+        assert!(visible.iter().all(|entry| entry.timezone != "America/Cancun"));
+        assert_eq!(visible.first().map(|entry| entry.timezone.as_str()), Some("Europe/Paris"));
+        assert_eq!(
+            visible.last().map(|entry| entry.timezone.as_str()),
+            Some("Europe/London")
+        );
+    }
+
+    #[test]
+    fn visible_read_entries_falls_back_to_local_when_it_is_the_only_entry() {
+        let entries = vec![entry("America/Cancun")];
+
+        let visible = visible_read_entries(&entries, "America/Cancun");
+
+        assert_eq!(visible, entries);
+    }
 }

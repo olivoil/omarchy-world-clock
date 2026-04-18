@@ -89,6 +89,68 @@ window {{
   font-size: 18px;
 }}
 
+.read-summary-time {{
+  color: {foreground};
+  font-family: "JetBrainsMono Nerd Font Mono", "JetBrains Mono", monospace;
+  font-size: 72px;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+}}
+
+.read-summary-location {{
+  color: {read_location};
+  font-size: 20px;
+  font-weight: 600;
+}}
+
+.timeline-shell {{
+  margin: 2px 10px 6px 10px;
+}}
+
+.timeline-time {{
+  color: {foreground};
+  font-size: 16px;
+  font-weight: 600;
+}}
+
+.timeline-zone {{
+  color: {muted_foreground};
+  font-size: 13px;
+  font-weight: 600;
+}}
+
+flowbox.timezone-card-grid {{
+  margin-top: 4px;
+}}
+
+.timezone-card {{
+  background: {card_background};
+  border: 1px solid {card_border};
+  border-radius: 22px;
+  padding: 20px 22px;
+  box-shadow: 0 14px 32px {card_shadow};
+}}
+
+.timezone-card-title {{
+  color: {foreground};
+  font-size: 19px;
+  font-weight: 700;
+}}
+
+.timezone-card-time {{
+  color: {foreground};
+  font-family: "JetBrainsMono Nerd Font Mono", "JetBrains Mono", monospace;
+  font-size: 52px;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+}}
+
+.timezone-card-meta {{
+  color: {muted_foreground};
+  font-size: 14px;
+  font-weight: 500;
+}}
+
 .clock-title {{
   color: {foreground};
   font-weight: 700;
@@ -237,22 +299,6 @@ button.icon-button.active image {{
   color: {foreground};
 }}
 
-button.lock-button {{
-  min-width: 32px;
-  min-height: 32px;
-  padding: 0;
-  opacity: 0.28;
-}}
-
-button.lock-button image {{
-  margin-left: 1px;
-  margin-top: 1px;
-}}
-
-button.lock-button.active {{
-  opacity: 1.0;
-}}
-
 button.remove-button {{
   min-width: 32px;
   min-height: 32px;
@@ -392,11 +438,15 @@ separator {{
         panel_border = rgba(&palette.accent, 0.42),
         shadow = rgba("#000000", 0.30),
         drag_shadow = rgba("#000000", 0.24),
+        card_shadow = rgba("#000000", 0.18),
         accent = palette.accent,
         foreground = palette.foreground,
+        read_location = rgba(&palette.foreground, 0.76),
         muted_foreground = rgba(&palette.foreground, 0.72),
         time_chip_background = rgba("#000000", 0.10),
         time_chip_border = rgba(&palette.foreground, 0.12),
+        card_background = rgba("#ffffff", 0.045),
+        card_border = rgba(&palette.foreground, 0.08),
         accent_focus_border = rgba(&palette.accent, 0.75),
         accent_focus_shadow = rgba(&palette.accent, 0.14),
         drag_preview_border = rgba(&palette.accent, 0.34),

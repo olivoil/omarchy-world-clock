@@ -2328,6 +2328,10 @@ fn build_window(
     add_overlay.set_measure_overlay(&search_results_scroller, false);
 
     let search_results_box = gtk::Box::new(Orientation::Vertical, 6);
+    search_results_box.set_margin_top(6);
+    search_results_box.set_margin_bottom(6);
+    search_results_box.set_margin_start(6);
+    search_results_box.set_margin_end(6);
     search_results_scroller.set_child(Some(&search_results_box));
 
     let add_map_shell = gtk::Overlay::new();

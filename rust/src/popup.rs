@@ -121,6 +121,13 @@ struct RemoteSearchMessage {
 const READ_PANEL_TARGET_HEIGHT: i32 = 540;
 const READ_PANEL_WIDTH: i32 = (READ_PANEL_TARGET_HEIGHT * 16) / 9;
 const READ_TIMELINE_WIDTH: i32 = READ_PANEL_WIDTH - 60;
+const READ_SECTION_SPACING: i32 = 18;
+const READ_TIMELINE_HEIGHT: i32 = 128;
+const TIMELINE_LINE_Y: f64 = 64.0;
+const TIMELINE_LABEL_WIDTH: f64 = 76.0;
+const TIMELINE_LABEL_HEIGHT: i32 = 42;
+const TIMELINE_LABEL_LANE_Y: [f64; 2] = [4.0, 82.0];
+const TIMELINE_LABEL_LANE_GAP: f64 = 8.0;
 const READ_CARD_COLUMNS: i32 = 3;
 const READ_CARD_LIMIT: usize = 9;
 const READ_CARD_SPACING: i32 = 18;
@@ -657,14 +664,32 @@ fn render_read_view(state: &mut PopupState) {
     });
 
     let timeline_width = f64::from(READ_TIMELINE_WIDTH);
-    let label_width = 92.0;
+    let label_width = TIMELINE_LABEL_WIDTH;
     let padding = 28.0;
     let usable_width = (timeline_width - padding * 2.0).max(1.0);
+    let mut lane_last_right = [f64::NEG_INFINITY; TIMELINE_LABEL_LANE_Y.len()];
     for (relative_minutes, time_text, abbreviation) in &timeline_items {
         let x = padding
             + (((*relative_minutes + extent_minutes) / (extent_minutes * 2.0)) * usable_width);
+        let left = (x - label_width / 2.0).clamp(0.0, timeline_width - label_width);
+        let right = left + label_width;
+        let lane_index = lane_last_right
+            .iter()
+            .position(|last_right| left >= *last_right + TIMELINE_LABEL_LANE_GAP)
+            .unwrap_or_else(|| {
+                lane_last_right
+                    .iter()
+                    .enumerate()
+                    .min_by(|(_, left), (_, right)| {
+                        left.partial_cmp(right).unwrap_or(std::cmp::Ordering::Equal)
+                    })
+                    .map(|(index, _)| index)
+                    .unwrap_or(0)
+            });
+        lane_last_right[lane_index] = right;
+
         let item = gtk::Box::new(Orientation::Vertical, 6);
-        item.set_size_request(label_width as i32, -1);
+        item.set_size_request(label_width as i32, TIMELINE_LABEL_HEIGHT);
 
         let time_label = gtk::Label::new(Some(time_text));
         time_label.set_xalign(0.5);
@@ -676,11 +701,9 @@ fn render_read_view(state: &mut PopupState) {
         abbreviation_label.add_css_class("timeline-zone");
         item.append(&abbreviation_label);
 
-        state.timeline_labels.put(
-            &item,
-            (x - label_width / 2.0).clamp(0.0, timeline_width - label_width),
-            0.0,
-        );
+        state
+            .timeline_labels
+            .put(&item, left, TIMELINE_LABEL_LANE_Y[lane_index]);
     }
     state.timeline_area.queue_draw();
 
@@ -2048,7 +2071,7 @@ fn build_window(
     content_stack.set_vhomogeneous(false);
     panel.append(&content_stack);
 
-    let read_root = gtk::Box::new(Orientation::Vertical, 22);
+    let read_root = gtk::Box::new(Orientation::Vertical, READ_SECTION_SPACING);
     read_root.add_css_class("read-mode");
     content_stack.add_named(&read_root, Some("read"));
 
@@ -2075,13 +2098,13 @@ fn build_window(
     let timeline_area = gtk::DrawingArea::new();
     timeline_area.set_content_width(READ_TIMELINE_WIDTH);
     timeline_area.set_width_request(READ_TIMELINE_WIDTH);
-    timeline_area.set_content_height(92);
+    timeline_area.set_content_height(READ_TIMELINE_HEIGHT);
     timeline_overlay.set_child(Some(&timeline_area));
 
     let timeline_labels = gtk::Fixed::new();
     timeline_labels.set_can_target(false);
     timeline_labels.set_width_request(READ_TIMELINE_WIDTH);
-    timeline_labels.set_height_request(92);
+    timeline_labels.set_height_request(READ_TIMELINE_HEIGHT);
     timeline_overlay.add_overlay(&timeline_labels);
     timeline_overlay.set_measure_overlay(&timeline_labels, false);
 
@@ -2355,7 +2378,7 @@ fn build_window(
             })
             .unwrap_or((0.6, 0.6, 0.6));
 
-        let line_y = height as f64 * 0.54;
+        let line_y = TIMELINE_LINE_Y.min(height as f64 - 12.0);
         let padding = 28.0;
         let usable_width = (width as f64 - padding * 2.0).max(1.0);
         let center_x = padding + usable_width / 2.0;

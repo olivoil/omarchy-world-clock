@@ -120,7 +120,7 @@ scrolledwindow.search-results-overlay > viewport {{
 }}
 
 .timeline-shell {{
-  margin: 2px 10px 6px 10px;
+  margin: 0;
 }}
 
 .timeline-time {{
@@ -136,7 +136,7 @@ scrolledwindow.search-results-overlay > viewport {{
 }}
 
 flowbox.timezone-card-grid {{
-  margin-top: 4px;
+  margin-top: 0;
 }}
 
 .timezone-card-shell {{

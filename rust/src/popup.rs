@@ -107,6 +107,7 @@ struct RemoteSearchMessage {
 
 const TIME_FORMAT_OPTIONS: [(&str, &str); 3] =
     [("system", "System"), ("24h", "24h"), ("ampm", "AM/PM")];
+const READ_TIMELINE_WIDTH: i32 = 700;
 
 impl Drop for PidGuard {
     fn drop(&mut self) {
@@ -485,7 +486,7 @@ fn render_read_view(state: &mut PopupState) {
             .unwrap_or(std::cmp::Ordering::Equal)
     });
 
-    let timeline_width = state.timeline_area.allocation().width().max(620) as f64;
+    let timeline_width = f64::from(READ_TIMELINE_WIDTH);
     let label_width = 92.0;
     let padding = 28.0;
     let usable_width = (timeline_width - padding * 2.0).max(1.0);
@@ -1662,15 +1663,20 @@ fn build_window(
 
     let timeline_overlay = gtk::Overlay::new();
     timeline_overlay.add_css_class("timeline-shell");
+    timeline_overlay.set_halign(Align::Center);
+    timeline_overlay.set_width_request(READ_TIMELINE_WIDTH);
     read_root.append(&timeline_overlay);
 
     let timeline_area = gtk::DrawingArea::new();
-    timeline_area.set_content_width(700);
+    timeline_area.set_content_width(READ_TIMELINE_WIDTH);
+    timeline_area.set_width_request(READ_TIMELINE_WIDTH);
     timeline_area.set_content_height(92);
     timeline_overlay.set_child(Some(&timeline_area));
 
     let timeline_labels = gtk::Fixed::new();
     timeline_labels.set_can_target(false);
+    timeline_labels.set_width_request(READ_TIMELINE_WIDTH);
+    timeline_labels.set_height_request(92);
     timeline_overlay.add_overlay(&timeline_labels);
     timeline_overlay.set_measure_overlay(&timeline_labels, false);
 

@@ -10,19 +10,16 @@ USER_CONFIG=${OMARCHY_WORLD_CLOCK_CONFIG:-"$HOME/.config/omarchy-world-clock/con
 WRAPPER_PATH="$BIN_DIR/omarchy-world-clock"
 
 mkdir -p "$PREFIX" "$BIN_DIR"
-rm -rf "$PREFIX/app"
-cp -R "$REPO_ROOT/app" "$PREFIX/app"
+cargo install --path "$REPO_ROOT/rust" --root "$PREFIX" --force
 
 cat >"$WRAPPER_PATH" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
-export PYTHONPATH="$PREFIX/app\${PYTHONPATH:+:\$PYTHONPATH}"
-exec python3 -m omarchy_world_clock.cli "\$@"
+exec "$PREFIX/bin/omarchy-world-clock" "\$@"
 EOF
 chmod +x "$WRAPPER_PATH"
 
-PYTHONPATH="$REPO_ROOT/app${PYTHONPATH:+:$PYTHONPATH}" \
-  python3 -m omarchy_world_clock.cli install-waybar \
+"$WRAPPER_PATH" install-waybar \
   --waybar-config "$WAYBAR_CONFIG" \
   --waybar-style "$WAYBAR_STYLE" \
   --command-path "$WRAPPER_PATH" \

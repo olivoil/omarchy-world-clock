@@ -10,6 +10,9 @@ use std::thread;
 use std::time::Duration;
 
 pub fn runtime_pid_path() -> PathBuf {
+    if let Some(path) = env::var_os("OMARCHY_WORLD_CLOCK_PID_PATH") {
+        return PathBuf::from(path);
+    }
     if let Some(path) = env::var_os("OMARCHY_WORLD_CLOCK_RS_PID_PATH") {
         return PathBuf::from(path);
     }
@@ -17,11 +20,11 @@ pub fn runtime_pid_path() -> PathBuf {
     let runtime_dir = env::var_os("XDG_RUNTIME_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| {
-            PathBuf::from(format!("/tmp/omarchy-world-clock-rs-{}", unsafe {
+            PathBuf::from(format!("/tmp/omarchy-world-clock-{}", unsafe {
                 libc::geteuid()
             }))
         });
-    runtime_dir.join("omarchy-world-clock-rs.pid")
+    runtime_dir.join("omarchy-world-clock.pid")
 }
 
 pub fn debug_runtime_log_path() -> PathBuf {

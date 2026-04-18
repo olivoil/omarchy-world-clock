@@ -1,15 +1,114 @@
-use anyhow::Result;
+use anyhow::{bail, Context, Result};
+use omarchy_world_clock_rs::config::ConfigManager;
 use omarchy_world_clock_rs::popup::run_popup;
 use omarchy_world_clock_rs::runtime::{
     debug_runtime_log_path, kill_popup, popup_running, runtime_pid_path, spawn_popup,
 };
-use omarchy_world_clock_rs::waybar::module_payload;
+use omarchy_world_clock_rs::waybar::{
+    module_payload, patch_config_text, patch_style_text, unpatch_config_text, unpatch_style_text,
+    MODULE_MARKER_START, STYLE_MARKER_START,
+};
 use std::env;
-use std::fs::OpenOptions;
+use std::fs::{self, OpenOptions};
 use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 fn usage() -> &'static str {
-    "Usage: omarchy-world-clock-rs <module|toggle|popup>"
+    "Usage: omarchy-world-clock <module|toggle|popup|install-waybar|uninstall-waybar|restart-waybar>"
+}
+
+fn required_flag(args: &[String], flag: &str) -> Result<String> {
+    let Some(index) = args.iter().position(|arg| arg == flag) else {
+        bail!("missing required flag {flag}");
+    };
+    let Some(value) = args.get(index + 1) else {
+        bail!("missing value for flag {flag}");
+    };
+    Ok(value.clone())
+}
+
+fn write_text(path: &Path, contents: &str) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+    }
+    fs::write(path, contents).with_context(|| format!("failed to write {}", path.display()))
+}
+
+fn backup_if_needed(path: &Path, marker: &str) -> Result<()> {
+    if !path.exists() {
+        return Ok(());
+    }
+    let contents =
+        fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
+    if contents.contains(marker) {
+        return Ok(());
+    }
+
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let backup_path = path.with_file_name(format!(
+        "{}.bak.{timestamp}",
+        path.file_name().and_then(|name| name.to_str()).unwrap_or("backup")
+    ));
+    fs::copy(path, &backup_path).with_context(|| {
+        format!(
+            "failed to create backup {} from {}",
+            backup_path.display(),
+            path.display()
+        )
+    })?;
+    Ok(())
+}
+
+fn install_waybar(args: &[String]) -> Result<()> {
+    let waybar_config = PathBuf::from(required_flag(args, "--waybar-config")?).expanduser();
+    let waybar_style = PathBuf::from(required_flag(args, "--waybar-style")?).expanduser();
+    let command_path = required_flag(args, "--command-path")?;
+    let user_config = PathBuf::from(required_flag(args, "--user-config")?).expanduser();
+
+    backup_if_needed(&waybar_config, MODULE_MARKER_START)?;
+    backup_if_needed(&waybar_style, STYLE_MARKER_START)?;
+
+    let config_text = fs::read_to_string(&waybar_config)
+        .with_context(|| format!("failed to read {}", waybar_config.display()))?;
+    let style_text = fs::read_to_string(&waybar_style)
+        .with_context(|| format!("failed to read {}", waybar_style.display()))?;
+
+    write_text(&waybar_config, &patch_config_text(&config_text, &command_path)?)?;
+    write_text(&waybar_style, &patch_style_text(&style_text))?;
+    ConfigManager::new(Some(user_config)).load()?;
+    Ok(())
+}
+
+fn uninstall_waybar(args: &[String]) -> Result<()> {
+    let waybar_config = PathBuf::from(required_flag(args, "--waybar-config")?).expanduser();
+    let waybar_style = PathBuf::from(required_flag(args, "--waybar-style")?).expanduser();
+
+    if waybar_config.exists() {
+        let config_text = fs::read_to_string(&waybar_config)
+            .with_context(|| format!("failed to read {}", waybar_config.display()))?;
+        write_text(&waybar_config, &unpatch_config_text(&config_text)?)?;
+    }
+    if waybar_style.exists() {
+        let style_text = fs::read_to_string(&waybar_style)
+            .with_context(|| format!("failed to read {}", waybar_style.display()))?;
+        write_text(&waybar_style, &unpatch_style_text(&style_text))?;
+    }
+    Ok(())
+}
+
+fn restart_waybar() {
+    match Command::new("omarchy-restart-waybar").status() {
+        Ok(_) => return,
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => return,
+        Err(_) => {}
+    }
+    let _ = Command::new("pkill").args(["-SIGUSR2", "waybar"]).status();
 }
 
 fn main() -> Result<()> {
@@ -30,6 +129,7 @@ fn main() -> Result<()> {
         eprintln!("{}", usage());
         std::process::exit(2);
     };
+    let remaining_args = args.collect::<Vec<_>>();
 
     let pid_path = runtime_pid_path();
     match command.as_str() {
@@ -50,6 +150,15 @@ fn main() -> Result<()> {
             }
             run_popup(&pid_path, None)?;
         }
+        "install-waybar" => {
+            install_waybar(&remaining_args)?;
+        }
+        "uninstall-waybar" => {
+            uninstall_waybar(&remaining_args)?;
+        }
+        "restart-waybar" => {
+            restart_waybar();
+        }
         _ => {
             eprintln!("{}", usage());
             std::process::exit(2);
@@ -57,4 +166,26 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+trait ExpandUser {
+    fn expanduser(self) -> PathBuf;
+}
+
+impl ExpandUser for PathBuf {
+    fn expanduser(self) -> PathBuf {
+        let rendered = self.to_string_lossy();
+        if rendered == "~" {
+            return env::var_os("HOME")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from("."));
+        }
+        if let Some(suffix) = rendered.strip_prefix("~/") {
+            return env::var_os("HOME")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from("."))
+                .join(suffix);
+        }
+        self
+    }
 }

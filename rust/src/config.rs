@@ -22,6 +22,7 @@ pub const DEFAULT_SORT_MODE: &str = "manual";
 pub const DEFAULT_TIME_FORMAT: &str = "system";
 
 const VALID_SORT_MODES: [&str; 3] = ["manual", "alpha", "time"];
+const VALID_TIME_FORMATS: [&str; 3] = ["system", "24h", "ampm"];
 const STANDARD_TZ_REGIONS: [&str; 10] = [
     "Africa",
     "America",
@@ -330,8 +331,11 @@ impl ConfigManager {
 
     pub fn set_time_format(&self, time_format: &str) -> anyhow::Result<AppConfig> {
         let mut config = self.load()?;
-        let _ = time_format;
-        config.time_format = DEFAULT_TIME_FORMAT.to_string();
+        config.time_format = if valid_time_format(time_format) {
+            time_format.to_string()
+        } else {
+            DEFAULT_TIME_FORMAT.to_string()
+        };
         config = self.normalize_config(config);
         self.save(&config)?;
         Ok(config)
@@ -377,11 +381,13 @@ impl ConfigManager {
         let sort_mode = sort_mode
             .filter(|value| valid_sort_mode(value))
             .unwrap_or_else(|| DEFAULT_SORT_MODE.to_string());
-        let _ = time_format;
+        let time_format = time_format
+            .filter(|value| valid_time_format(value))
+            .unwrap_or_else(|| DEFAULT_TIME_FORMAT.to_string());
         self.normalize_config(AppConfig {
             timezones: entries,
             sort_mode,
-            time_format: DEFAULT_TIME_FORMAT.to_string(),
+            time_format,
         })
     }
 
@@ -441,7 +447,11 @@ impl ConfigManager {
             } else {
                 DEFAULT_SORT_MODE.to_string()
             },
-            time_format: DEFAULT_TIME_FORMAT.to_string(),
+            time_format: if valid_time_format(&config.time_format) {
+                config.time_format
+            } else {
+                DEFAULT_TIME_FORMAT.to_string()
+            },
         }
     }
 
@@ -467,6 +477,10 @@ impl ConfigManager {
 
 fn valid_sort_mode(value: &str) -> bool {
     VALID_SORT_MODES.contains(&value)
+}
+
+fn valid_time_format(value: &str) -> bool {
+    VALID_TIME_FORMATS.contains(&value)
 }
 
 fn home_dir() -> PathBuf {
@@ -1549,7 +1563,7 @@ mod tests {
         assert_eq!(sort_updated.sort_mode, "alpha");
 
         let format_updated = manager.set_time_format("ampm").unwrap();
-        assert_eq!(format_updated.time_format, "system");
+        assert_eq!(format_updated.time_format, "ampm");
 
         let fallback = manager.set_sort_mode("bogus").unwrap();
         assert_eq!(fallback.sort_mode, "manual");

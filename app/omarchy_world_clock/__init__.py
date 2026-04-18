@@ -1,2 +1,0 @@
-"""Omarchy world clock package."""
-

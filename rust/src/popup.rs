@@ -1,6 +1,7 @@
 use crate::config::{
-    all_timezones, detect_local_timezone, effective_time_format, AppConfig, ConfigManager,
-    RemotePlaceSearch, TimezoneEntry, TimezoneResolver, TimezoneSearchResult, DEFAULT_TIME_FORMAT,
+    all_timezones, detect_local_timezone, effective_time_format, ordered_timezones, AppConfig,
+    ConfigManager, RemotePlaceSearch, TimezoneEntry, TimezoneResolver, TimezoneSearchResult,
+    DEFAULT_SORT_MODE, DEFAULT_TIME_FORMAT,
 };
 use crate::layout::{
     load_window_border_size, load_window_gap, popup_top_margin, POPUP_TOP_CONTENT_MARGIN,
@@ -43,6 +44,7 @@ struct RowWidgets {
     title: gtk::Label,
     context: gtk::Label,
     meta: gtk::Label,
+    lock_button: gtk::Button,
     remove_button: gtk::Button,
     time_entry: gtk::Entry,
     dirty: Rc<Cell<bool>>,
@@ -77,6 +79,8 @@ struct PopupState {
     edit_button: gtk::Button,
     add_button: gtk::Button,
     cancel_button: gtk::Button,
+    sort_mode_dropdown: gtk::DropDown,
+    time_format_dropdown: gtk::DropDown,
     read_summary_time: gtk::Label,
     read_summary_location: gtk::Label,
     timeline_area: gtk::DrawingArea,
@@ -139,6 +143,8 @@ const ADD_MAP_ASPECT_RATIO: f32 = 2.0;
 const ADD_MAP_HOVER_CARD_WIDTH: i32 = 272;
 const ADD_MAP_HOVER_CARD_HEIGHT: i32 = 140;
 const WORLD_MAP_ASSET_BYTES: &[u8] = include_bytes!("../assets/world-map.png");
+const SORT_MODE_VALUES: [&str; 3] = ["manual", "alpha", "time"];
+const TIME_FORMAT_VALUES: [&str; 3] = ["system", "24h", "ampm"];
 
 const NORTH_AMERICA_POINTS: &[(f64, f64)] = &[
     (0.03, 0.36),
@@ -328,17 +334,40 @@ fn time_entry_width_chars(time_format: &str) -> i32 {
     }
 }
 
-fn sanitize_popup_config(mut config: AppConfig) -> AppConfig {
-    config.sort_mode = "manual".to_string();
-    config.time_format = DEFAULT_TIME_FORMAT.to_string();
-    for entry in &mut config.timezones {
-        entry.locked = false;
-    }
-    config
+fn selected_entries(state: &PopupState) -> Vec<TimezoneEntry> {
+    ordered_timezones(&state.config.timezones, &state.config.sort_mode, state.reference_utc)
 }
 
-fn selected_entries(state: &PopupState) -> Vec<TimezoneEntry> {
-    state.config.timezones.clone()
+fn unlocked_entry_count(state: &PopupState) -> usize {
+    state
+        .config
+        .timezones
+        .iter()
+        .filter(|entry| !entry.locked)
+        .count()
+}
+
+fn sort_mode_index(sort_mode: &str) -> u32 {
+    SORT_MODE_VALUES
+        .iter()
+        .position(|value| *value == sort_mode)
+        .unwrap_or(0) as u32
+}
+
+fn time_format_index(time_format: &str) -> u32 {
+    TIME_FORMAT_VALUES
+        .iter()
+        .position(|value| *value == time_format)
+        .unwrap_or(0) as u32
+}
+
+fn sync_dropdowns(state: &PopupState) {
+    state
+        .sort_mode_dropdown
+        .set_selected(sort_mode_index(&state.config.sort_mode));
+    state
+        .time_format_dropdown
+        .set_selected(time_format_index(&state.config.time_format));
 }
 
 fn read_entry_count(entries: &[TimezoneEntry], local_timezone: &str) -> usize {
@@ -388,7 +417,7 @@ fn read_entries(state: &PopupState) -> Vec<TimezoneEntry> {
 }
 
 fn row_can_reorder(state: &PopupState, _entry: &TimezoneEntry) -> bool {
-    state.config.timezones.len() > 1
+    state.config.sort_mode == "manual" && !_entry.locked && unlocked_entry_count(state) > 1
 }
 
 fn set_row_error(row: &RowWidgets, enabled: bool) {
@@ -821,6 +850,32 @@ fn remove_timezone_entry(state_handle: &Rc<RefCell<PopupState>>, timezone_name: 
     }
 }
 
+fn toggle_timezone_locked(state_handle: &Rc<RefCell<PopupState>>, timezone_name: &str) {
+    let (config_manager, next_locked) = {
+        let state = state_handle.borrow();
+        let Some(entry) = state
+            .config
+            .timezones
+            .iter()
+            .find(|entry| entry.timezone == timezone_name)
+        else {
+            return;
+        };
+        (state.config_manager.clone(), !entry.locked)
+    };
+
+    match config_manager.set_timezone_locked(timezone_name, next_locked) {
+        Ok(config) => {
+            let mut state = state_handle.borrow_mut();
+            refresh_config_state(&mut state, config);
+        }
+        Err(error) => {
+            let state = state_handle.borrow();
+            set_status(&state, &error.to_string(), true);
+        }
+    }
+}
+
 fn sync_map_hover_card(state: &PopupState) {
     if !matches!(state.screen_mode, PopupScreen::Add) {
         state.add_map_hover_card.set_visible(false);
@@ -850,10 +905,10 @@ fn sync_map_hover_card(state: &PopupState) {
 }
 
 fn update_screen_mode(state: &PopupState) {
-    let page_name = if matches!(state.screen_mode, PopupScreen::Add) {
-        "add"
-    } else {
-        "read"
+    let page_name = match state.screen_mode {
+        PopupScreen::Read => "read",
+        PopupScreen::Edit => "edit",
+        PopupScreen::Add => "add",
     };
     let in_add = matches!(state.screen_mode, PopupScreen::Add);
     let in_edit = matches!(state.screen_mode, PopupScreen::Edit);
@@ -899,8 +954,9 @@ fn update_screen_mode(state: &PopupState) {
 
     let can_remove = state.config.timezones.len() > 1;
     for row in &state.rows {
-        row.drag_handle.set_visible(false);
-        row.remove_button.set_visible(false);
+        row.drag_handle.set_visible(in_edit && row_can_reorder(state, &row.entry));
+        row.lock_button.set_visible(in_edit);
+        row.remove_button.set_visible(in_edit && can_remove);
         row.remove_button.set_sensitive(can_remove);
     }
     update_row_separators(state);
@@ -1057,8 +1113,9 @@ fn set_screen_mode(state_handle: &Rc<RefCell<PopupState>>, screen_mode: PopupScr
 
 fn refresh_config_state(state: &mut PopupState, config: AppConfig) {
     cancel_pending_apply(state);
-    state.config = sanitize_popup_config(config);
-    state.time_format = effective_time_format(DEFAULT_TIME_FORMAT);
+    state.config = config;
+    state.time_format = effective_time_format(&state.config.time_format);
+    sync_dropdowns(state);
     if state.editing_timezone.as_ref().is_some_and(|timezone| {
         !state
             .config
@@ -1121,6 +1178,14 @@ fn build_row(entry: &TimezoneEntry, time_format: &str) -> RowWidgets {
     time_entry.add_css_class("time-entry");
     controls.append(&time_entry);
 
+    let lock_button = gtk::Button::from_icon_name("view-pin-symbolic");
+    lock_button.add_css_class("icon-button");
+    lock_button.set_size_request(32, 32);
+    lock_button.set_valign(Align::Center);
+    lock_button.set_tooltip_text(Some("Pin this timezone above unlocked rows."));
+    lock_button.set_visible(false);
+    controls.append(&lock_button);
+
     let remove_button = gtk::Button::from_icon_name("edit-delete-symbolic");
     remove_button.add_css_class("icon-button");
     remove_button.add_css_class("remove-button");
@@ -1140,6 +1205,7 @@ fn build_row(entry: &TimezoneEntry, time_format: &str) -> RowWidgets {
         title,
         context,
         meta,
+        lock_button,
         remove_button,
         time_entry,
         dirty: Rc::new(Cell::new(false)),
@@ -1216,6 +1282,12 @@ fn bind_row_events(state_handle: &Rc<RefCell<PopupState>>, row: &RowWidgets) {
         remove_timezone_entry(&state_for_remove, &timezone_name_for_remove);
     });
 
+    let timezone_name_for_lock = row.entry.timezone.clone();
+    let state_for_lock = state_handle.clone();
+    row.lock_button.connect_clicked(move |_| {
+        toggle_timezone_locked(&state_for_lock, &timezone_name_for_lock);
+    });
+
     let drag_gesture = gtk::GestureDrag::new();
     drag_gesture.set_button(1);
 
@@ -1275,6 +1347,7 @@ fn format_title(entry: &TimezoneEntry, local_timezone: &str) -> String {
 
 fn update_row_widgets(state: &mut PopupState) {
     let ordered = selected_entries(state);
+    sync_dropdowns(state);
     let current_order: Vec<String> = state
         .rows
         .iter()
@@ -1297,6 +1370,17 @@ fn update_row_widgets(state: &mut PopupState) {
             .set_placeholder_text(Some(time_entry_placeholder(&state.time_format)));
         row.time_entry
             .set_width_chars(time_entry_width_chars(&state.time_format));
+        row.lock_button.set_icon_name("view-pin-symbolic");
+        row.lock_button.set_tooltip_text(Some(if entry.locked {
+            "Pinned above unlocked rows."
+        } else {
+            "Pin this timezone above unlocked rows."
+        }));
+        if entry.locked {
+            row.lock_button.add_css_class("active");
+        } else {
+            row.lock_button.remove_css_class("active");
+        }
         row.remove_button
             .set_sensitive(state.config.timezones.len() > 1);
 
@@ -1821,6 +1905,13 @@ fn can_reorder_entry_at_index(
     else {
         return false;
     };
+    if entries[source_index].locked || state.config.sort_mode != "manual" {
+        return false;
+    }
+    let locked_count = entries.iter().take_while(|entry| entry.locked).count();
+    if insert_index < locked_count {
+        return false;
+    }
     let effective_index = if source_index < insert_index {
         insert_index.saturating_sub(1)
     } else {
@@ -1901,7 +1992,7 @@ fn end_drag(state: &mut PopupState) {
 
 fn configure_layer_shell(window: &gtk::Window) -> Option<(i32, i32)> {
     window.init_layer_shell();
-    window.set_namespace(Some("omarchy-world-clock-rs"));
+    window.set_namespace(Some("omarchy-world-clock"));
     window.set_layer(Layer::Overlay);
     window.set_keyboard_mode(KeyboardMode::Exclusive);
     window.set_anchor(Edge::Top, true);
@@ -2121,6 +2212,20 @@ fn build_window(
     let edit_root = gtk::Box::new(Orientation::Vertical, 14);
     content_stack.add_named(&edit_root, Some("edit"));
 
+    let edit_controls = gtk::Box::new(Orientation::Horizontal, 12);
+    edit_controls.set_halign(Align::Fill);
+    edit_root.append(&edit_controls);
+
+    let sort_mode_dropdown = gtk::DropDown::from_strings(&["Manual order", "Alphabetical", "By time"]);
+    sort_mode_dropdown.add_css_class("popup-select");
+    sort_mode_dropdown.set_halign(Align::Start);
+    edit_controls.append(&sort_mode_dropdown);
+
+    let time_format_dropdown = gtk::DropDown::from_strings(&["System", "24h", "AM/PM"]);
+    time_format_dropdown.add_css_class("popup-select");
+    time_format_dropdown.set_halign(Align::Start);
+    edit_controls.append(&time_format_dropdown);
+
     let rows_overlay = gtk::Overlay::new();
     rows_overlay.set_margin_top(6);
     edit_root.append(&rows_overlay);
@@ -2329,6 +2434,8 @@ fn build_window(
         edit_button: edit_button.clone(),
         add_button: add_button.clone(),
         cancel_button: cancel_button.clone(),
+        sort_mode_dropdown: sort_mode_dropdown.clone(),
+        time_format_dropdown: time_format_dropdown.clone(),
         read_summary_time: read_summary_time.clone(),
         read_summary_location: read_summary_location.clone(),
         timeline_area: timeline_area.clone(),
@@ -2428,7 +2535,7 @@ fn build_window(
 
     {
         let mut state_mut = state.borrow_mut();
-        state_mut.time_format = effective_time_format(DEFAULT_TIME_FORMAT);
+        state_mut.time_format = effective_time_format(&state_mut.config.time_format);
         render_rows(&mut state_mut);
         update_live_button(&state_mut);
         update_screen_mode(&state_mut);
@@ -2495,6 +2602,56 @@ fn build_window(
             }
         };
         set_screen_mode(&state_for_edit, next_mode);
+    });
+
+    let state_for_sort_mode = state.clone();
+    sort_mode_dropdown.connect_selected_notify(move |dropdown| {
+        let sort_mode = SORT_MODE_VALUES
+            .get(dropdown.selected() as usize)
+            .copied()
+            .unwrap_or(DEFAULT_SORT_MODE);
+        let config_manager = {
+            let state = state_for_sort_mode.borrow();
+            if state.config.sort_mode == sort_mode {
+                return;
+            }
+            state.config_manager.clone()
+        };
+        match config_manager.set_sort_mode(sort_mode) {
+            Ok(config) => {
+                let mut state = state_for_sort_mode.borrow_mut();
+                refresh_config_state(&mut state, config);
+            }
+            Err(error) => {
+                let state = state_for_sort_mode.borrow();
+                set_status(&state, &error.to_string(), true);
+            }
+        }
+    });
+
+    let state_for_time_format = state.clone();
+    time_format_dropdown.connect_selected_notify(move |dropdown| {
+        let time_format = TIME_FORMAT_VALUES
+            .get(dropdown.selected() as usize)
+            .copied()
+            .unwrap_or(DEFAULT_TIME_FORMAT);
+        let config_manager = {
+            let state = state_for_time_format.borrow();
+            if state.config.time_format == time_format {
+                return;
+            }
+            state.config_manager.clone()
+        };
+        match config_manager.set_time_format(time_format) {
+            Ok(config) => {
+                let mut state = state_for_time_format.borrow_mut();
+                refresh_config_state(&mut state, config);
+            }
+            Err(error) => {
+                let state = state_for_time_format.borrow();
+                set_status(&state, &error.to_string(), true);
+            }
+        }
     });
 
     let state_for_cancel = state.clone();
@@ -2623,11 +2780,7 @@ pub fn run_popup(pid_path: &Path, config_path: Option<PathBuf>) -> Result<()> {
     };
 
     let config_manager = ConfigManager::new(config_path);
-    let loaded_config = config_manager.load()?;
-    let config = sanitize_popup_config(loaded_config.clone());
-    if config != loaded_config {
-        config_manager.save(&config)?;
-    }
+    let config = config_manager.load()?;
     let local_timezone = detect_local_timezone();
 
     let window = gtk::Window::new();

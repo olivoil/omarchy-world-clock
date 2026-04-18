@@ -12,7 +12,7 @@ use crate::time::{
     row_metadata, zoned_datetime,
 };
 use anyhow::{Context, Result};
-use chrono::{DateTime, Offset, Utc};
+use chrono::{DateTime, Offset, Timelike, Utc};
 use gtk::gdk;
 use gtk::glib::{self, ControlFlow, MainLoop, Propagation};
 use gtk::prelude::*;
@@ -128,10 +128,13 @@ const READ_TIMELINE_WIDTH: i32 = READ_PANEL_WIDTH - 60;
 const READ_SECTION_SPACING: i32 = 18;
 const READ_TIMELINE_HEIGHT: i32 = 128;
 const TIMELINE_LINE_Y: f64 = 64.0;
+const TIMELINE_PADDING: f64 = 28.0;
 const TIMELINE_LABEL_WIDTH: f64 = 76.0;
 const TIMELINE_LABEL_HEIGHT: i32 = 42;
 const TIMELINE_LABEL_LANE_Y: [f64; 2] = [4.0, 82.0];
 const TIMELINE_LABEL_LANE_GAP: f64 = 8.0;
+const TIMELINE_MIN_SIDE_HOURS: i64 = 12;
+const TIMELINE_EDGE_HOUR_MARGIN: i64 = 1;
 const READ_CARD_COLUMNS: i32 = 3;
 const READ_CARD_LIMIT: usize = 9;
 const READ_CARD_SPACING: i32 = 18;
@@ -335,7 +338,11 @@ fn time_entry_width_chars(time_format: &str) -> i32 {
 }
 
 fn selected_entries(state: &PopupState) -> Vec<TimezoneEntry> {
-    ordered_timezones(&state.config.timezones, &state.config.sort_mode, state.reference_utc)
+    ordered_timezones(
+        &state.config.timezones,
+        &state.config.sort_mode,
+        state.reference_utc,
+    )
 }
 
 fn unlocked_entry_count(state: &PopupState) -> usize {
@@ -569,6 +576,40 @@ fn timeline_extent_minutes(
         .max(60)
 }
 
+fn timeline_side_hours(
+    anchor: &DateTime<chrono_tz::Tz>,
+    entries: &[TimezoneEntry],
+    reference_utc: DateTime<Utc>,
+) -> i64 {
+    ((timeline_extent_minutes(anchor, entries, reference_utc) + 59) / 60
+        + TIMELINE_EDGE_HOUR_MARGIN)
+        .max(TIMELINE_MIN_SIDE_HOURS)
+}
+
+fn timeline_anchor_minute_offset(anchor: &DateTime<chrono_tz::Tz>) -> f64 {
+    f64::from(anchor.minute())
+        + f64::from(anchor.second()) / 60.0
+        + f64::from(anchor.nanosecond()) / 60_000_000_000.0
+}
+
+fn timeline_position_x(relative_minutes: f64, side_hours: i64, width: f64) -> f64 {
+    let usable_width = (width - TIMELINE_PADDING * 2.0).max(1.0);
+    let side_span_minutes = (side_hours * 60) as f64;
+    TIMELINE_PADDING
+        + (((relative_minutes + side_span_minutes) / (side_span_minutes * 2.0)) * usable_width)
+}
+
+fn timeline_tick_relative_minutes(anchor: &DateTime<chrono_tz::Tz>, side_hours: i64) -> Vec<f64> {
+    let side_span_minutes = (side_hours * 60) as f64;
+    let anchor_minute_offset = timeline_anchor_minute_offset(anchor);
+    let first_tick_hour = ((-side_span_minutes + anchor_minute_offset) / 60.0).ceil() as i64;
+    let last_tick_hour = ((side_span_minutes + anchor_minute_offset) / 60.0).floor() as i64;
+
+    (first_tick_hour..=last_tick_hour)
+        .map(|hour_offset| (hour_offset as f64 * 60.0) - anchor_minute_offset)
+        .collect()
+}
+
 fn color_components(hex_value: &str, fallback: (f64, f64, f64)) -> (f64, f64, f64) {
     gdk::RGBA::parse(hex_value)
         .ok()
@@ -673,7 +714,7 @@ fn render_read_view(state: &mut PopupState) {
     }
 
     let entries = read_entries(state);
-    let extent_minutes = timeline_extent_minutes(&anchor, &entries, state.reference_utc) as f64;
+    let side_hours = timeline_side_hours(&anchor, &entries, state.reference_utc);
     let mut timeline_items = entries
         .iter()
         .map(|entry| {
@@ -694,12 +735,9 @@ fn render_read_view(state: &mut PopupState) {
 
     let timeline_width = f64::from(READ_TIMELINE_WIDTH);
     let label_width = TIMELINE_LABEL_WIDTH;
-    let padding = 28.0;
-    let usable_width = (timeline_width - padding * 2.0).max(1.0);
     let mut lane_last_right = [f64::NEG_INFINITY; TIMELINE_LABEL_LANE_Y.len()];
     for (relative_minutes, time_text, abbreviation) in &timeline_items {
-        let x = padding
-            + (((*relative_minutes + extent_minutes) / (extent_minutes * 2.0)) * usable_width);
+        let x = timeline_position_x(*relative_minutes, side_hours, timeline_width);
         let left = (x - label_width / 2.0).clamp(0.0, timeline_width - label_width);
         let right = left + label_width;
         let lane_index = lane_last_right
@@ -954,7 +992,8 @@ fn update_screen_mode(state: &PopupState) {
 
     let can_remove = state.config.timezones.len() > 1;
     for row in &state.rows {
-        row.drag_handle.set_visible(in_edit && row_can_reorder(state, &row.entry));
+        row.drag_handle
+            .set_visible(in_edit && row_can_reorder(state, &row.entry));
         row.lock_button.set_visible(in_edit);
         row.remove_button.set_visible(in_edit && can_remove);
         row.remove_button.set_sensitive(can_remove);
@@ -2217,7 +2256,8 @@ fn build_window(
     edit_controls.set_halign(Align::Fill);
     edit_root.append(&edit_controls);
 
-    let sort_mode_dropdown = gtk::DropDown::from_strings(&["Manual order", "Alphabetical", "By time"]);
+    let sort_mode_dropdown =
+        gtk::DropDown::from_strings(&["Manual order", "Alphabetical", "By time"]);
     sort_mode_dropdown.add_css_class("popup-select");
     sort_mode_dropdown.set_halign(Align::Start);
     edit_controls.append(&sort_mode_dropdown);
@@ -2474,7 +2514,7 @@ fn build_window(
         let state = state_for_timeline.borrow();
         let entries = read_entries(&state);
         let anchor = zoned_datetime(state.reference_utc, &state.local_timezone);
-        let extent_minutes = timeline_extent_minutes(&anchor, &entries, state.reference_utc) as f64;
+        let side_hours = timeline_side_hours(&anchor, &entries, state.reference_utc);
         let stroke = gdk::RGBA::parse(&load_palette().foreground)
             .ok()
             .map(|rgba| {
@@ -2487,39 +2527,25 @@ fn build_window(
             .unwrap_or((0.6, 0.6, 0.6));
 
         let line_y = TIMELINE_LINE_Y.min(height as f64 - 12.0);
-        let padding = 28.0;
-        let usable_width = (width as f64 - padding * 2.0).max(1.0);
-        let center_x = padding + usable_width / 2.0;
 
         context.set_source_rgba(stroke.0, stroke.1, stroke.2, 0.16);
         context.set_line_width(1.0);
-        context.move_to(padding, line_y);
-        context.line_to(width as f64 - padding, line_y);
+        context.move_to(TIMELINE_PADDING, line_y);
+        context.line_to(width as f64 - TIMELINE_PADDING, line_y);
         let _ = context.stroke();
 
-        for tick in 0..=24 {
-            let x = padding + (tick as f64 / 24.0) * usable_width;
-            context.set_source_rgba(
-                stroke.0,
-                stroke.1,
-                stroke.2,
-                if tick < 24 { 0.12 } else { 0.0 },
-            );
+        for relative_minutes in timeline_tick_relative_minutes(&anchor, side_hours) {
+            let x = timeline_position_x(relative_minutes, side_hours, width as f64);
+            context.set_source_rgba(stroke.0, stroke.1, stroke.2, 0.12);
             context.move_to(x, line_y - 5.0);
             context.line_to(x, line_y + 5.0);
             let _ = context.stroke();
         }
 
-        context.set_source_rgba(stroke.0, stroke.1, stroke.2, 0.22);
-        context.move_to(center_x, line_y - 8.0);
-        context.line_to(center_x, line_y + 8.0);
-        let _ = context.stroke();
-
         for entry in entries {
             let zoned = zoned_datetime(state.reference_utc, &entry.timezone);
             let relative_minutes = timeline_relative_minutes(&anchor, &zoned) as f64;
-            let x = padding
-                + (((relative_minutes + extent_minutes) / (extent_minutes * 2.0)) * usable_width);
+            let x = timeline_position_x(relative_minutes, side_hours, width as f64);
             context.set_source_rgba(stroke.0, stroke.1, stroke.2, 0.22);
             context.arc(x, line_y, 5.5, 0.0, std::f64::consts::TAU);
             let _ = context.fill();
@@ -2882,9 +2908,10 @@ pub fn run_popup(pid_path: &Path, config_path: Option<PathBuf>) -> Result<()> {
 mod tests {
     use super::{
         map_coordinates_to_lng_lat, read_entry_count, sort_read_entries_by_time,
-        visible_read_entries, READ_CARD_LIMIT,
+        timeline_side_hours, timeline_tick_relative_minutes, visible_read_entries, READ_CARD_LIMIT,
     };
     use crate::config::TimezoneEntry;
+    use crate::time::zoned_datetime;
     use chrono::{TimeZone, Utc};
 
     fn entry(timezone: &str) -> TimezoneEntry {
@@ -2982,6 +3009,31 @@ mod tests {
                 "Asia/Kolkata",
             ]
         );
+    }
+
+    #[test]
+    fn timeline_ticks_follow_whole_hour_boundaries() {
+        let reference_utc = Utc.with_ymd_and_hms(2026, 4, 18, 20, 29, 0).unwrap();
+        let anchor = zoned_datetime(reference_utc, "America/Cancun");
+
+        let ticks = timeline_tick_relative_minutes(&anchor, 12);
+
+        assert!(ticks
+            .windows(2)
+            .all(|pair| (pair[1] - pair[0] - 60.0).abs() < 0.001));
+        assert!(ticks.iter().any(|tick| (*tick + 29.0).abs() < 0.001));
+        assert!(ticks.iter().any(|tick| (*tick - 31.0).abs() < 0.001));
+    }
+
+    #[test]
+    fn timeline_side_hours_keeps_an_extra_hour_beyond_farthest_offset() {
+        let reference_utc = Utc.with_ymd_and_hms(2026, 4, 18, 5, 5, 0).unwrap();
+        let anchor = zoned_datetime(reference_utc, "America/Cancun");
+        let entries = vec![entry("Asia/Kolkata")];
+
+        let side_hours = timeline_side_hours(&anchor, &entries, reference_utc);
+
+        assert_eq!(side_hours, 12);
     }
 
     #[test]

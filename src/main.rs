@@ -53,7 +53,9 @@ fn backup_if_needed(path: &Path, marker: &str) -> Result<()> {
         .as_secs();
     let backup_path = path.with_file_name(format!(
         "{}.bak.{timestamp}",
-        path.file_name().and_then(|name| name.to_str()).unwrap_or("backup")
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("backup")
     ));
     fs::copy(path, &backup_path).with_context(|| {
         format!(
@@ -79,7 +81,10 @@ fn install_waybar(args: &[String]) -> Result<()> {
     let style_text = fs::read_to_string(&waybar_style)
         .with_context(|| format!("failed to read {}", waybar_style.display()))?;
 
-    write_text(&waybar_config, &patch_config_text(&config_text, &command_path)?)?;
+    write_text(
+        &waybar_config,
+        &patch_config_text(&config_text, &command_path)?,
+    )?;
     write_text(&waybar_style, &patch_style_text(&style_text))?;
     ConfigManager::new(Some(user_config)).load()?;
     Ok(())

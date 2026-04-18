@@ -109,7 +109,9 @@ struct RemoteSearchMessage {
 
 const TIME_FORMAT_OPTIONS: [(&str, &str); 3] =
     [("system", "System"), ("24h", "24h"), ("ampm", "AM/PM")];
-const READ_TIMELINE_WIDTH: i32 = 700;
+const READ_PANEL_TARGET_HEIGHT: i32 = 540;
+const READ_PANEL_WIDTH: i32 = (READ_PANEL_TARGET_HEIGHT * 16) / 9;
+const READ_TIMELINE_WIDTH: i32 = READ_PANEL_WIDTH - 60;
 const READ_CARD_COLUMNS: i32 = 3;
 const READ_CARD_LIMIT: usize = 9;
 const READ_CARD_SPACING: i32 = 18;
@@ -313,6 +315,18 @@ fn sanitize_popup_config(mut config: AppConfig) -> AppConfig {
 
 fn selected_entries(state: &PopupState) -> Vec<TimezoneEntry> {
     state.config.timezones.clone()
+}
+
+fn read_entry_count(entries: &[TimezoneEntry], local_timezone: &str) -> usize {
+    let non_local_count = entries
+        .iter()
+        .filter(|entry| entry.timezone != local_timezone)
+        .count();
+    if non_local_count == 0 {
+        entries.len()
+    } else {
+        non_local_count
+    }
 }
 
 fn visible_read_entries(entries: &[TimezoneEntry], local_timezone: &str) -> Vec<TimezoneEntry> {
@@ -1225,6 +1239,17 @@ fn add_timezone(state_handle: &Rc<RefCell<PopupState>>, timezone_name: &str, lab
             );
             return;
         }
+
+        if read_entry_count(&state.config.timezones, &state.local_timezone) >= READ_CARD_LIMIT {
+            set_status(
+                &state,
+                &format!(
+                    "The read view can show up to {READ_CARD_LIMIT} cards. Remove one before adding another timezone."
+                ),
+                true,
+            );
+            return;
+        }
     }
 
     let config_manager = state_handle.borrow().config_manager.clone();
@@ -1662,7 +1687,7 @@ fn build_window(
 
     let panel = gtk::Box::new(Orientation::Vertical, 14);
     panel.add_css_class("world-clock-panel");
-    panel.set_width_request(760);
+    panel.set_width_request(READ_PANEL_WIDTH);
     panel.set_halign(Align::Center);
     top_band.append(&panel);
 
@@ -2196,7 +2221,7 @@ pub fn run_popup(pid_path: &Path, config_path: Option<PathBuf>) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{visible_read_entries, READ_CARD_LIMIT};
+    use super::{read_entry_count, visible_read_entries, READ_CARD_LIMIT};
     use crate::config::TimezoneEntry;
 
     fn entry(timezone: &str) -> TimezoneEntry {
@@ -2241,5 +2266,23 @@ mod tests {
         let visible = visible_read_entries(&entries, "America/Cancun");
 
         assert_eq!(visible, entries);
+    }
+
+    #[test]
+    fn read_entry_count_excludes_local_when_other_cards_exist() {
+        let entries = vec![
+            entry("America/Cancun"),
+            entry("Europe/Paris"),
+            entry("Asia/Tokyo"),
+        ];
+
+        assert_eq!(read_entry_count(&entries, "America/Cancun"), 2);
+    }
+
+    #[test]
+    fn read_entry_count_uses_local_when_it_is_the_only_entry() {
+        let entries = vec![entry("America/Cancun")];
+
+        assert_eq!(read_entry_count(&entries, "America/Cancun"), 1);
     }
 }

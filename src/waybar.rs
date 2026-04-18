@@ -1,6 +1,4 @@
-use crate::config::{
-    detect_local_timezone, effective_time_format, ordered_timezones, AppConfig, ConfigManager,
-};
+use crate::config::{detect_local_timezone, effective_time_format, AppConfig, ConfigManager};
 use crate::runtime::popup_running;
 use crate::time::{format_display_time, zoned_datetime};
 use anyhow::{anyhow, bail, Result};
@@ -143,6 +141,20 @@ pub fn style_block() -> String {
         String::new(),
         "#custom-world-clock.active {".to_string(),
         "  opacity: 1;".to_string(),
+        "}".to_string(),
+        String::new(),
+        "tooltip {".to_string(),
+        "  color: @foreground;".to_string(),
+        "  font: 12px 'JetBrainsMono Nerd Font';".to_string(),
+        "  font-weight: 400;".to_string(),
+        "  text-shadow: none;".to_string(),
+        "}".to_string(),
+        String::new(),
+        "tooltip label {".to_string(),
+        "  color: inherit;".to_string(),
+        "  font: 12px 'JetBrainsMono Nerd Font';".to_string(),
+        "  font-weight: 400;".to_string(),
+        "  text-shadow: none;".to_string(),
         "}".to_string(),
         STYLE_MARKER_END.to_string(),
     ]
@@ -400,30 +412,45 @@ fn module_payload_from_config_with_time_format(
     popup_active: bool,
     time_format: &str,
 ) -> ModulePayload {
-    let entries = ordered_timezones(&config.timezones, &config.sort_mode, now);
-    let rows: Vec<(String, String)> = entries
+    let anchor = zoned_datetime(now, local_timezone);
+    let mut entries = config
+        .timezones
         .iter()
+        .filter(|entry| entry.timezone != local_timezone)
+        .collect::<Vec<_>>();
+    entries.sort_by(|left, right| {
+        let left_zoned = zoned_datetime(now, &left.timezone);
+        let right_zoned = zoned_datetime(now, &right.timezone);
+        left_zoned
+            .naive_local()
+            .signed_duration_since(anchor.naive_local())
+            .num_minutes()
+            .cmp(
+                &right_zoned
+                    .naive_local()
+                    .signed_duration_since(anchor.naive_local())
+                    .num_minutes(),
+            )
+            .then_with(|| left.display_label().cmp(&right.display_label()))
+    });
+
+    let rows: Vec<(String, String)> = entries
+        .into_iter()
         .map(|entry| {
-            let mut label = entry.display_label();
-            if entry.timezone == local_timezone {
-                label = format!("{label}  ·  Local");
-            }
+            let label = entry.display_label();
             let time = format_display_time(&zoned_datetime(now, &entry.timezone), &time_format);
             (label, time)
         })
         .collect();
 
-    let mut tooltip_lines = vec!["World Clock".to_string(), String::new()];
-    if rows.is_empty() {
-        tooltip_lines.push("No timezones yet.".to_string());
-    } else {
-        tooltip_lines.extend(format_tooltip_clock_rows(&rows));
-    }
-
     ModulePayload {
         text: MODULE_ICON.to_string(),
         class: if popup_active { "active" } else { "inactive" }.to_string(),
-        tooltip: tooltip_lines.join("\n"),
+        tooltip: if rows.is_empty() {
+            "No additional timezones yet.".to_string()
+        } else {
+            format_tooltip_clock_rows(&rows).join("\n")
+        },
     }
 }
 
@@ -522,8 +549,62 @@ mod tests {
 
         assert_eq!(payload.text, "");
         assert_eq!(payload.class, "active");
-        assert!(payload.tooltip.contains("Home  ·  Local"));
-        assert!(payload.tooltip.contains("8:26 PM"));
+        assert!(!payload.tooltip.contains("World Clock"));
+        assert!(!payload.tooltip.contains("Home"));
+        assert!(payload.tooltip.contains("Tokyo"));
+        assert!(payload.tooltip.contains("5:26 AM"));
+    }
+
+    #[test]
+    fn module_payload_sorts_tooltip_rows_by_popup_time_order() {
+        let config = AppConfig {
+            timezones: vec![
+                TimezoneEntry {
+                    timezone: "Europe/Paris".to_string(),
+                    label: String::new(),
+                    locked: false,
+                },
+                TimezoneEntry {
+                    timezone: "America/Cancun".to_string(),
+                    label: "Home".to_string(),
+                    locked: false,
+                },
+                TimezoneEntry {
+                    timezone: "Asia/Kolkata".to_string(),
+                    label: String::new(),
+                    locked: false,
+                },
+                TimezoneEntry {
+                    timezone: "America/Chicago".to_string(),
+                    label: String::new(),
+                    locked: false,
+                },
+                TimezoneEntry {
+                    timezone: "America/Los_Angeles".to_string(),
+                    label: String::new(),
+                    locked: false,
+                },
+            ],
+            sort_mode: "manual".to_string(),
+            time_format: "24h".to_string(),
+        };
+        let now = Utc.with_ymd_and_hms(2026, 4, 18, 5, 5, 0).unwrap();
+
+        let payload = module_payload_from_config_with_time_format(
+            &config,
+            now,
+            "America/Cancun",
+            false,
+            "24h",
+        );
+        let lines = payload.tooltip.lines().collect::<Vec<_>>();
+
+        assert_eq!(lines.len(), 4);
+        assert!(lines[0].contains("Los Angeles"));
+        assert!(lines[1].contains("Chicago"));
+        assert!(lines[2].contains("Paris"));
+        assert!(lines[3].contains("Kolkata"));
+        assert!(!payload.tooltip.contains("Home"));
     }
 
     #[test]
@@ -537,7 +618,7 @@ mod tests {
 
         let payload = module_payload_from_config(&config, now, "UTC", false);
 
-        assert_eq!(payload.tooltip, "World Clock\n\nNo timezones yet.");
+        assert_eq!(payload.tooltip, "No additional timezones yet.");
         assert_eq!(payload.class, "inactive");
     }
 
@@ -576,10 +657,12 @@ mod tests {
     fn patch_style_is_idempotent() {
         let patched = patch_style_text(WAYBAR_STYLE);
         assert!(patched.contains("#custom-world-clock"));
+        assert!(patched.contains("tooltip label"));
         assert_eq!(patched, patch_style_text(&patched));
 
         let unpatched = unpatch_style_text(&patched);
         assert!(!unpatched.contains("#custom-world-clock"));
+        assert!(!unpatched.contains("tooltip label"));
     }
 
     #[test]

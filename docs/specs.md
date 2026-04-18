@@ -26,8 +26,9 @@ The popup supports:
 - The icon uses the same command wrapper as the rest of the app.
 - Left click toggles the popup open and closed.
 - Right click launches the Omarchy timezone selector terminal helper.
-- The module tooltip is a compact text table headed by `World Clock`.
-- The tooltip lists all configured rows in their effective display order.
+- The module tooltip is a compact text table with no title row.
+- The tooltip lists configured non-local rows in the same time order used by
+  the popup read view.
 - If the popup is open, the module exposes an `active` class; otherwise it is
   `inactive`.
 
@@ -306,7 +307,7 @@ If there are no configured rows:
 
 - the popup shows an empty-state title and helper copy
 - edit mode still allows adding timezones
-- the Waybar tooltip shows `No timezones yet.`
+- the Waybar tooltip shows `No additional timezones yet.`
 
 ## Performance and Feel
 
@@ -322,7 +323,7 @@ A future implementation is correct when all of the following are true:
 
 - Waybar integration is idempotent and reversible.
 - The popup can be toggled from Waybar.
-- The tooltip reflects current configured rows and marks local timezone rows.
+- The tooltip reflects current configured non-local rows.
 - Time conversion works from any editable row.
 - `system`, `24h`, and `ampm` formats all work.
 - Manual, alpha, and time sorting all work.
@@ -331,4 +332,3 @@ A future implementation is correct when all of the following are true:
 - Drag handles only appear in manual sort edit mode on unlocked rows.
 - Dragging shows a snapped in-list preview and commits exactly where previewed.
 - Clicking a drag handle without moving does nothing.
-

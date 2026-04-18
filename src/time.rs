@@ -43,6 +43,19 @@ pub fn format_offset(offset_seconds: i32) -> String {
     format!("UTC{sign}{hours:02}:{minutes:02}")
 }
 
+pub fn format_timezone_notation<T>(value: &DateTime<T>) -> String
+where
+    T: TimeZone,
+    T::Offset: std::fmt::Display,
+{
+    let abbreviation = value.format("%Z").to_string();
+    if abbreviation.trim().is_empty() {
+        return format_offset(value.offset().fix().local_minus_utc());
+    }
+
+    abbreviation
+}
+
 pub fn zoned_datetime(reference_utc: DateTime<Utc>, timezone_name: &str) -> DateTime<Tz> {
     let timezone = parse_timezone(timezone_name).expect("timezone should be validated before use");
     reference_utc.with_timezone(&timezone)
@@ -255,8 +268,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::{
-        format_display_time, format_offset, friendly_timezone_name, parse_manual_reference_details,
-        zoned_datetime, MANUAL_REFERENCE_ERROR,
+        format_display_time, format_offset, format_timezone_notation, friendly_timezone_name,
+        parse_manual_reference_details, zoned_datetime, MANUAL_REFERENCE_ERROR,
     };
     use chrono::{TimeZone, Utc};
 
@@ -276,6 +289,13 @@ mod tests {
     fn renders_friendly_timezone_name() {
         assert_eq!(friendly_timezone_name("America/Cancun"), "Cancun");
         assert_eq!(friendly_timezone_name("UTC"), "UTC");
+    }
+
+    #[test]
+    fn uses_zone_abbreviation_for_timezone_notation() {
+        let utc = Utc.with_ymd_and_hms(2026, 4, 17, 20, 0, 0).unwrap();
+        let chicago = zoned_datetime(utc, "America/Chicago");
+        assert_eq!(format_timezone_notation(&chicago), "CDT");
     }
 
     #[test]

@@ -8,8 +8,8 @@ use crate::layout::{
 };
 use crate::theme::{build_css, load_palette};
 use crate::time::{
-    format_display_time, format_offset, friendly_timezone_name, parse_manual_reference_details,
-    row_metadata, zoned_datetime,
+    format_display_time, format_timezone_notation, friendly_timezone_name,
+    parse_manual_reference_details, row_metadata, zoned_datetime,
 };
 use anyhow::{Context, Result};
 use chrono::{DateTime, Offset, Timelike, Utc};
@@ -19,7 +19,7 @@ use gtk::prelude::*;
 use gtk::{Align, Orientation, SelectionMode};
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 use std::cell::{Cell, RefCell};
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -165,6 +165,22 @@ const ADD_MAP_HOVER_CARD_HEIGHT: i32 = 140;
 const WORLD_MAP_ASSET_BYTES: &[u8] = include_bytes!("../assets/world-map.png");
 const SORT_MODE_VALUES: [&str; 3] = ["manual", "alpha", "time"];
 const TIME_FORMAT_VALUES: [&str; 3] = ["system", "24h", "ampm"];
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TimelineItem {
+    relative_minutes: i64,
+    time_text: String,
+    zone_text: String,
+    zone_tooltip: Option<String>,
+    entry_count: usize,
+}
+
+struct TimelineGroupBuilder {
+    time_text: String,
+    anchor_labels: Vec<String>,
+    other_labels: Vec<String>,
+    entry_count: usize,
+}
 
 const NORTH_AMERICA_POINTS: &[(f64, f64)] = &[
     (0.03, 0.36),
@@ -440,6 +456,28 @@ fn read_entries(state: &PopupState) -> Vec<TimezoneEntry> {
     entries
 }
 
+fn timeline_entries(
+    entries: &[TimezoneEntry],
+    local_timezone: &str,
+    reference_utc: DateTime<Utc>,
+) -> Vec<TimezoneEntry> {
+    let mut visible = visible_read_entries(entries, local_timezone);
+    if !visible.iter().any(|entry| entry.timezone == local_timezone) {
+        let local_entry = entries
+            .iter()
+            .find(|entry| entry.timezone == local_timezone)
+            .cloned()
+            .unwrap_or(TimezoneEntry {
+                timezone: local_timezone.to_string(),
+                label: String::new(),
+                locked: false,
+            });
+        visible.push(local_entry);
+    }
+    sort_read_entries_by_time(&mut visible, reference_utc, local_timezone);
+    visible
+}
+
 fn row_can_reorder(state: &PopupState, _entry: &TimezoneEntry) -> bool {
     state.config.sort_mode == "manual" && !_entry.locked && unlocked_entry_count(state) > 1
 }
@@ -551,6 +589,15 @@ fn anchor_label(state: &PopupState) -> String {
         .unwrap_or_else(|| friendly_timezone_name(&state.local_timezone))
 }
 
+fn location_with_zone_notation(label: &str, zoned: &DateTime<chrono_tz::Tz>) -> String {
+    let notation = format_timezone_notation(zoned);
+    if label == notation {
+        return label.to_string();
+    }
+
+    format!("{label}  ·  {notation}")
+}
+
 fn relative_time_label(
     anchor: &DateTime<chrono_tz::Tz>,
     value: &DateTime<chrono_tz::Tz>,
@@ -593,29 +640,108 @@ fn timeline_relative_minutes(
         .num_minutes()
 }
 
-fn timeline_extent_minutes(
-    anchor: &DateTime<chrono_tz::Tz>,
+fn push_timeline_label(labels: &mut Vec<String>, label: &str) {
+    if labels.iter().all(|existing| existing != label) {
+        labels.push(label.to_string());
+    }
+}
+
+fn format_timeline_zone_text(labels: &[String], entry_count: usize) -> String {
+    let Some(first_label) = labels.first() else {
+        return String::new();
+    };
+
+    if entry_count <= 1 {
+        return first_label.clone();
+    }
+
+    if labels.len() == 1 {
+        return format!("{first_label} +{}", entry_count - 1);
+    }
+
+    if entry_count == 2 {
+        return format!("{} / {}", labels[0], labels[1]);
+    }
+
+    format!("{} / {} +{}", labels[0], labels[1], entry_count - 2)
+}
+
+fn timeline_zone_tooltip(labels: &[String], entry_count: usize) -> Option<String> {
+    let joined = labels.join(" / ");
+    if entry_count > labels.len() {
+        let zone_word = if entry_count == 1 { "zone" } else { "zones" };
+        if joined.is_empty() {
+            Some(format!("{entry_count} {zone_word}"))
+        } else {
+            Some(format!("{joined} ({entry_count} {zone_word})"))
+        }
+    } else if labels.len() > 1 {
+        Some(joined)
+    } else {
+        None
+    }
+}
+
+fn build_timeline_items(
     entries: &[TimezoneEntry],
+    local_timezone: &str,
     reference_utc: DateTime<Utc>,
-) -> i64 {
-    entries
-        .iter()
-        .map(|entry| {
-            let zoned = zoned_datetime(reference_utc, &entry.timezone);
-            timeline_relative_minutes(anchor, &zoned).abs()
+    time_format: &str,
+) -> Vec<TimelineItem> {
+    let anchor = zoned_datetime(reference_utc, local_timezone);
+    let mut groups = BTreeMap::<i64, TimelineGroupBuilder>::new();
+
+    for entry in timeline_entries(entries, local_timezone, reference_utc) {
+        let zoned = zoned_datetime(reference_utc, &entry.timezone);
+        let relative_minutes = timeline_relative_minutes(&anchor, &zoned);
+        let abbreviation = format_timezone_notation(&zoned);
+        let group = groups
+            .entry(relative_minutes)
+            .or_insert_with(|| TimelineGroupBuilder {
+                time_text: format_display_time(&zoned, time_format),
+                anchor_labels: Vec::new(),
+                other_labels: Vec::new(),
+                entry_count: 0,
+            });
+        group.entry_count += 1;
+        if entry.timezone == local_timezone {
+            push_timeline_label(&mut group.anchor_labels, &abbreviation);
+        } else {
+            push_timeline_label(&mut group.other_labels, &abbreviation);
+        }
+    }
+
+    groups
+        .into_iter()
+        .map(|(relative_minutes, mut group)| {
+            group.other_labels.sort();
+            let mut labels = group.anchor_labels;
+            for label in group.other_labels {
+                push_timeline_label(&mut labels, &label);
+            }
+            let zone_text = format_timeline_zone_text(&labels, group.entry_count);
+            TimelineItem {
+                relative_minutes,
+                time_text: group.time_text,
+                zone_tooltip: timeline_zone_tooltip(&labels, group.entry_count),
+                zone_text,
+                entry_count: group.entry_count,
+            }
         })
+        .collect()
+}
+
+fn timeline_extent_minutes(items: &[TimelineItem]) -> i64 {
+    items
+        .iter()
+        .map(|item| item.relative_minutes.abs())
         .max()
         .unwrap_or(60)
         .max(60)
 }
 
-fn timeline_side_hours(
-    anchor: &DateTime<chrono_tz::Tz>,
-    entries: &[TimezoneEntry],
-    reference_utc: DateTime<Utc>,
-) -> i64 {
-    ((timeline_extent_minutes(anchor, entries, reference_utc) + 59) / 60
-        + TIMELINE_EDGE_HOUR_MARGIN)
+fn timeline_side_hours(items: &[TimelineItem]) -> i64 {
+    ((timeline_extent_minutes(items) + 59) / 60 + TIMELINE_EDGE_HOUR_MARGIN)
         .max(TIMELINE_MIN_SIDE_HOURS)
 }
 
@@ -886,7 +1012,8 @@ fn update_read_cards(
         card.entry = entry.clone();
         let zoned = zoned_datetime(reference_utc, &entry.timezone);
         card.title.set_text(&read_card_title(entry));
-        card.timezone_label.set_text(&entry.timezone);
+        card.timezone_label
+            .set_text(&format_timezone_notation(&zoned));
         card.delta_label
             .set_text(&relative_time_label(anchor, &zoned));
         configure_manual_time_entry(&card.time_entry, &time_format);
@@ -919,41 +1046,32 @@ fn render_read_view(state: &mut PopupState) {
         );
         state.read_summary_dirty.set(false);
     }
-    state.read_summary_location.set_text(&format!(
-        "{}  ·  {}",
-        anchor_label(state),
-        format_offset(anchor.offset().fix().local_minus_utc())
-    ));
+    state
+        .read_summary_location
+        .set_text(&location_with_zone_notation(&anchor_label(state), &anchor));
 
     while let Some(child) = state.timeline_labels.first_child() {
         state.timeline_labels.remove(&child);
     }
 
     let entries = read_entries(state);
-    let side_hours = timeline_side_hours(&anchor, &entries, state.reference_utc);
-    let mut timeline_items = entries
-        .iter()
-        .map(|entry| {
-            let zoned = zoned_datetime(state.reference_utc, &entry.timezone);
-            let relative_minutes = timeline_relative_minutes(&anchor, &zoned) as f64;
-            (
-                relative_minutes,
-                format_display_time(&zoned, &state.time_format),
-                zoned.format("%Z").to_string(),
-            )
-        })
-        .collect::<Vec<_>>();
-    timeline_items.sort_by(|left, right| {
-        left.0
-            .partial_cmp(&right.0)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    let timeline_items = build_timeline_items(
+        &state.config.timezones,
+        &state.local_timezone,
+        state.reference_utc,
+        &state.time_format,
+    );
+    let side_hours = timeline_side_hours(&timeline_items);
 
     let timeline_width = f64::from(READ_TIMELINE_WIDTH);
     let label_width = TIMELINE_LABEL_WIDTH;
     let mut lane_last_right = [f64::NEG_INFINITY; TIMELINE_LABEL_LANE_Y.len()];
-    for (relative_minutes, time_text, abbreviation) in &timeline_items {
-        let x = timeline_position_x(*relative_minutes, side_hours, timeline_width);
+    for timeline_item in &timeline_items {
+        let x = timeline_position_x(
+            timeline_item.relative_minutes as f64,
+            side_hours,
+            timeline_width,
+        );
         let left = (x - label_width / 2.0).clamp(0.0, timeline_width - label_width);
         let right = left + label_width;
         let lane_index = lane_last_right
@@ -974,13 +1092,15 @@ fn render_read_view(state: &mut PopupState) {
         let item = gtk::Box::new(Orientation::Vertical, 6);
         item.set_size_request(label_width as i32, TIMELINE_LABEL_HEIGHT);
 
-        let time_label = gtk::Label::new(Some(time_text));
+        let time_label = gtk::Label::new(Some(&timeline_item.time_text));
         time_label.set_xalign(0.5);
         time_label.add_css_class("timeline-time");
         item.append(&time_label);
 
-        let abbreviation_label = gtk::Label::new(Some(abbreviation));
+        let abbreviation_label = gtk::Label::new(Some(&timeline_item.zone_text));
         abbreviation_label.set_xalign(0.5);
+        abbreviation_label.set_ellipsize(gtk::pango::EllipsizeMode::End);
+        abbreviation_label.set_tooltip_text(timeline_item.zone_tooltip.as_deref());
         abbreviation_label.add_css_class("timeline-zone");
         item.append(&abbreviation_label);
 
@@ -1072,7 +1192,7 @@ fn sync_map_hover_card(state: &PopupState) {
     state.add_map_hover_meta.set_text(&format!(
         "{}  ·  {}",
         result.timezone,
-        format_offset(zoned.offset().fix().local_minus_utc())
+        format_timezone_notation(&zoned)
     ));
     state
         .add_map_hover_relative
@@ -1673,7 +1793,7 @@ fn render_search_results(state_handle: &Rc<RefCell<PopupState>>) {
         title.add_css_class("search-result-title");
         content.append(&title);
 
-        let meta = gtk::Label::new(Some(&result.subtitle));
+        let meta = gtk::Label::new(Some(&search_result_subtitle(&result, &state.reference_utc)));
         meta.set_xalign(0.0);
         meta.add_css_class("search-result-meta");
         content.append(&meta);
@@ -1764,6 +1884,33 @@ fn label_for_input(state: &PopupState, raw_value: &str, timezone_name: &str) -> 
         return matches[0].title.clone();
     }
     value.to_string()
+}
+
+fn search_result_subtitle(result: &TimezoneSearchResult, reference_utc: &DateTime<Utc>) -> String {
+    let abbreviation = format_timezone_notation(&zoned_datetime(*reference_utc, &result.timezone));
+    let mut parts = result
+        .subtitle
+        .split("  ·  ")
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .map(ToString::to_string)
+        .collect::<Vec<_>>();
+
+    if parts.is_empty() {
+        parts.push(result.timezone.clone());
+    }
+
+    if parts.first().is_some_and(|part| part == &abbreviation) {
+        return parts.join("  ·  ");
+    }
+
+    if parts.len() > 1 && parts[1].split('/').any(|part| part.trim() == abbreviation) {
+        parts[1] = abbreviation;
+    } else if parts.first().is_some_and(|part| part != &abbreviation) {
+        parts.insert(1, abbreviation);
+    }
+
+    parts.join("  ·  ")
 }
 
 fn single_visible_search_match(
@@ -2784,9 +2931,14 @@ fn build_window(
     let state_for_timeline = state.clone();
     timeline_area.set_draw_func(move |_, context, width, height| {
         let state = state_for_timeline.borrow();
-        let entries = read_entries(&state);
+        let timeline_items = build_timeline_items(
+            &state.config.timezones,
+            &state.local_timezone,
+            state.reference_utc,
+            &state.time_format,
+        );
         let anchor = zoned_datetime(state.reference_utc, &state.local_timezone);
-        let side_hours = timeline_side_hours(&anchor, &entries, state.reference_utc);
+        let side_hours = timeline_side_hours(&timeline_items);
         let stroke = gdk::RGBA::parse(&load_palette().foreground)
             .ok()
             .map(|rgba| {
@@ -2799,6 +2951,7 @@ fn build_window(
             .unwrap_or((0.6, 0.6, 0.6));
 
         let line_y = TIMELINE_LINE_Y.min(height as f64 - 12.0);
+        let center_x = timeline_position_x(0.0, side_hours, width as f64);
 
         context.set_source_rgba(stroke.0, stroke.1, stroke.2, 0.16);
         context.set_line_width(1.0);
@@ -2814,12 +2967,16 @@ fn build_window(
             let _ = context.stroke();
         }
 
-        for entry in entries {
-            let zoned = zoned_datetime(state.reference_utc, &entry.timezone);
-            let relative_minutes = timeline_relative_minutes(&anchor, &zoned) as f64;
-            let x = timeline_position_x(relative_minutes, side_hours, width as f64);
+        context.set_source_rgba(stroke.0, stroke.1, stroke.2, 0.22);
+        context.move_to(center_x, line_y - 8.0);
+        context.line_to(center_x, line_y + 8.0);
+        let _ = context.stroke();
+
+        for item in timeline_items {
+            let x = timeline_position_x(item.relative_minutes as f64, side_hours, width as f64);
             context.set_source_rgba(stroke.0, stroke.1, stroke.2, 0.22);
-            context.arc(x, line_y, 5.5, 0.0, std::f64::consts::TAU);
+            let radius = if item.entry_count > 1 { 6.5 } else { 5.5 };
+            context.arc(x, line_y, radius, 0.0, std::f64::consts::TAU);
             let _ = context.fill();
         }
     });
@@ -3179,10 +3336,12 @@ pub fn run_popup(pid_path: &Path, config_path: Option<PathBuf>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        map_coordinates_to_lng_lat, read_card_title, read_entry_count, sort_read_entries_by_time,
-        timeline_side_hours, timeline_tick_relative_minutes, visible_read_entries, READ_CARD_LIMIT,
+        build_timeline_items, format_timeline_zone_text, map_coordinates_to_lng_lat,
+        read_card_title, read_entry_count, search_result_subtitle, sort_read_entries_by_time,
+        timeline_entries, timeline_side_hours, timeline_tick_relative_minutes,
+        visible_read_entries, READ_CARD_LIMIT,
     };
-    use crate::config::TimezoneEntry;
+    use crate::config::{TimezoneEntry, TimezoneSearchResult};
     use crate::time::zoned_datetime;
     use chrono::{TimeZone, Utc};
 
@@ -3284,6 +3443,48 @@ mod tests {
     }
 
     #[test]
+    fn timeline_entries_always_include_local_anchor() {
+        let entries = vec![entry("America/Chicago"), entry("Europe/Paris")];
+
+        let timeline = timeline_entries(
+            &entries,
+            "America/Cancun",
+            Utc.with_ymd_and_hms(2026, 4, 18, 12, 0, 0).unwrap(),
+        );
+
+        assert!(timeline
+            .iter()
+            .any(|entry| entry.timezone == "America/Cancun"));
+    }
+
+    #[test]
+    fn timeline_groups_same_slot_abbreviations_with_anchor_first() {
+        let entries = vec![entry("America/Chicago")];
+
+        let items = build_timeline_items(
+            &entries,
+            "America/Cancun",
+            Utc.with_ymd_and_hms(2026, 4, 18, 12, 0, 0).unwrap(),
+            "24h",
+        );
+
+        let center_item = items
+            .iter()
+            .find(|item| item.relative_minutes == 0)
+            .expect("center timeline item should exist");
+        assert_eq!(center_item.zone_text, "EST / CDT");
+        assert_eq!(center_item.entry_count, 2);
+    }
+
+    #[test]
+    fn timeline_zone_text_compacts_three_or_more_entries() {
+        let labels = vec!["EST".to_string(), "CDT".to_string(), "COT".to_string()];
+
+        assert_eq!(format_timeline_zone_text(&labels, 3), "EST / CDT +1");
+        assert_eq!(format_timeline_zone_text(&labels[..1], 3), "EST +2");
+    }
+
+    #[test]
     fn timeline_ticks_follow_whole_hour_boundaries() {
         let reference_utc = Utc.with_ymd_and_hms(2026, 4, 18, 20, 29, 0).unwrap();
         let anchor = zoned_datetime(reference_utc, "America/Cancun");
@@ -3299,11 +3500,14 @@ mod tests {
 
     #[test]
     fn timeline_side_hours_keeps_an_extra_hour_beyond_farthest_offset() {
-        let reference_utc = Utc.with_ymd_and_hms(2026, 4, 18, 5, 5, 0).unwrap();
-        let anchor = zoned_datetime(reference_utc, "America/Cancun");
-        let entries = vec![entry("Asia/Kolkata")];
+        let items = build_timeline_items(
+            &[entry("Asia/Kolkata")],
+            "America/Cancun",
+            Utc.with_ymd_and_hms(2026, 4, 18, 5, 5, 0).unwrap(),
+            "24h",
+        );
 
-        let side_hours = timeline_side_hours(&anchor, &entries, reference_utc);
+        let side_hours = timeline_side_hours(&items);
 
         assert_eq!(side_hours, 12);
     }
@@ -3324,6 +3528,38 @@ mod tests {
         let entry = entry("America/Argentina/Buenos_Aires");
 
         assert_eq!(read_card_title(&entry), "Buenos Aires");
+    }
+
+    #[test]
+    fn search_result_subtitle_inserts_current_abbreviation_after_timezone() {
+        let result = TimezoneSearchResult {
+            timezone: "Europe/Paris".to_string(),
+            title: "Barc, Normandy, France".to_string(),
+            subtitle: "Europe/Paris  ·  Normandy, France".to_string(),
+        };
+
+        let subtitle = search_result_subtitle(
+            &result,
+            &Utc.with_ymd_and_hms(2026, 4, 18, 12, 0, 0).unwrap(),
+        );
+
+        assert_eq!(subtitle, "Europe/Paris  ·  CEST  ·  Normandy, France");
+    }
+
+    #[test]
+    fn search_result_subtitle_replaces_broad_abbreviation_list() {
+        let result = TimezoneSearchResult {
+            timezone: "Europe/Paris".to_string(),
+            title: "Paris".to_string(),
+            subtitle: "Europe/Paris  ·  CET / CEST".to_string(),
+        };
+
+        let subtitle = search_result_subtitle(
+            &result,
+            &Utc.with_ymd_and_hms(2026, 4, 18, 12, 0, 0).unwrap(),
+        );
+
+        assert_eq!(subtitle, "Europe/Paris  ·  CEST");
     }
 
     #[test]

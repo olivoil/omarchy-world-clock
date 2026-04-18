@@ -1641,7 +1641,7 @@ fn render_search_results(state_handle: &Rc<RefCell<PopupState>>) {
         title.add_css_class("search-result-title");
         content.append(&title);
 
-        let meta = gtk::Label::new(Some(&result.subtitle));
+        let meta = gtk::Label::new(Some(&search_result_subtitle(&result, &state.reference_utc)));
         meta.set_xalign(0.0);
         meta.add_css_class("search-result-meta");
         content.append(&meta);
@@ -1732,6 +1732,33 @@ fn label_for_input(state: &PopupState, raw_value: &str, timezone_name: &str) -> 
         return matches[0].title.clone();
     }
     value.to_string()
+}
+
+fn search_result_subtitle(result: &TimezoneSearchResult, reference_utc: &DateTime<Utc>) -> String {
+    let abbreviation = format_timezone_notation(&zoned_datetime(*reference_utc, &result.timezone));
+    let mut parts = result
+        .subtitle
+        .split("  ·  ")
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .map(ToString::to_string)
+        .collect::<Vec<_>>();
+
+    if parts.is_empty() {
+        parts.push(result.timezone.clone());
+    }
+
+    if parts.first().is_some_and(|part| part == &abbreviation) {
+        return parts.join("  ·  ");
+    }
+
+    if parts.len() > 1 && parts[1].split('/').any(|part| part.trim() == abbreviation) {
+        parts[1] = abbreviation;
+    } else if parts.first().is_some_and(|part| part != &abbreviation) {
+        parts.insert(1, abbreviation);
+    }
+
+    parts.join("  ·  ")
 }
 
 fn single_visible_search_match(
@@ -3055,10 +3082,11 @@ pub fn run_popup(pid_path: &Path, config_path: Option<PathBuf>) -> Result<()> {
 mod tests {
     use super::{
         build_timeline_items, format_timeline_zone_text, map_coordinates_to_lng_lat,
-        read_card_title, read_entry_count, sort_read_entries_by_time, timeline_entries,
-        timeline_side_hours, timeline_tick_relative_minutes, visible_read_entries, READ_CARD_LIMIT,
+        read_card_title, read_entry_count, search_result_subtitle, sort_read_entries_by_time,
+        timeline_entries, timeline_side_hours, timeline_tick_relative_minutes,
+        visible_read_entries, READ_CARD_LIMIT,
     };
-    use crate::config::TimezoneEntry;
+    use crate::config::{TimezoneEntry, TimezoneSearchResult};
     use crate::time::zoned_datetime;
     use chrono::{TimeZone, Utc};
 
@@ -3245,6 +3273,38 @@ mod tests {
         let entry = entry("America/Argentina/Buenos_Aires");
 
         assert_eq!(read_card_title(&entry), "Buenos Aires");
+    }
+
+    #[test]
+    fn search_result_subtitle_inserts_current_abbreviation_after_timezone() {
+        let result = TimezoneSearchResult {
+            timezone: "Europe/Paris".to_string(),
+            title: "Barc, Normandy, France".to_string(),
+            subtitle: "Europe/Paris  ·  Normandy, France".to_string(),
+        };
+
+        let subtitle = search_result_subtitle(
+            &result,
+            &Utc.with_ymd_and_hms(2026, 4, 18, 12, 0, 0).unwrap(),
+        );
+
+        assert_eq!(subtitle, "Europe/Paris  ·  CEST  ·  Normandy, France");
+    }
+
+    #[test]
+    fn search_result_subtitle_replaces_broad_abbreviation_list() {
+        let result = TimezoneSearchResult {
+            timezone: "Europe/Paris".to_string(),
+            title: "Paris".to_string(),
+            subtitle: "Europe/Paris  ·  CET / CEST".to_string(),
+        };
+
+        let subtitle = search_result_subtitle(
+            &result,
+            &Utc.with_ymd_and_hms(2026, 4, 18, 12, 0, 0).unwrap(),
+        );
+
+        assert_eq!(subtitle, "Europe/Paris  ·  CEST");
     }
 
     #[test]

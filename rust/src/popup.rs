@@ -2099,6 +2099,14 @@ fn build_window(
     add_root.add_css_class("add-screen");
     content_stack.add_named(&add_root, Some("add"));
 
+    let add_overlay = gtk::Overlay::new();
+    add_overlay.set_halign(Align::Fill);
+    add_overlay.set_valign(Align::Start);
+    add_root.append(&add_overlay);
+
+    let add_body = gtk::Box::new(Orientation::Vertical, 16);
+    add_overlay.set_child(Some(&add_body));
+
     let add_entry = gtk::Entry::new();
     add_entry.set_hexpand(true);
     add_entry.add_css_class("search-entry");
@@ -2108,15 +2116,21 @@ fn build_window(
         gtk::EntryIconPosition::Primary,
         Some("system-search-symbolic"),
     );
-    add_root.append(&add_entry);
+    add_body.append(&add_entry);
 
     let search_results_scroller = gtk::ScrolledWindow::new();
     search_results_scroller.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
     search_results_scroller.set_overlay_scrolling(true);
     search_results_scroller.set_propagate_natural_height(true);
     search_results_scroller.set_max_content_height(180);
+    search_results_scroller.set_hexpand(true);
+    search_results_scroller.set_halign(Align::Fill);
+    search_results_scroller.set_valign(Align::Start);
+    search_results_scroller.set_margin_top(72);
+    search_results_scroller.add_css_class("search-results-overlay");
     search_results_scroller.set_visible(false);
-    add_root.append(&search_results_scroller);
+    add_overlay.add_overlay(&search_results_scroller);
+    add_overlay.set_measure_overlay(&search_results_scroller, false);
 
     let search_results_box = gtk::Box::new(Orientation::Vertical, 6);
     search_results_scroller.set_child(Some(&search_results_box));
@@ -2127,7 +2141,7 @@ fn build_window(
     add_map_shell.set_width_request(READ_TIMELINE_WIDTH);
     add_map_shell.set_size_request(READ_TIMELINE_WIDTH, ADD_MAP_HEIGHT);
     add_map_shell.set_overflow(gtk::Overflow::Hidden);
-    add_root.append(&add_map_shell);
+    add_body.append(&add_map_shell);
 
     let add_map_frame = gtk::AspectFrame::new(0.5, 0.5, ADD_MAP_ASPECT_RATIO, false);
     add_map_frame.set_halign(Align::Center);

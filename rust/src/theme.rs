@@ -107,6 +107,18 @@ window {{
   margin-top: 4px;
 }}
 
+scrolledwindow.search-results-overlay {{
+  background: {panel_background};
+  border: 1px solid {panel_border};
+  border-radius: 18px;
+  box-shadow: 0 18px 36px {shadow};
+}}
+
+scrolledwindow.search-results-overlay > viewport {{
+  background: transparent;
+  border-radius: 18px;
+}}
+
 .timeline-shell {{
   margin: 2px 10px 6px 10px;
 }}
@@ -478,9 +490,10 @@ button.icon-button.destructive:hover {{
 }}
 
 button.search-result-button {{
-  background: rgba(255, 255, 255, 0.02);
+  background: rgba(255, 255, 255, 0.01);
   padding: 10px 12px;
   border-radius: 12px;
+  box-shadow: none;
 }}
 
 button.search-result-button:hover {{

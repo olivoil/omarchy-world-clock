@@ -103,6 +103,10 @@ window {{
   font-weight: 600;
 }}
 
+.add-screen {{
+  margin-top: 4px;
+}}
+
 .timeline-shell {{
   margin: 2px 10px 6px 10px;
 }}
@@ -251,6 +255,65 @@ entry.search-entry:focus {{
   box-shadow: 0 0 0 3px {accent_focus_shadow};
 }}
 
+entry.add-search-entry {{
+  min-height: 56px;
+  border-radius: 18px;
+  padding: 0 18px;
+  font-size: 24px;
+  font-weight: 500;
+}}
+
+entry.add-search-entry image {{
+  color: {muted_foreground};
+  -gtk-icon-size: 24px;
+  margin-right: 12px;
+}}
+
+.add-map-shell {{
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid {card_border};
+  border-radius: 24px;
+  padding: 18px;
+}}
+
+.map-hover-card {{
+  background: {panel_background};
+  border: 1px solid {panel_border};
+  border-radius: 20px;
+  padding: 18px 20px;
+  box-shadow: 0 20px 38px {shadow};
+}}
+
+.map-hover-title {{
+  color: {foreground};
+  font-size: 24px;
+  font-weight: 700;
+}}
+
+.map-hover-time {{
+  color: {foreground};
+  font-family: "JetBrainsMono Nerd Font Mono", "JetBrains Mono", monospace;
+  font-size: 34px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}}
+
+.map-hover-meta {{
+  color: {muted_foreground};
+  font-size: 14px;
+  font-weight: 500;
+}}
+
+.map-legend {{
+  margin-top: -4px;
+}}
+
+.map-legend-label {{
+  color: {muted_foreground};
+  font-size: 13px;
+  font-weight: 600;
+}}
+
 button {{
   color: {foreground};
   background: {button_background};
@@ -265,6 +328,26 @@ button:hover {{
 
 button:focus {{
   border-color: {accent_focus_border};
+}}
+
+button.flat-button {{
+  background: transparent;
+  border-color: transparent;
+  padding: 4px 2px;
+  min-height: 32px;
+  color: {muted_foreground};
+  font-size: 15px;
+  font-weight: 600;
+}}
+
+button.flat-button:hover {{
+  background: transparent;
+  color: {foreground};
+}}
+
+button.flat-button:focus {{
+  border-color: transparent;
+  box-shadow: none;
 }}
 
 button.icon-button {{
@@ -395,6 +478,7 @@ button.icon-button.destructive:hover {{
 }}
 
 button.search-result-button {{
+  background: rgba(255, 255, 255, 0.02);
   padding: 10px 12px;
   border-radius: 12px;
 }}

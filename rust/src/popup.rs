@@ -27,6 +27,20 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
+#[derive(Clone, Copy)]
+struct MapRegion {
+    title: &'static str,
+    timezone: &'static str,
+    bounds: (f64, f64, f64, f64),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PopupScreen {
+    Read,
+    Edit,
+    Add,
+}
+
 #[derive(Clone)]
 struct RowWidgets {
     entry: TimezoneEntry,
@@ -59,8 +73,7 @@ struct PopupState {
     dismiss_armed: bool,
     allow_close: bool,
     live: bool,
-    edit_mode: bool,
-    add_panel_visible: bool,
+    screen_mode: PopupScreen,
     editing_timezone: Option<String>,
     pending_apply_source: Option<glib::SourceId>,
     pending_apply_timezone: Option<String>,
@@ -68,18 +81,24 @@ struct PopupState {
     panel_title: gtk::Label,
     live_button: gtk::Button,
     edit_button: gtk::Button,
+    add_button: gtk::Button,
+    cancel_button: gtk::Button,
     read_summary_time: gtk::Label,
     read_summary_location: gtk::Label,
     timeline_area: gtk::DrawingArea,
     timeline_labels: gtk::Fixed,
     cards_flow: gtk::FlowBox,
-    footer_separator: gtk::Separator,
-    add_stack: gtk::Stack,
-    add_toggle_button: gtk::Button,
-    add_panel: gtk::Box,
     add_entry: gtk::Entry,
     search_results_scroller: gtk::ScrolledWindow,
     search_results_box: gtk::Box,
+    add_map_area: gtk::DrawingArea,
+    add_map_hover_layer: gtk::Fixed,
+    add_map_hover_card: gtk::Box,
+    add_map_hover_title: gtk::Label,
+    add_map_hover_time: gtk::Label,
+    add_map_hover_meta: gtk::Label,
+    add_map_hover_relative: gtk::Label,
+    hovered_map_region: Option<usize>,
     local_search_results: Vec<TimezoneSearchResult>,
     remote_search_results: Vec<TimezoneSearchResult>,
     search_results: Vec<TimezoneSearchResult>,
@@ -112,6 +131,159 @@ const READ_CARD_LIMIT: usize = 9;
 const READ_CARD_SPACING: i32 = 18;
 const READ_CARD_WIDTH: i32 =
     (READ_TIMELINE_WIDTH - (READ_CARD_SPACING * (READ_CARD_COLUMNS - 1))) / READ_CARD_COLUMNS;
+const ADD_SEARCH_RESULT_LIMIT: usize = 8;
+const ADD_MAP_HEIGHT: i32 = 400;
+const ADD_MAP_HOVER_CARD_WIDTH: i32 = 272;
+const ADD_MAP_HOVER_CARD_HEIGHT: i32 = 140;
+
+const MAP_REGIONS: [MapRegion; 11] = [
+    MapRegion {
+        title: "Hawaii & Alaska",
+        timezone: "Pacific/Honolulu",
+        bounds: (0.01, 0.20, 0.12, 0.54),
+    },
+    MapRegion {
+        title: "Pacific Coast",
+        timezone: "America/Los_Angeles",
+        bounds: (0.12, 0.22, 0.21, 0.57),
+    },
+    MapRegion {
+        title: "Central North America",
+        timezone: "America/Chicago",
+        bounds: (0.21, 0.24, 0.32, 0.58),
+    },
+    MapRegion {
+        title: "Eastern North America",
+        timezone: "America/New_York",
+        bounds: (0.32, 0.22, 0.40, 0.56),
+    },
+    MapRegion {
+        title: "South America",
+        timezone: "America/Sao_Paulo",
+        bounds: (0.25, 0.50, 0.36, 0.88),
+    },
+    MapRegion {
+        title: "Western Europe",
+        timezone: "Europe/London",
+        bounds: (0.46, 0.18, 0.55, 0.54),
+    },
+    MapRegion {
+        title: "Central Europe",
+        timezone: "Europe/Paris",
+        bounds: (0.55, 0.18, 0.63, 0.56),
+    },
+    MapRegion {
+        title: "Middle East & India",
+        timezone: "Asia/Kolkata",
+        bounds: (0.63, 0.22, 0.73, 0.58),
+    },
+    MapRegion {
+        title: "China & Southeast Asia",
+        timezone: "Asia/Shanghai",
+        bounds: (0.73, 0.24, 0.83, 0.62),
+    },
+    MapRegion {
+        title: "Japan & Korea",
+        timezone: "Asia/Tokyo",
+        bounds: (0.83, 0.22, 0.89, 0.54),
+    },
+    MapRegion {
+        title: "Australia East",
+        timezone: "Australia/Sydney",
+        bounds: (0.82, 0.64, 0.94, 0.88),
+    },
+];
+
+const NORTH_AMERICA_POINTS: &[(f64, f64)] = &[
+    (0.03, 0.36),
+    (0.06, 0.24),
+    (0.12, 0.18),
+    (0.19, 0.16),
+    (0.25, 0.18),
+    (0.29, 0.21),
+    (0.33, 0.25),
+    (0.35, 0.33),
+    (0.31, 0.39),
+    (0.27, 0.42),
+    (0.20, 0.46),
+    (0.16, 0.53),
+    (0.10, 0.56),
+    (0.06, 0.52),
+    (0.03, 0.44),
+];
+const SOUTH_AMERICA_POINTS: &[(f64, f64)] = &[
+    (0.28, 0.51),
+    (0.31, 0.57),
+    (0.34, 0.65),
+    (0.35, 0.74),
+    (0.33, 0.84),
+    (0.30, 0.92),
+    (0.26, 0.86),
+    (0.24, 0.74),
+    (0.25, 0.60),
+];
+const EUROPE_AFRICA_POINTS: &[(f64, f64)] = &[
+    (0.46, 0.26),
+    (0.50, 0.18),
+    (0.56, 0.16),
+    (0.61, 0.20),
+    (0.63, 0.27),
+    (0.61, 0.34),
+    (0.59, 0.39),
+    (0.58, 0.46),
+    (0.60, 0.57),
+    (0.58, 0.71),
+    (0.55, 0.85),
+    (0.49, 0.79),
+    (0.46, 0.64),
+    (0.45, 0.48),
+    (0.43, 0.35),
+];
+const ASIA_POINTS: &[(f64, f64)] = &[
+    (0.58, 0.22),
+    (0.65, 0.17),
+    (0.74, 0.16),
+    (0.82, 0.20),
+    (0.89, 0.26),
+    (0.92, 0.35),
+    (0.90, 0.44),
+    (0.85, 0.48),
+    (0.82, 0.58),
+    (0.78, 0.60),
+    (0.73, 0.56),
+    (0.68, 0.58),
+    (0.64, 0.52),
+    (0.61, 0.48),
+    (0.58, 0.40),
+    (0.56, 0.30),
+];
+const AUSTRALIA_POINTS: &[(f64, f64)] = &[
+    (0.83, 0.69),
+    (0.87, 0.65),
+    (0.92, 0.66),
+    (0.95, 0.72),
+    (0.94, 0.80),
+    (0.88, 0.83),
+    (0.83, 0.79),
+    (0.81, 0.73),
+];
+const GREENLAND_POINTS: &[(f64, f64)] = &[
+    (0.22, 0.05),
+    (0.27, 0.03),
+    (0.31, 0.06),
+    (0.30, 0.15),
+    (0.25, 0.17),
+    (0.21, 0.12),
+];
+const WORLD_LANDMASSES: [&[(f64, f64)]; 6] = [
+    NORTH_AMERICA_POINTS,
+    SOUTH_AMERICA_POINTS,
+    EUROPE_AFRICA_POINTS,
+    ASIA_POINTS,
+    AUSTRALIA_POINTS,
+    GREENLAND_POINTS,
+];
+const MAP_LEGEND_LABELS: [&str; 7] = ["-12", "-8", "-4", "+0", "+4", "+8", "+12"];
 
 impl Drop for PidGuard {
     fn drop(&mut self) {
@@ -405,6 +577,100 @@ fn timeline_extent_minutes(
         .max(60)
 }
 
+fn color_components(hex_value: &str, fallback: (f64, f64, f64)) -> (f64, f64, f64) {
+    gdk::RGBA::parse(hex_value)
+        .ok()
+        .map(|rgba| {
+            (
+                f64::from(rgba.red()),
+                f64::from(rgba.green()),
+                f64::from(rgba.blue()),
+            )
+        })
+        .unwrap_or(fallback)
+}
+
+fn draw_polygon(
+    context: &gtk::cairo::Context,
+    width: f64,
+    height: f64,
+    points: &[(f64, f64)],
+    fill_color: (f64, f64, f64, f64),
+    stroke_color: (f64, f64, f64, f64),
+) {
+    let Some((start_x, start_y)) = points.first().copied() else {
+        return;
+    };
+
+    context.new_path();
+    context.move_to(start_x * width, start_y * height);
+    for (x, y) in points.iter().copied().skip(1) {
+        context.line_to(x * width, y * height);
+    }
+    context.close_path();
+    context.set_source_rgba(fill_color.0, fill_color.1, fill_color.2, fill_color.3);
+    let _ = context.fill_preserve();
+    context.set_source_rgba(
+        stroke_color.0,
+        stroke_color.1,
+        stroke_color.2,
+        stroke_color.3,
+    );
+    context.set_line_width(1.0);
+    let _ = context.stroke();
+}
+
+fn draw_add_map(state: &PopupState, context: &gtk::cairo::Context, width: f64, height: f64) {
+    let palette = load_palette();
+    let background = color_components(&palette.background, (0.04, 0.09, 0.18));
+    let foreground = color_components(&palette.foreground, (0.85, 0.88, 0.94));
+    let accent = color_components(&palette.accent, (0.98, 0.66, 0.41));
+
+    context.set_source_rgba(background.0, background.1, background.2, 0.12);
+    context.rectangle(0.0, 0.0, width, height);
+    let _ = context.fill();
+
+    for region in MAP_REGIONS {
+        let (left, top, right, bottom) = region.bounds;
+        let is_hovered = state
+            .hovered_map_region
+            .is_some_and(|index| MAP_REGIONS[index].timezone == region.timezone);
+        context.set_source_rgba(
+            accent.0,
+            accent.1,
+            accent.2,
+            if is_hovered { 0.20 } else { 0.10 },
+        );
+        context.rectangle(
+            left * width,
+            top * height,
+            (right - left) * width,
+            (bottom - top) * height,
+        );
+        let _ = context.fill();
+    }
+
+    for points in WORLD_LANDMASSES {
+        draw_polygon(
+            context,
+            width,
+            height,
+            points,
+            (foreground.0, foreground.1, foreground.2, 0.10),
+            (foreground.0, foreground.1, foreground.2, 0.16),
+        );
+    }
+
+    context.set_source_rgba(foreground.0, foreground.1, foreground.2, 0.10);
+    context.set_line_width(1.0);
+    for index in 1..12 {
+        let x = width * (index as f64 / 12.0);
+        context.move_to(x, 10.0);
+        context.line_to(x, height - 10.0);
+        let _ = context.stroke();
+    }
+}
+
 fn render_read_view(state: &mut PopupState) {
     let anchor = zoned_datetime(state.reference_utc, &state.local_timezone);
     state
@@ -508,50 +774,108 @@ fn render_read_view(state: &mut PopupState) {
     }
 }
 
-fn update_edit_mode(state: &PopupState) {
+fn can_add_more_locations(state: &PopupState) -> bool {
+    read_entry_count(&state.config.timezones, &state.local_timezone) < READ_CARD_LIMIT
+}
+
+fn update_row_separators(state: &PopupState) {
+    let show_separators = !matches!(state.screen_mode, PopupScreen::Edit);
+    for separator in &state.row_separators {
+        separator.set_visible(show_separators);
+    }
+}
+
+fn sync_map_hover_card(state: &PopupState) {
+    if !matches!(state.screen_mode, PopupScreen::Add) {
+        state.add_map_hover_card.set_visible(false);
+        return;
+    }
+
+    let Some(region_index) = state.hovered_map_region else {
+        state.add_map_hover_card.set_visible(false);
+        return;
+    };
+
+    let Some(region) = MAP_REGIONS.get(region_index) else {
+        state.add_map_hover_card.set_visible(false);
+        return;
+    };
+
+    let zoned = zoned_datetime(state.reference_utc, region.timezone);
+    let anchor = zoned_datetime(state.reference_utc, &state.local_timezone);
+    state.add_map_hover_title.set_text(region.title);
     state
-        .content_stack
-        .set_visible_child_name(if state.edit_mode { "edit" } else { "read" });
-    state.panel_title.set_visible(state.edit_mode);
-    if state.edit_mode {
+        .add_map_hover_time
+        .set_text(&format_display_time(&zoned, &state.time_format));
+    state.add_map_hover_meta.set_text(&format!(
+        "{}  ·  {}",
+        region.timezone,
+        format_offset(zoned.offset().fix().local_minus_utc())
+    ));
+    state
+        .add_map_hover_relative
+        .set_text(&relative_time_label(&anchor, &zoned));
+    state.add_map_hover_card.set_visible(true);
+}
+
+fn update_screen_mode(state: &PopupState) {
+    let page_name = match state.screen_mode {
+        PopupScreen::Read => "read",
+        PopupScreen::Edit => "edit",
+        PopupScreen::Add => "add",
+    };
+    let in_edit = matches!(state.screen_mode, PopupScreen::Edit);
+    let in_add = matches!(state.screen_mode, PopupScreen::Add);
+    let can_add_more = can_add_more_locations(state);
+
+    state.content_stack.set_visible_child_name(page_name);
+    state.panel_title.set_text(if in_add {
+        "New Location"
+    } else {
+        "World Clock"
+    });
+
+    state.live_button.set_visible(!in_add);
+    state.edit_button.set_visible(!in_add);
+    state.add_button.set_visible(!in_add);
+    state.cancel_button.set_visible(in_add);
+
+    if in_edit {
         state.edit_button.add_css_class("active");
         state.edit_button.set_tooltip_text(Some("Leave edit mode."));
-        state.footer_separator.set_visible(true);
-        state.add_stack.set_visible(true);
-        if state.add_panel_visible {
-            state.add_stack.set_visible_child_name("panel");
-            state.add_panel.set_visible(true);
-            if state.add_entry.text().trim().is_empty() {
-                state.search_results_scroller.set_visible(false);
-            }
-        } else {
-            state.add_stack.set_visible_child_name("toggle");
-            state.add_toggle_button.set_visible(true);
-        }
     } else {
         state.edit_button.remove_css_class("active");
         state
             .edit_button
             .set_tooltip_text(Some("Manage timezones and popup settings."));
-        state.footer_separator.set_visible(false);
-        state.add_stack.set_visible(false);
+    }
+
+    state
+        .add_button
+        .set_tooltip_text(Some("Add a new location."));
+    state.add_entry.set_sensitive(can_add_more);
+    state.search_results_scroller.set_sensitive(can_add_more);
+    state.search_results_box.set_sensitive(can_add_more);
+    state.add_map_area.set_sensitive(can_add_more);
+    state.add_entry.set_placeholder_text(Some(if can_add_more {
+        "Search for a city or timezone"
+    } else {
+        "Maximum of 9 locations reached"
+    }));
+
+    if !in_add || state.add_entry.text().trim().is_empty() || state.search_results.is_empty() {
+        state.search_results_scroller.set_visible(false);
     }
 
     let can_remove = state.config.timezones.len() > 1;
     for row in &state.rows {
         row.drag_handle
-            .set_visible(state.edit_mode && row_can_reorder(state, &row.entry));
-        row.remove_button.set_visible(state.edit_mode);
+            .set_visible(in_edit && row_can_reorder(state, &row.entry));
+        row.remove_button.set_visible(in_edit);
         row.remove_button.set_sensitive(can_remove);
     }
     update_row_separators(state);
-}
-
-fn update_row_separators(state: &PopupState) {
-    let show_separators = !state.edit_mode;
-    for separator in &state.row_separators {
-        separator.set_visible(show_separators);
-    }
+    sync_map_hover_card(state);
 }
 
 fn merge_search_results(
@@ -581,23 +905,76 @@ fn clear_search_results(state: &mut PopupState) {
     state.search_results_scroller.set_visible(false);
 }
 
-fn set_add_panel_visible(state_handle: &Rc<RefCell<PopupState>>, visible: bool) {
-    debug_popup_event(&format!("set_add_panel_visible visible={visible}"));
-    let (focus_entry, entry_to_clear) = {
+fn map_region_at_position(area_width: f64, area_height: f64, x: f64, y: f64) -> Option<usize> {
+    if area_width <= 0.0 || area_height <= 0.0 {
+        return None;
+    }
+
+    let normalized_x = (x / area_width).clamp(0.0, 1.0);
+    let normalized_y = (y / area_height).clamp(0.0, 1.0);
+    MAP_REGIONS.iter().position(|region| {
+        let (left, top, right, bottom) = region.bounds;
+        normalized_x >= left
+            && normalized_x <= right
+            && normalized_y >= top
+            && normalized_y <= bottom
+    })
+}
+
+fn set_map_hover_region(
+    state_handle: &Rc<RefCell<PopupState>>,
+    region_index: Option<usize>,
+    cursor_x: f64,
+    cursor_y: f64,
+    area_width: f64,
+    area_height: f64,
+) {
+    let mut state = state_handle.borrow_mut();
+    if state.hovered_map_region == region_index && region_index.is_none() {
+        return;
+    }
+
+    state.hovered_map_region = region_index;
+    sync_map_hover_card(&state);
+    if region_index.is_none() {
+        state.add_map_area.queue_draw();
+        return;
+    }
+
+    let card_x = (cursor_x + 20.0).clamp(
+        18.0,
+        (area_width - f64::from(ADD_MAP_HOVER_CARD_WIDTH) - 18.0).max(18.0),
+    );
+    let card_y = (cursor_y + 18.0).clamp(
+        18.0,
+        (area_height - f64::from(ADD_MAP_HOVER_CARD_HEIGHT) - 18.0).max(18.0),
+    );
+    state
+        .add_map_hover_layer
+        .move_(&state.add_map_hover_card, card_x, card_y);
+    state.add_map_area.queue_draw();
+}
+
+fn set_screen_mode(state_handle: &Rc<RefCell<PopupState>>, screen_mode: PopupScreen) {
+    debug_popup_event(&format!("set_screen_mode screen={screen_mode:?}"));
+    let (focus_entry, entry_to_clear, queue_map_draw) = {
         let mut state = state_handle.borrow_mut();
-        state.add_panel_visible = visible;
-        if visible {
-            state.add_stack.set_visible_child_name("panel");
-            state.add_panel.set_visible(true);
-            if state.add_entry.text().trim().is_empty() {
-                state.search_results_scroller.set_visible(false);
-            }
-            (Some(state.add_entry.clone()), None)
-        } else {
+        let leaving_add = matches!(state.screen_mode, PopupScreen::Add)
+            && !matches!(screen_mode, PopupScreen::Add);
+        state.screen_mode = screen_mode;
+
+        if leaving_add {
             clear_search_results(&mut state);
-            state.add_stack.set_visible_child_name("toggle");
-            (None, Some(state.add_entry.clone()))
         }
+        if !matches!(screen_mode, PopupScreen::Add) {
+            state.hovered_map_region = None;
+        }
+        update_screen_mode(&state);
+        (
+            matches!(screen_mode, PopupScreen::Add).then(|| state.add_entry.clone()),
+            leaving_add.then(|| state.add_entry.clone()),
+            state.add_map_area.clone(),
+        )
     };
 
     if let Some(entry) = entry_to_clear {
@@ -609,13 +986,7 @@ fn set_add_panel_visible(state_handle: &Rc<RefCell<PopupState>>, visible: bool) 
             let _ = entry.grab_focus();
         });
     }
-}
-
-fn focus_add_toggle_button(state_handle: &Rc<RefCell<PopupState>>) {
-    let button = state_handle.borrow().add_toggle_button.clone();
-    glib::idle_add_local_once(move || {
-        let _ = button.grab_focus();
-    });
+    queue_map_draw.queue_draw();
 }
 
 fn refresh_config_state(state: &mut PopupState, config: AppConfig) {
@@ -893,6 +1264,7 @@ fn update_row_widgets(state: &mut PopupState) {
         row.dirty.set(false);
     }
     render_read_view(state);
+    sync_map_hover_card(state);
 }
 
 fn render_rows(state: &mut PopupState) {
@@ -911,13 +1283,13 @@ fn render_rows(state: &mut PopupState) {
         title.add_css_class("empty-state-title");
         empty.append(&title);
 
-        let copy = gtk::Label::new(Some("Use edit mode to add or restore a timezone."));
+        let copy = gtk::Label::new(Some("Use the add screen to restore a timezone."));
         copy.set_xalign(0.0);
         copy.add_css_class("empty-state-copy");
         empty.append(&copy);
 
         state.rows_box.append(&empty);
-        update_edit_mode(state);
+        update_screen_mode(state);
         return;
     }
 
@@ -938,7 +1310,7 @@ fn render_rows(state: &mut PopupState) {
     }
 
     update_row_widgets(state);
-    update_edit_mode(state);
+    update_screen_mode(state);
 }
 
 fn render_search_results(state_handle: &Rc<RefCell<PopupState>>) {
@@ -1001,9 +1373,12 @@ fn update_search_results(state_handle: &Rc<RefCell<PopupState>>) {
             return;
         }
 
-        state.local_search_results = state.resolver.search(&query, 8);
-        state.search_results =
-            merge_search_results(&state.local_search_results, &state.remote_search_results, 8);
+        state.local_search_results = state.resolver.search(&query, ADD_SEARCH_RESULT_LIMIT);
+        state.search_results = merge_search_results(
+            &state.local_search_results,
+            &state.remote_search_results,
+            ADD_SEARCH_RESULT_LIMIT,
+        );
 
         if state.local_search_results.is_empty() && TimezoneResolver::normalize(&query).len() >= 3 {
             remote_search = Some((
@@ -1020,7 +1395,7 @@ fn update_search_results(state_handle: &Rc<RefCell<PopupState>>) {
         thread::spawn(move || {
             let results = place_search
                 .lock()
-                .map(|mut search| search.search(&query, 8))
+                .map(|mut search| search.search(&query, ADD_SEARCH_RESULT_LIMIT))
                 .unwrap_or_default();
             let _ = sender.send(RemoteSearchMessage {
                 generation,
@@ -1151,12 +1526,10 @@ fn add_timezone(state_handle: &Rc<RefCell<PopupState>>, timezone_name: &str, lab
             debug_popup_event(&format!(
                 "add_timezone success timezone={timezone_name} label={display_name}"
             ));
-            set_add_panel_visible(state_handle, false);
+            set_screen_mode(state_handle, PopupScreen::Read);
             let mut state = state_handle.borrow_mut();
             refresh_config_state(&mut state, config);
             set_status(&state, &format!("Added {display_name}."), false);
-            drop(state);
-            focus_add_toggle_button(state_handle);
         }
         Err(error) => {
             let state = state_handle.borrow();
@@ -1275,7 +1648,9 @@ fn begin_drag(state_handle: &Rc<RefCell<PopupState>>, timezone_name: &str) {
     else {
         return;
     };
-    if !state.edit_mode || !row_can_reorder(&state, &state.rows[row_index].entry) {
+    if !matches!(state.screen_mode, PopupScreen::Edit)
+        || !row_can_reorder(&state, &state.rows[row_index].entry)
+    {
         return;
     }
 
@@ -1584,22 +1959,35 @@ fn build_window(
     panel.set_halign(Align::Center);
     top_band.append(&panel);
 
-    let header = gtk::Box::new(Orientation::Horizontal, 12);
+    let header = gtk::CenterBox::new();
     panel.append(&header);
 
     let title = gtk::Label::new(Some("World Clock"));
-    title.set_xalign(0.0);
-    title.set_hexpand(true);
+    title.set_xalign(0.5);
     title.add_css_class("panel-title");
-    header.append(&title);
+    header.set_center_widget(Some(&title));
 
-    let header_actions = gtk::Box::new(Orientation::Horizontal, 8);
-    header.append(&header_actions);
+    let header_start = gtk::Box::new(Orientation::Horizontal, 8);
+    header.set_start_widget(Some(&header_start));
 
     let live_button = gtk::Button::from_icon_name("view-refresh-symbolic");
     live_button.add_css_class("icon-button");
     live_button.set_valign(Align::Center);
-    header_actions.append(&live_button);
+    header_start.append(&live_button);
+
+    let header_actions = gtk::Box::new(Orientation::Horizontal, 8);
+    header.set_end_widget(Some(&header_actions));
+
+    let cancel_button = gtk::Button::with_label("Cancel");
+    cancel_button.add_css_class("flat-button");
+    cancel_button.set_valign(Align::Center);
+    cancel_button.set_visible(false);
+    header_actions.append(&cancel_button);
+
+    let add_button = gtk::Button::from_icon_name("list-add-symbolic");
+    add_button.add_css_class("icon-button");
+    add_button.set_valign(Align::Center);
+    header_actions.append(&add_button);
 
     let edit_button = gtk::Button::from_icon_name("emblem-system-symbolic");
     edit_button.add_css_class("icon-button");
@@ -1684,59 +2072,101 @@ fn build_window(
     insertion_marker.set_margin_bottom(2);
     insertion_marker.add_css_class("drag-insert-marker");
 
-    let footer = gtk::Box::new(Orientation::Vertical, 10);
-    edit_root.append(&footer);
-
-    let footer_separator = gtk::Separator::new(Orientation::Horizontal);
-    footer_separator.set_visible(false);
-    footer.append(&footer_separator);
-
-    let add_stack = gtk::Stack::new();
-    add_stack.set_hhomogeneous(false);
-    add_stack.set_vhomogeneous(false);
-    add_stack.set_visible(false);
-    footer.append(&add_stack);
-
-    let add_toggle_button = gtk::Button::with_label("+ Add timezone");
-    add_toggle_button.add_css_class("add-toggle");
-    add_stack.add_named(&add_toggle_button, Some("toggle"));
-
-    let add_panel = gtk::Box::new(Orientation::Vertical, 10);
-    add_stack.add_named(&add_panel, Some("panel"));
-
-    let add_box = gtk::Box::new(Orientation::Horizontal, 8);
-    add_panel.append(&add_box);
+    let add_root = gtk::Box::new(Orientation::Vertical, 16);
+    add_root.add_css_class("add-screen");
+    content_stack.add_named(&add_root, Some("add"));
 
     let add_entry = gtk::Entry::new();
     add_entry.set_hexpand(true);
-    add_entry.set_placeholder_text(Some("Add timezone: Europe/Paris, Tokyo, or Asia/Kolkata"));
     add_entry.add_css_class("search-entry");
-    add_box.append(&add_entry);
-
-    let add_button = gtk::Button::with_label("Add");
-    add_box.append(&add_button);
+    add_entry.add_css_class("add-search-entry");
+    add_entry.set_placeholder_text(Some("Search for a city or timezone"));
+    add_entry.set_icon_from_icon_name(
+        gtk::EntryIconPosition::Primary,
+        Some("system-search-symbolic"),
+    );
+    add_root.append(&add_entry);
 
     let search_results_scroller = gtk::ScrolledWindow::new();
     search_results_scroller.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
     search_results_scroller.set_overlay_scrolling(true);
     search_results_scroller.set_propagate_natural_height(true);
-    search_results_scroller.set_max_content_height(210);
+    search_results_scroller.set_max_content_height(180);
     search_results_scroller.set_visible(false);
-    add_panel.append(&search_results_scroller);
+    add_root.append(&search_results_scroller);
 
     let search_results_box = gtk::Box::new(Orientation::Vertical, 6);
     search_results_scroller.set_child(Some(&search_results_box));
 
-    let hint = gtk::Label::new(Some("Search by timezone, city, or abbreviation like IST."));
+    let add_map_shell = gtk::Overlay::new();
+    add_map_shell.add_css_class("add-map-shell");
+    add_map_shell.set_halign(Align::Center);
+    add_map_shell.set_width_request(READ_TIMELINE_WIDTH);
+    add_root.append(&add_map_shell);
+
+    let add_map_area = gtk::DrawingArea::new();
+    add_map_area.set_content_width(READ_TIMELINE_WIDTH);
+    add_map_area.set_width_request(READ_TIMELINE_WIDTH);
+    add_map_area.set_content_height(ADD_MAP_HEIGHT);
+    add_map_shell.set_child(Some(&add_map_area));
+
+    let add_map_hover_layer = gtk::Fixed::new();
+    add_map_hover_layer.set_can_target(false);
+    add_map_shell.add_overlay(&add_map_hover_layer);
+    add_map_shell.set_measure_overlay(&add_map_hover_layer, false);
+
+    let add_map_hover_card = gtk::Box::new(Orientation::Vertical, 8);
+    add_map_hover_card.add_css_class("map-hover-card");
+    add_map_hover_card.set_size_request(ADD_MAP_HOVER_CARD_WIDTH, ADD_MAP_HOVER_CARD_HEIGHT);
+    add_map_hover_card.set_visible(false);
+
+    let add_map_hover_title = gtk::Label::new(None);
+    add_map_hover_title.set_xalign(0.0);
+    add_map_hover_title.add_css_class("map-hover-title");
+    add_map_hover_card.append(&add_map_hover_title);
+
+    let add_map_hover_time = gtk::Label::new(None);
+    add_map_hover_time.set_xalign(0.0);
+    add_map_hover_time.add_css_class("map-hover-time");
+    add_map_hover_card.append(&add_map_hover_time);
+
+    let add_map_hover_meta = gtk::Label::new(None);
+    add_map_hover_meta.set_xalign(0.0);
+    add_map_hover_meta.add_css_class("map-hover-meta");
+    add_map_hover_card.append(&add_map_hover_meta);
+
+    let add_map_hover_relative = gtk::Label::new(None);
+    add_map_hover_relative.set_xalign(0.0);
+    add_map_hover_relative.add_css_class("map-hover-meta");
+    add_map_hover_card.append(&add_map_hover_relative);
+
+    add_map_hover_layer.put(&add_map_hover_card, 0.0, 0.0);
+
+    let map_legend = gtk::Box::new(Orientation::Horizontal, 0);
+    map_legend.add_css_class("map-legend");
+    map_legend.set_halign(Align::Fill);
+    map_legend.set_width_request(READ_TIMELINE_WIDTH);
+    for label_text in MAP_LEGEND_LABELS {
+        let label = gtk::Label::new(Some(label_text));
+        label.set_hexpand(true);
+        label.set_xalign(0.5);
+        label.add_css_class("map-legend-label");
+        map_legend.append(&label);
+    }
+    add_root.append(&map_legend);
+
+    let hint = gtk::Label::new(Some(
+        "Search by timezone, city, or abbreviation, or hover the map and click a region.",
+    ));
     hint.set_xalign(0.0);
     hint.add_css_class("hint-label");
-    add_panel.append(&hint);
+    add_root.append(&hint);
 
     let status_label = gtk::Label::new(None);
     status_label.set_xalign(0.0);
     status_label.add_css_class("status-label");
     status_label.set_visible(false);
-    footer.append(&status_label);
+    panel.append(&status_label);
 
     window.set_child(Some(&overlay));
     let (remote_search_sender, remote_search_receiver) = mpsc::channel::<RemoteSearchMessage>();
@@ -1762,8 +2192,7 @@ fn build_window(
         dismiss_armed: false,
         allow_close: false,
         live: true,
-        edit_mode: false,
-        add_panel_visible: false,
+        screen_mode: PopupScreen::Read,
         editing_timezone: None,
         pending_apply_source: None,
         pending_apply_timezone: None,
@@ -1771,18 +2200,24 @@ fn build_window(
         panel_title: title.clone(),
         live_button: live_button.clone(),
         edit_button: edit_button.clone(),
+        add_button: add_button.clone(),
+        cancel_button: cancel_button.clone(),
         read_summary_time: read_summary_time.clone(),
         read_summary_location: read_summary_location.clone(),
         timeline_area: timeline_area.clone(),
         timeline_labels: timeline_labels.clone(),
         cards_flow: cards_flow.clone(),
-        footer_separator: footer_separator.clone(),
-        add_stack: add_stack.clone(),
-        add_toggle_button: add_toggle_button.clone(),
-        add_panel: add_panel.clone(),
         add_entry: add_entry.clone(),
         search_results_scroller: search_results_scroller.clone(),
         search_results_box: search_results_box.clone(),
+        add_map_area: add_map_area.clone(),
+        add_map_hover_layer: add_map_hover_layer.clone(),
+        add_map_hover_card: add_map_hover_card.clone(),
+        add_map_hover_title: add_map_hover_title.clone(),
+        add_map_hover_time: add_map_hover_time.clone(),
+        add_map_hover_meta: add_map_hover_meta.clone(),
+        add_map_hover_relative: add_map_hover_relative.clone(),
+        hovered_map_region: None,
         local_search_results: Vec::new(),
         remote_search_results: Vec::new(),
         search_results: Vec::new(),
@@ -1855,14 +2290,19 @@ fn build_window(
         }
     });
 
+    let state_for_add_map = state.clone();
+    add_map_area.set_draw_func(move |_, context, width, height| {
+        let state = state_for_add_map.borrow();
+        draw_add_map(&state, context, width as f64, height as f64);
+    });
+
     {
         let mut state_mut = state.borrow_mut();
         state_mut.time_format = effective_time_format(DEFAULT_TIME_FORMAT);
         render_rows(&mut state_mut);
         update_live_button(&state_mut);
-        update_edit_mode(&state_mut);
+        update_screen_mode(&state_mut);
     }
-    set_add_panel_visible(&state, false);
 
     let state_for_remote_results = state.clone();
     let window_weak_for_remote_results = window.downgrade();
@@ -1881,8 +2321,11 @@ fn build_window(
             }
 
             state.remote_search_results = message.results;
-            state.search_results =
-                merge_search_results(&state.local_search_results, &state.remote_search_results, 8);
+            state.search_results = merge_search_results(
+                &state.local_search_results,
+                &state.remote_search_results,
+                ADD_SEARCH_RESULT_LIMIT,
+            );
             should_render = true;
         }
 
@@ -1895,17 +2338,19 @@ fn build_window(
 
     let state_for_edit = state.clone();
     edit_button.connect_clicked(move |_| {
-        let leaving_edit_mode = {
-            let mut state = state_for_edit.borrow_mut();
-            state.edit_mode = !state.edit_mode;
-            clear_status(&state);
-            !state.edit_mode
+        let next_screen = {
+            let state = state_for_edit.borrow();
+            if matches!(state.screen_mode, PopupScreen::Edit) {
+                PopupScreen::Read
+            } else {
+                PopupScreen::Edit
+            }
         };
-        if leaving_edit_mode {
-            set_add_panel_visible(&state_for_edit, false);
+        {
+            let state = state_for_edit.borrow();
+            clear_status(&state);
         }
-        let state = state_for_edit.borrow();
-        update_edit_mode(&state);
+        set_screen_mode(&state_for_edit, next_screen);
     });
 
     let state_for_now = state.clone();
@@ -1913,17 +2358,22 @@ fn build_window(
         reset_live_now(&state_for_now);
     });
 
-    let state_for_toggle_add = state.clone();
-    add_toggle_button.connect_clicked(move |_| {
+    let state_for_add_screen = state.clone();
+    add_button.connect_clicked(move |_| {
         {
-            let state = state_for_toggle_add.borrow();
-            debug_popup_event(&format!(
-                "add_toggle_clicked edit_mode={} add_panel_visible={}",
-                state.edit_mode, state.add_panel_visible
-            ));
+            let state = state_for_add_screen.borrow();
+            clear_status(&state);
         }
-        let visible = !state_for_toggle_add.borrow().add_panel_visible;
-        set_add_panel_visible(&state_for_toggle_add, visible);
+        set_screen_mode(&state_for_add_screen, PopupScreen::Add);
+    });
+
+    let state_for_cancel = state.clone();
+    cancel_button.connect_clicked(move |_| {
+        {
+            let state = state_for_cancel.borrow();
+            clear_status(&state);
+        }
+        set_screen_mode(&state_for_cancel, PopupScreen::Read);
     });
 
     let state_for_add_change = state.clone();
@@ -1936,10 +2386,59 @@ fn build_window(
         submit_add_timezone(&state_for_add_activate);
     });
 
-    let state_for_add_click = state.clone();
-    add_button.connect_clicked(move |_| {
-        submit_add_timezone(&state_for_add_click);
+    let map_motion = gtk::EventControllerMotion::new();
+    let state_for_map_motion = state.clone();
+    let add_map_area_for_motion = add_map_area.clone();
+    map_motion.connect_motion(move |_, x, y| {
+        let allocation = add_map_area_for_motion.allocation();
+        let hovered_region = map_region_at_position(
+            f64::from(allocation.width()),
+            f64::from(allocation.height()),
+            x,
+            y,
+        );
+        set_map_hover_region(
+            &state_for_map_motion,
+            hovered_region,
+            x,
+            y,
+            f64::from(allocation.width()),
+            f64::from(allocation.height()),
+        );
     });
+    let state_for_map_leave = state.clone();
+    let add_map_area_for_leave = add_map_area.clone();
+    map_motion.connect_leave(move |_| {
+        let allocation = add_map_area_for_leave.allocation();
+        set_map_hover_region(
+            &state_for_map_leave,
+            None,
+            0.0,
+            0.0,
+            f64::from(allocation.width()),
+            f64::from(allocation.height()),
+        );
+    });
+    add_map_area.add_controller(map_motion);
+
+    let map_click = gtk::GestureClick::new();
+    map_click.set_button(0);
+    let state_for_map_click = state.clone();
+    let add_map_area_for_click = add_map_area.clone();
+    map_click.connect_pressed(move |_, _, x, y| {
+        let allocation = add_map_area_for_click.allocation();
+        if let Some(region_index) = map_region_at_position(
+            f64::from(allocation.width()),
+            f64::from(allocation.height()),
+            x,
+            y,
+        ) {
+            if let Some(region) = MAP_REGIONS.get(region_index) {
+                add_timezone(&state_for_map_click, region.timezone, region.title);
+            }
+        }
+    });
+    add_map_area.add_controller(map_click);
 
     let state_for_click = state.clone();
     let window_for_click = window.clone();
@@ -1950,10 +2449,10 @@ fn build_window(
     dismiss_click.connect_pressed(move |_, _, x, y| {
         let state = state_for_click.borrow();
         debug_popup_event(&format!(
-            "dismiss_click pressed x={x:.1} y={y:.1} dismiss_armed={} edit_mode={}",
-            state.dismiss_armed, state.edit_mode
+            "dismiss_click pressed x={x:.1} y={y:.1} dismiss_armed={} screen={:?}",
+            state.dismiss_armed, state.screen_mode
         ));
-        if !state.dismiss_armed || state.edit_mode {
+        if !state.dismiss_armed || !matches!(state.screen_mode, PopupScreen::Read) {
             return;
         }
         drop(state);
@@ -2008,7 +2507,19 @@ pub fn run_popup(pid_path: &Path, config_path: Option<PathBuf>) -> Result<()> {
     let window_for_escape = window.clone();
     key_controller.connect_key_pressed(move |_, key, _, _| {
         if key == gdk::Key::Escape {
-            request_window_close(&state_for_escape, &window_for_escape, "escape");
+            let in_read_mode = {
+                let state = state_for_escape.borrow();
+                matches!(state.screen_mode, PopupScreen::Read)
+            };
+            if in_read_mode {
+                request_window_close(&state_for_escape, &window_for_escape, "escape");
+            } else {
+                {
+                    let state = state_for_escape.borrow();
+                    clear_status(&state);
+                }
+                set_screen_mode(&state_for_escape, PopupScreen::Read);
+            }
             return Propagation::Stop;
         }
         Propagation::Proceed
@@ -2019,12 +2530,15 @@ pub fn run_popup(pid_path: &Path, config_path: Option<PathBuf>) -> Result<()> {
     window.connect_is_active_notify(move |window| {
         let state = state_for_focus.borrow();
         debug_popup_event(&format!(
-            "is_active_notify active={} dismiss_armed={} edit_mode={}",
+            "is_active_notify active={} dismiss_armed={} screen={:?}",
             window.is_active(),
             state.dismiss_armed,
-            state.edit_mode
+            state.screen_mode
         ));
-        if state.dismiss_armed && !state.edit_mode && !window.is_active() {
+        if state.dismiss_armed
+            && matches!(state.screen_mode, PopupScreen::Read)
+            && !window.is_active()
+        {
             drop(state);
             request_window_close(&state_for_focus, window, "focus_lost_read_mode");
         }
@@ -2105,8 +2619,13 @@ mod tests {
         let visible = visible_read_entries(&entries, "America/Cancun");
 
         assert_eq!(visible.len(), READ_CARD_LIMIT);
-        assert!(visible.iter().all(|entry| entry.timezone != "America/Cancun"));
-        assert_eq!(visible.first().map(|entry| entry.timezone.as_str()), Some("Europe/Paris"));
+        assert!(visible
+            .iter()
+            .all(|entry| entry.timezone != "America/Cancun"));
+        assert_eq!(
+            visible.first().map(|entry| entry.timezone.as_str()),
+            Some("Europe/Paris")
+        );
         assert_eq!(
             visible.last().map(|entry| entry.timezone.as_str()),
             Some("Europe/London")

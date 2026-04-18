@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use std::env;
 use std::fs;
+use std::fs::OpenOptions;
 use std::io;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -21,6 +22,10 @@ pub fn runtime_pid_path() -> PathBuf {
             }))
         });
     runtime_dir.join("omarchy-world-clock-rs.pid")
+}
+
+pub fn debug_runtime_log_path() -> PathBuf {
+    env::temp_dir().join("owc-popup-runtime.log")
 }
 
 pub fn read_pid(pid_path: &Path) -> Option<i32> {
@@ -81,11 +86,22 @@ pub fn kill_popup(pid_path: &Path) -> bool {
 pub fn spawn_popup() -> Result<()> {
     let current_exe = env::current_exe().context("failed to resolve current executable")?;
     let mut command = Command::new(current_exe);
-    command
-        .arg("popup")
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
+    command.arg("popup").stdin(Stdio::null());
+
+    if env::var_os("OMARCHY_WORLD_CLOCK_DEBUG").is_some() {
+        let stdout_log = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(debug_runtime_log_path())
+            .context("failed to open popup runtime log for stdout")?;
+        let stderr_log = stdout_log
+            .try_clone()
+            .context("failed to clone popup runtime log handle")?;
+        command.stdout(Stdio::from(stdout_log));
+        command.stderr(Stdio::from(stderr_log));
+    } else {
+        command.stdout(Stdio::null()).stderr(Stdio::null());
+    }
 
     unsafe {
         command.pre_exec(|| {

@@ -873,8 +873,11 @@ fn set_map_hover_result(
     area_width: f64,
     area_height: f64,
 ) {
-    let mut state = state_handle.borrow_mut();
-    if state.hovered_map_result == hover_result && hover_result.is_none() {
+    let Ok(mut state) = state_handle.try_borrow_mut() else {
+        debug_popup_event("set_map_hover_result skipped busy_state");
+        return;
+    };
+    if state.hovered_map_result == hover_result {
         return;
     }
 
@@ -901,23 +904,34 @@ fn set_map_hover_result(
 
 fn set_screen_mode(state_handle: &Rc<RefCell<PopupState>>, screen_mode: PopupScreen) {
     debug_popup_event(&format!("set_screen_mode screen={screen_mode:?}"));
-    let (focus_entry, entry_to_clear, queue_map_draw) = {
+    let (focus_widget, entry_to_clear, queue_map_draw, rearm_dismiss_after_transition) = {
         let mut state = state_handle.borrow_mut();
         let leaving_add = matches!(state.screen_mode, PopupScreen::Add)
             && !matches!(screen_mode, PopupScreen::Add);
+        let reentering_read_from_add = leaving_add && matches!(screen_mode, PopupScreen::Read);
         state.screen_mode = screen_mode;
 
         if leaving_add {
             clear_search_results(&mut state);
+        }
+        if reentering_read_from_add {
+            state.dismiss_armed = false;
         }
         if !matches!(screen_mode, PopupScreen::Add) {
             state.hovered_map_result = None;
         }
         update_screen_mode(&state);
         (
-            matches!(screen_mode, PopupScreen::Add).then(|| state.add_entry.clone()),
+            match screen_mode {
+                PopupScreen::Add => Some(state.add_entry.clone().upcast::<gtk::Widget>()),
+                PopupScreen::Read if reentering_read_from_add => {
+                    Some(state.add_button.clone().upcast::<gtk::Widget>())
+                }
+                _ => None,
+            },
             leaving_add.then(|| state.add_entry.clone()),
             state.add_map_area.clone(),
+            reentering_read_from_add,
         )
     };
 
@@ -925,9 +939,15 @@ fn set_screen_mode(state_handle: &Rc<RefCell<PopupState>>, screen_mode: PopupScr
         entry.set_text("");
     }
 
-    if let Some(entry) = focus_entry {
+    if let Some(widget) = focus_widget {
         glib::idle_add_local_once(move || {
-            let _ = entry.grab_focus();
+            let _ = widget.grab_focus();
+        });
+    }
+    if rearm_dismiss_after_transition {
+        let state_for_rearm = state_handle.clone();
+        glib::timeout_add_local_once(Duration::from_millis(150), move || {
+            state_for_rearm.borrow_mut().dismiss_armed = true;
         });
     }
     queue_map_draw.queue_draw();

@@ -26,13 +26,7 @@ use std::rc::{Rc, Weak};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::Duration;
-
-#[derive(Clone, Copy)]
-struct MapRegion {
-    title: &'static str,
-    timezone: &'static str,
-    bounds: (f64, f64, f64, f64),
-}
+use tzf_rs::Finder as TimezoneFinder;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PopupScreen {
@@ -92,13 +86,14 @@ struct PopupState {
     search_results_scroller: gtk::ScrolledWindow,
     search_results_box: gtk::Box,
     add_map_area: gtk::DrawingArea,
+    map_timezone_finder: TimezoneFinder,
     add_map_hover_layer: gtk::Fixed,
     add_map_hover_card: gtk::Box,
     add_map_hover_title: gtk::Label,
     add_map_hover_time: gtk::Label,
     add_map_hover_meta: gtk::Label,
     add_map_hover_relative: gtk::Label,
-    hovered_map_region: Option<usize>,
+    hovered_map_result: Option<TimezoneSearchResult>,
     local_search_results: Vec<TimezoneSearchResult>,
     remote_search_results: Vec<TimezoneSearchResult>,
     search_results: Vec<TimezoneSearchResult>,
@@ -137,64 +132,6 @@ const ADD_MAP_ASPECT_RATIO: f32 = 2.0;
 const ADD_MAP_HOVER_CARD_WIDTH: i32 = 272;
 const ADD_MAP_HOVER_CARD_HEIGHT: i32 = 140;
 const WORLD_MAP_ASSET_BYTES: &[u8] = include_bytes!("../assets/world-map.png");
-
-const MAP_REGIONS: [MapRegion; 11] = [
-    MapRegion {
-        title: "Hawaii & Alaska",
-        timezone: "Pacific/Honolulu",
-        bounds: (0.01, 0.20, 0.12, 0.54),
-    },
-    MapRegion {
-        title: "Pacific Coast",
-        timezone: "America/Los_Angeles",
-        bounds: (0.12, 0.22, 0.21, 0.57),
-    },
-    MapRegion {
-        title: "Central North America",
-        timezone: "America/Chicago",
-        bounds: (0.21, 0.24, 0.32, 0.58),
-    },
-    MapRegion {
-        title: "Eastern North America",
-        timezone: "America/New_York",
-        bounds: (0.32, 0.22, 0.40, 0.56),
-    },
-    MapRegion {
-        title: "South America",
-        timezone: "America/Sao_Paulo",
-        bounds: (0.25, 0.50, 0.36, 0.88),
-    },
-    MapRegion {
-        title: "Western Europe",
-        timezone: "Europe/London",
-        bounds: (0.46, 0.18, 0.55, 0.54),
-    },
-    MapRegion {
-        title: "Central Europe",
-        timezone: "Europe/Paris",
-        bounds: (0.55, 0.18, 0.63, 0.56),
-    },
-    MapRegion {
-        title: "Middle East & India",
-        timezone: "Asia/Kolkata",
-        bounds: (0.63, 0.22, 0.73, 0.58),
-    },
-    MapRegion {
-        title: "China & Southeast Asia",
-        timezone: "Asia/Shanghai",
-        bounds: (0.73, 0.24, 0.83, 0.62),
-    },
-    MapRegion {
-        title: "Japan & Korea",
-        timezone: "Asia/Tokyo",
-        bounds: (0.83, 0.22, 0.89, 0.54),
-    },
-    MapRegion {
-        title: "Australia East",
-        timezone: "Australia/Sydney",
-        bounds: (0.82, 0.64, 0.94, 0.88),
-    },
-];
 
 const NORTH_AMERICA_POINTS: &[(f64, f64)] = &[
     (0.03, 0.36),
@@ -653,35 +590,9 @@ fn draw_add_map_fallback(context: &gtk::cairo::Context, width: f64, height: f64)
     }
 }
 
-fn draw_add_map_overlay(
-    state: &PopupState,
-    context: &gtk::cairo::Context,
-    width: f64,
-    height: f64,
-) {
+fn draw_add_map_overlay(context: &gtk::cairo::Context, width: f64, height: f64) {
     let palette = load_palette();
     let foreground = color_components(&palette.foreground, (0.85, 0.88, 0.94));
-    let accent = color_components(&palette.accent, (0.98, 0.66, 0.41));
-
-    for region in MAP_REGIONS {
-        let (left, top, right, bottom) = region.bounds;
-        let is_hovered = state
-            .hovered_map_region
-            .is_some_and(|index| MAP_REGIONS[index].timezone == region.timezone);
-        context.set_source_rgba(
-            accent.0,
-            accent.1,
-            accent.2,
-            if is_hovered { 0.16 } else { 0.07 },
-        );
-        context.rectangle(
-            left * width,
-            top * height,
-            (right - left) * width,
-            (bottom - top) * height,
-        );
-        let _ = context.fill();
-    }
 
     context.set_source_rgba(foreground.0, foreground.1, foreground.2, 0.10);
     context.set_line_width(1.0);
@@ -813,25 +724,20 @@ fn sync_map_hover_card(state: &PopupState) {
         return;
     }
 
-    let Some(region_index) = state.hovered_map_region else {
+    let Some(result) = state.hovered_map_result.as_ref() else {
         state.add_map_hover_card.set_visible(false);
         return;
     };
 
-    let Some(region) = MAP_REGIONS.get(region_index) else {
-        state.add_map_hover_card.set_visible(false);
-        return;
-    };
-
-    let zoned = zoned_datetime(state.reference_utc, region.timezone);
+    let zoned = zoned_datetime(state.reference_utc, &result.timezone);
     let anchor = zoned_datetime(state.reference_utc, &state.local_timezone);
-    state.add_map_hover_title.set_text(region.title);
+    state.add_map_hover_title.set_text(&result.title);
     state
         .add_map_hover_time
         .set_text(&format_display_time(&zoned, &state.time_format));
     state.add_map_hover_meta.set_text(&format!(
         "{}  ·  {}",
-        region.timezone,
+        result.timezone,
         format_offset(zoned.offset().fix().local_minus_utc())
     ));
     state
@@ -927,38 +833,54 @@ fn clear_search_results(state: &mut PopupState) {
     state.search_results_scroller.set_visible(false);
 }
 
-fn map_region_at_position(area_width: f64, area_height: f64, x: f64, y: f64) -> Option<usize> {
+fn map_coordinates_to_lng_lat(
+    area_width: f64,
+    area_height: f64,
+    x: f64,
+    y: f64,
+) -> Option<(f64, f64)> {
     if area_width <= 0.0 || area_height <= 0.0 {
         return None;
     }
 
     let normalized_x = (x / area_width).clamp(0.0, 1.0);
     let normalized_y = (y / area_height).clamp(0.0, 1.0);
-    MAP_REGIONS.iter().position(|region| {
-        let (left, top, right, bottom) = region.bounds;
-        normalized_x >= left
-            && normalized_x <= right
-            && normalized_y >= top
-            && normalized_y <= bottom
-    })
+    let lng = (normalized_x * 360.0 - 180.0).clamp(-179.999_999, 179.999_999);
+    let lat = (90.0 - normalized_y * 180.0).clamp(-89.999_999, 89.999_999);
+    Some((lng, lat))
 }
 
-fn set_map_hover_region(
+fn map_hover_result_at_position(
+    state: &PopupState,
+    area_width: f64,
+    area_height: f64,
+    x: f64,
+    y: f64,
+) -> Option<TimezoneSearchResult> {
+    let (lng, lat) = map_coordinates_to_lng_lat(area_width, area_height, x, y)?;
+    let timezone_name = state.map_timezone_finder.get_tz_name(lng, lat);
+    if timezone_name.is_empty() || timezone_name.starts_with("Etc/") {
+        return None;
+    }
+    state.resolver.describe_timezone(timezone_name)
+}
+
+fn set_map_hover_result(
     state_handle: &Rc<RefCell<PopupState>>,
-    region_index: Option<usize>,
+    hover_result: Option<TimezoneSearchResult>,
     cursor_x: f64,
     cursor_y: f64,
     area_width: f64,
     area_height: f64,
 ) {
     let mut state = state_handle.borrow_mut();
-    if state.hovered_map_region == region_index && region_index.is_none() {
+    if state.hovered_map_result == hover_result && hover_result.is_none() {
         return;
     }
 
-    state.hovered_map_region = region_index;
+    state.hovered_map_result = hover_result;
     sync_map_hover_card(&state);
-    if region_index.is_none() {
+    if state.hovered_map_result.is_none() {
         state.add_map_area.queue_draw();
         return;
     }
@@ -989,7 +911,7 @@ fn set_screen_mode(state_handle: &Rc<RefCell<PopupState>>, screen_mode: PopupScr
             clear_search_results(&mut state);
         }
         if !matches!(screen_mode, PopupScreen::Add) {
-            state.hovered_map_region = None;
+            state.hovered_map_result = None;
         }
         update_screen_mode(&state);
         (
@@ -2289,13 +2211,14 @@ fn build_window(
         search_results_scroller: search_results_scroller.clone(),
         search_results_box: search_results_box.clone(),
         add_map_area: add_map_area.clone(),
+        map_timezone_finder: TimezoneFinder::new(),
         add_map_hover_layer: add_map_hover_layer.clone(),
         add_map_hover_card: add_map_hover_card.clone(),
         add_map_hover_title: add_map_hover_title.clone(),
         add_map_hover_time: add_map_hover_time.clone(),
         add_map_hover_meta: add_map_hover_meta.clone(),
         add_map_hover_relative: add_map_hover_relative.clone(),
-        hovered_map_region: None,
+        hovered_map_result: None,
         local_search_results: Vec::new(),
         remote_search_results: Vec::new(),
         search_results: Vec::new(),
@@ -2368,10 +2291,8 @@ fn build_window(
         }
     });
 
-    let state_for_add_map = state.clone();
     add_map_area.set_draw_func(move |_, context, width, height| {
-        let state = state_for_add_map.borrow();
-        draw_add_map_overlay(&state, context, width as f64, height as f64);
+        draw_add_map_overlay(context, width as f64, height as f64);
     });
 
     add_map_fallback.set_draw_func(move |_, context, width, height| {
@@ -2473,15 +2394,19 @@ fn build_window(
     let add_map_area_for_motion = add_map_area.clone();
     map_motion.connect_motion(move |_, x, y| {
         let allocation = add_map_area_for_motion.allocation();
-        let hovered_region = map_region_at_position(
-            f64::from(allocation.width()),
-            f64::from(allocation.height()),
-            x,
-            y,
-        );
-        set_map_hover_region(
+        let hovered_result = {
+            let state = state_for_map_motion.borrow();
+            map_hover_result_at_position(
+                &state,
+                f64::from(allocation.width()),
+                f64::from(allocation.height()),
+                x,
+                y,
+            )
+        };
+        set_map_hover_result(
             &state_for_map_motion,
-            hovered_region,
+            hovered_result,
             x,
             y,
             f64::from(allocation.width()),
@@ -2492,7 +2417,7 @@ fn build_window(
     let add_map_area_for_leave = add_map_area.clone();
     map_motion.connect_leave(move |_| {
         let allocation = add_map_area_for_leave.allocation();
-        set_map_hover_region(
+        set_map_hover_result(
             &state_for_map_leave,
             None,
             0.0,
@@ -2509,15 +2434,18 @@ fn build_window(
     let add_map_area_for_click = add_map_area.clone();
     map_click.connect_pressed(move |_, _, x, y| {
         let allocation = add_map_area_for_click.allocation();
-        if let Some(region_index) = map_region_at_position(
-            f64::from(allocation.width()),
-            f64::from(allocation.height()),
-            x,
-            y,
-        ) {
-            if let Some(region) = MAP_REGIONS.get(region_index) {
-                add_timezone(&state_for_map_click, region.timezone, region.title);
-            }
+        let hovered_result = {
+            let state = state_for_map_click.borrow();
+            map_hover_result_at_position(
+                &state,
+                f64::from(allocation.width()),
+                f64::from(allocation.height()),
+                x,
+                y,
+            )
+        };
+        if let Some(result) = hovered_result {
+            add_timezone(&state_for_map_click, &result.timezone, &result.title);
         }
     });
     add_map_area.add_controller(map_click);
@@ -2671,7 +2599,9 @@ pub fn run_popup(pid_path: &Path, config_path: Option<PathBuf>) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{read_entry_count, visible_read_entries, READ_CARD_LIMIT};
+    use super::{
+        map_coordinates_to_lng_lat, read_entry_count, visible_read_entries, READ_CARD_LIMIT,
+    };
     use crate::config::TimezoneEntry;
 
     fn entry(timezone: &str) -> TimezoneEntry {
@@ -2739,5 +2669,19 @@ mod tests {
         let entries = vec![entry("America/Cancun")];
 
         assert_eq!(read_entry_count(&entries, "America/Cancun"), 1);
+    }
+
+    #[test]
+    fn map_coordinates_cover_the_expected_world_extent() {
+        let center = map_coordinates_to_lng_lat(900.0, 450.0, 450.0, 225.0);
+        assert_eq!(center, Some((0.0, 0.0)));
+
+        let top_left = map_coordinates_to_lng_lat(900.0, 450.0, 0.0, 0.0).unwrap();
+        assert!(top_left.0 < -179.9);
+        assert!(top_left.1 > 89.9);
+
+        let bottom_right = map_coordinates_to_lng_lat(900.0, 450.0, 900.0, 450.0).unwrap();
+        assert!(bottom_right.0 > 179.9);
+        assert!(bottom_right.1 < -89.9);
     }
 }

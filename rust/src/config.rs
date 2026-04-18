@@ -984,6 +984,36 @@ impl TimezoneResolver {
         results
     }
 
+    pub fn describe_timezone(&self, timezone_name: &str) -> Option<TimezoneSearchResult> {
+        let canonical_timezone = canonical_timezone_name(timezone_name);
+        if canonical_timezone.is_empty() {
+            return None;
+        }
+
+        if let Some(record) = self.direct_lookup_record(&canonical_timezone) {
+            let abbreviation_text = if record.abbreviations.is_empty() {
+                "Timezone".to_string()
+            } else {
+                record.abbreviations.join(" / ")
+            };
+            return Some(TimezoneSearchResult {
+                timezone: record.timezone.clone(),
+                title: record.city.clone(),
+                subtitle: format!("{}  ·  {}", record.timezone, abbreviation_text),
+            });
+        }
+
+        if !self.zones.contains(&canonical_timezone) {
+            return None;
+        }
+
+        Some(TimezoneSearchResult {
+            title: friendly_timezone_name(&canonical_timezone),
+            subtitle: canonical_timezone.clone(),
+            timezone: canonical_timezone,
+        })
+    }
+
     pub fn normalize(value: &str) -> String {
         let without_marks = value
             .nfkd()

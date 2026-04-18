@@ -55,31 +55,31 @@ To also remove saved user state:
 Build:
 
 ```bash
-cargo build --manifest-path rust/Cargo.toml
+cargo build
 ```
 
 Run the Waybar payload directly:
 
 ```bash
-cargo run --manifest-path rust/Cargo.toml -- module
+cargo run -- module
 ```
 
 Open the popup:
 
 ```bash
-cargo run --manifest-path rust/Cargo.toml -- popup
+cargo run -- popup
 ```
 
 Toggle the popup:
 
 ```bash
-cargo run --manifest-path rust/Cargo.toml -- toggle
+cargo run -- toggle
 ```
 
 Run tests:
 
 ```bash
-cargo test --manifest-path rust/Cargo.toml
+cargo test
 ```
 
 ## Runtime Notes

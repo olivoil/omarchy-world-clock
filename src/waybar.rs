@@ -13,8 +13,12 @@ use std::sync::OnceLock;
 pub const MODULE_ICON: &str = "";
 pub const MODULE_MARKER_START: &str = "  // omarchy-world-clock:start";
 pub const MODULE_MARKER_END: &str = "  // omarchy-world-clock:end";
+pub const LEGACY_MODULE_MARKER_START: &str = "  // omarchy-world-clock-rs:start";
+pub const LEGACY_MODULE_MARKER_END: &str = "  // omarchy-world-clock-rs:end";
 pub const STYLE_MARKER_START: &str = "/* omarchy-world-clock:start */";
 pub const STYLE_MARKER_END: &str = "/* omarchy-world-clock:end */";
+pub const LEGACY_STYLE_MARKER_START: &str = "/* omarchy-world-clock-rs:start */";
+pub const LEGACY_STYLE_MARKER_END: &str = "/* omarchy-world-clock-rs:end */";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ModulePayload {
@@ -55,6 +59,18 @@ fn module_marker_block_regex() -> &'static Regex {
     })
 }
 
+fn legacy_module_marker_block_regex() -> &'static Regex {
+    static REGEX: OnceLock<Regex> = OnceLock::new();
+    REGEX.get_or_init(|| {
+        Regex::new(&format!(
+            r#"(?s)\n?{}.*?{}\n?"#,
+            regex::escape(LEGACY_MODULE_MARKER_START),
+            regex::escape(LEGACY_MODULE_MARKER_END)
+        ))
+        .expect("legacy module marker block regex should compile")
+    })
+}
+
 fn style_marker_regex() -> &'static Regex {
     static REGEX: OnceLock<Regex> = OnceLock::new();
     REGEX.get_or_init(|| {
@@ -76,6 +92,18 @@ fn style_marker_block_regex() -> &'static Regex {
             regex::escape(STYLE_MARKER_END)
         ))
         .expect("style marker block regex should compile")
+    })
+}
+
+fn legacy_style_marker_block_regex() -> &'static Regex {
+    static REGEX: OnceLock<Regex> = OnceLock::new();
+    REGEX.get_or_init(|| {
+        Regex::new(&format!(
+            r#"(?s)\n?{}.*?{}\n?"#,
+            regex::escape(LEGACY_STYLE_MARKER_START),
+            regex::escape(LEGACY_STYLE_MARKER_END)
+        ))
+        .expect("legacy style marker block regex should compile")
     })
 }
 
@@ -146,6 +174,9 @@ fn patch_modules_center(text: &str, include_module: bool) -> Result<String> {
         .map(|token| token.as_str().to_string())
         .collect::<Vec<_>>();
     let target = "\"custom/world-clock\"";
+    let legacy_target = "\"custom/world-clock-rs\"";
+
+    tokens.retain(|token| token != legacy_target);
 
     if include_module && !tokens.iter().any(|token| token == target) {
         if let Some(index) = tokens.iter().position(|token| token == "\"clock\"") {
@@ -217,8 +248,28 @@ fn patch_modules_center(text: &str, include_module: bool) -> Result<String> {
     ))
 }
 
+fn cleanup_config_after_block_removal(text: String) -> String {
+    let text = Regex::new(r#"(?m)^\s*,\s*$\n?"#)
+        .expect("standalone comma cleanup regex should compile")
+        .replace_all(&text, "")
+        .into_owned();
+    let text = Regex::new(r#",\s*\n\s*\n}"#)
+        .expect("double blank cleanup regex should compile")
+        .replace(&text, "\n}")
+        .into_owned();
+    Regex::new(r#",\s*\n}"#)
+        .expect("trailing comma cleanup regex should compile")
+        .replace(&text, "\n}")
+        .into_owned()
+}
+
 pub fn patch_config_text(text: &str, command_path: &str) -> Result<String> {
     let text = patch_modules_center(text, true)?;
+    let text = cleanup_config_after_block_removal(
+        legacy_module_marker_block_regex()
+            .replace(&text, "\n")
+            .into_owned(),
+    );
     let block = module_block(command_path);
     if module_marker_regex().is_match(&text) {
         return Ok(module_marker_regex()
@@ -239,26 +290,25 @@ pub fn patch_config_text(text: &str, command_path: &str) -> Result<String> {
 pub fn unpatch_config_text(text: &str) -> Result<String> {
     let text = patch_modules_center(text, false)?;
     let text = module_marker_block_regex().replace(&text, "\n").into_owned();
-    let text = Regex::new(r#",\s*\n\s*\n}"#)
-        .expect("double blank cleanup regex should compile")
-        .replace(&text, "\n}")
+    let text = legacy_module_marker_block_regex()
+        .replace(&text, "\n")
         .into_owned();
-    Ok(Regex::new(r#",\s*\n}"#)
-        .expect("trailing comma cleanup regex should compile")
-        .replace(&text, "\n}")
-        .into_owned())
+    Ok(cleanup_config_after_block_removal(text))
 }
 
 pub fn patch_style_text(text: &str) -> String {
+    let text = legacy_style_marker_block_regex()
+        .replace(text, "\n")
+        .into_owned();
     let block = style_block();
-    if style_marker_regex().is_match(text) {
+    if style_marker_regex().is_match(&text) {
         let replaced = style_marker_regex()
-            .replace(text, block.as_str())
+            .replace(&text, block.as_str())
             .into_owned();
         return format!("{}\n", replaced.trim_end());
     }
 
-    let mut rendered = text.to_string();
+    let mut rendered = text;
     if !rendered.is_empty() && !rendered.ends_with('\n') {
         rendered.push('\n');
     }
@@ -270,6 +320,9 @@ pub fn patch_style_text(text: &str) -> String {
 
 pub fn unpatch_style_text(text: &str) -> String {
     let stripped = style_marker_block_regex().replace(text, "\n").into_owned();
+    let stripped = legacy_style_marker_block_regex()
+        .replace(&stripped, "\n")
+        .into_owned();
     format!("{}\n", stripped.trim_end())
 }
 
@@ -398,6 +451,30 @@ mod tests {
 }
 "#;
 
+    const LEGACY_WAYBAR_CONFIG: &str = r#"{
+  "modules-center": ["clock", "custom/world-clock-rs", "custom/update"],
+  "clock": {
+    "format": "{:L%A %H:%M}"
+  },
+  // omarchy-world-clock-rs:start
+  "custom/world-clock-rs": {
+    "exec": "~/.local/bin/omarchy-world-clock-rs module"
+  },
+  // omarchy-world-clock-rs:end,
+}
+"#;
+
+    const LEGACY_WAYBAR_STYLE: &str = r#"#clock {
+  margin-left: 5px;
+}
+
+/* omarchy-world-clock-rs:start */
+#custom-world-clock-rs {
+  opacity: 0.72;
+}
+/* omarchy-world-clock-rs:end */
+"#;
+
     #[test]
     fn aligns_tooltip_rows_to_widest_label() {
         let rows = vec![
@@ -477,6 +554,16 @@ mod tests {
     }
 
     #[test]
+    fn patch_config_removes_legacy_preview_module() {
+        let patched =
+            patch_config_text(LEGACY_WAYBAR_CONFIG, "~/.local/bin/omarchy-world-clock").unwrap();
+        assert!(!patched.contains("\"custom/world-clock-rs\""));
+        assert!(!patched.contains("omarchy-world-clock-rs:start"));
+        assert!(!patched.contains("\n,\n"));
+        assert!(patched.contains("\"custom/world-clock\": {"));
+    }
+
+    #[test]
     fn unpatch_config_removes_module() {
         let patched =
             patch_config_text(WAYBAR_CONFIG, "~/.local/bin/omarchy-world-clock").unwrap();
@@ -493,5 +580,12 @@ mod tests {
 
         let unpatched = unpatch_style_text(&patched);
         assert!(!unpatched.contains("#custom-world-clock"));
+    }
+
+    #[test]
+    fn patch_style_removes_legacy_preview_style() {
+        let patched = patch_style_text(LEGACY_WAYBAR_STYLE);
+        assert!(!patched.contains("#custom-world-clock-rs"));
+        assert!(patched.contains("#custom-world-clock"));
     }
 }

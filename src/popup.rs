@@ -905,10 +905,10 @@ fn sync_map_hover_card(state: &PopupState) {
 }
 
 fn update_screen_mode(state: &PopupState) {
+    // Edit mode reuses the read/card layout and only reveals edit affordances.
     let page_name = match state.screen_mode {
-        PopupScreen::Read => "read",
-        PopupScreen::Edit => "edit",
         PopupScreen::Add => "add",
+        PopupScreen::Read | PopupScreen::Edit => "read",
     };
     let in_add = matches!(state.screen_mode, PopupScreen::Add);
     let in_edit = matches!(state.screen_mode, PopupScreen::Edit);
@@ -2209,8 +2209,9 @@ fn build_window(
     cards_flow.add_css_class("timezone-card-grid");
     read_root.append(&cards_flow);
 
+    // Legacy list-based edit UI is intentionally detached while edit mode
+    // moves onto the read/card layout.
     let edit_root = gtk::Box::new(Orientation::Vertical, 14);
-    content_stack.add_named(&edit_root, Some("edit"));
 
     let edit_controls = gtk::Box::new(Orientation::Horizontal, 12);
     edit_controls.set_halign(Align::Fill);

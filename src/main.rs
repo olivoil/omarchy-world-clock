@@ -1,10 +1,10 @@
 use anyhow::{bail, Context, Result};
-use omarchy_world_clock_rs::config::ConfigManager;
-use omarchy_world_clock_rs::popup::run_popup;
-use omarchy_world_clock_rs::runtime::{
+use omarchy_world_clock::config::ConfigManager;
+use omarchy_world_clock::popup::run_popup;
+use omarchy_world_clock::runtime::{
     debug_runtime_log_path, kill_popup, popup_running, runtime_pid_path, spawn_popup,
 };
-use omarchy_world_clock_rs::waybar::{
+use omarchy_world_clock::waybar::{
     module_payload, patch_config_text, patch_style_text, unpatch_config_text, unpatch_style_text,
     MODULE_MARKER_START, STYLE_MARKER_START,
 };

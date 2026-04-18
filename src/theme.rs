@@ -151,10 +151,6 @@ flowbox.timezone-card-grid {{
   box-shadow: 0 14px 32px {card_shadow};
 }}
 
-.timezone-card-controls {{
-  margin: 0;
-}}
-
 button.card-control-button {{
   min-width: 36px;
   min-height: 36px;

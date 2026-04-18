@@ -51,6 +51,20 @@ struct RowWidgets {
     suppress_changes: Rc<Cell<bool>>,
 }
 
+#[derive(Clone)]
+struct ReadCardWidgets {
+    entry: TimezoneEntry,
+    root: gtk::Overlay,
+    title: gtk::Label,
+    time_entry: gtk::Entry,
+    timezone_label: gtk::Label,
+    delta_label: gtk::Label,
+    controls: gtk::Fixed,
+    remove_button: gtk::Button,
+    dirty: Rc<Cell<bool>>,
+    suppress_changes: Rc<Cell<bool>>,
+}
+
 struct PopupState {
     config_manager: ConfigManager,
     config: AppConfig,
@@ -81,11 +95,14 @@ struct PopupState {
     cancel_button: gtk::Button,
     sort_mode_dropdown: gtk::DropDown,
     time_format_dropdown: gtk::DropDown,
-    read_summary_time: gtk::Label,
+    read_summary_time: gtk::Entry,
     read_summary_location: gtk::Label,
+    read_summary_dirty: Rc<Cell<bool>>,
+    read_summary_suppress_changes: Rc<Cell<bool>>,
     timeline_area: gtk::DrawingArea,
     timeline_labels: gtk::Fixed,
     cards_flow: gtk::FlowBox,
+    read_cards: Vec<ReadCardWidgets>,
     add_entry: gtk::Entry,
     search_results_scroller: gtk::ScrolledWindow,
     search_results_box: gtk::Box,
@@ -465,11 +482,27 @@ fn row_can_reorder(state: &PopupState, _entry: &TimezoneEntry) -> bool {
     state.config.sort_mode == "manual" && !_entry.locked && unlocked_entry_count(state) > 1
 }
 
-fn set_row_error(row: &RowWidgets, enabled: bool) {
+fn set_entry_error(entry: &gtk::Entry, enabled: bool) {
     if enabled {
-        row.time_entry.add_css_class("error");
+        entry.add_css_class("error");
     } else {
-        row.time_entry.remove_css_class("error");
+        entry.remove_css_class("error");
+    }
+}
+
+fn set_row_error(row: &RowWidgets, enabled: bool) {
+    set_entry_error(&row.time_entry, enabled);
+}
+
+fn set_read_card_controls(state: &PopupState) {
+    let can_remove = state.config.timezones.len() > 1;
+    let show_card_controls = can_remove && matches!(state.screen_mode, PopupScreen::Edit);
+    for card in &state.read_cards {
+        card.controls.set_visible(show_card_controls);
+        card.controls
+            .set_opacity(if show_card_controls { 1.0 } else { 0.0 });
+        card.controls.set_sensitive(show_card_controls);
+        card.remove_button.set_sensitive(show_card_controls);
     }
 }
 
@@ -824,11 +857,195 @@ fn draw_add_map_overlay(context: &gtk::cairo::Context, width: f64, height: f64) 
     }
 }
 
+fn configure_manual_time_entry(entry: &gtk::Entry, time_format: &str) {
+    entry.set_width_chars(time_entry_width_chars(time_format));
+    entry.set_max_length(19);
+    entry.set_placeholder_text(Some(time_entry_placeholder(time_format)));
+}
+
+fn set_time_entry_text(entry: &gtk::Entry, suppress_changes: &Rc<Cell<bool>>, text: &str) {
+    suppress_changes.set(true);
+    entry.set_text(text);
+    suppress_changes.set(false);
+}
+
+fn build_read_card(entry: &TimezoneEntry, time_format: &str) -> ReadCardWidgets {
+    let card_shell = gtk::Overlay::new();
+    card_shell.set_overflow(gtk::Overflow::Visible);
+    card_shell.set_size_request(READ_CARD_WIDTH, -1);
+    card_shell.add_css_class("timezone-card-shell");
+
+    let card = gtk::Box::new(Orientation::Vertical, 16);
+    card.add_css_class("timezone-card");
+    card.set_margin_top(18);
+    card.set_size_request(READ_CARD_WIDTH, -1);
+    card_shell.set_child(Some(&card));
+
+    let title = gtk::Label::new(None);
+    title.set_xalign(0.0);
+    title.set_wrap(false);
+    title.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    title.set_single_line_mode(true);
+    title.add_css_class("timezone-card-title");
+    card.append(&title);
+
+    let time_entry = gtk::Entry::new();
+    gtk::prelude::EditableExt::set_alignment(&time_entry, 0.0);
+    configure_manual_time_entry(&time_entry, time_format);
+    time_entry.set_halign(Align::Start);
+    time_entry.add_css_class("timezone-card-time");
+    time_entry.set_tooltip_text(Some("Enter a time in this timezone."));
+    card.append(&time_entry);
+
+    let footer = gtk::Box::new(Orientation::Horizontal, 16);
+    footer.set_halign(Align::Fill);
+
+    let timezone_label = gtk::Label::new(None);
+    timezone_label.set_xalign(0.0);
+    timezone_label.set_hexpand(true);
+    timezone_label.add_css_class("timezone-card-meta");
+    footer.append(&timezone_label);
+
+    let delta_label = gtk::Label::new(None);
+    delta_label.set_xalign(1.0);
+    delta_label.set_halign(Align::End);
+    delta_label.add_css_class("timezone-card-meta");
+    footer.append(&delta_label);
+
+    card.append(&footer);
+
+    let controls = gtk::Fixed::new();
+    controls.set_halign(Align::Start);
+    controls.set_valign(Align::Start);
+    controls.set_size_request(READ_CARD_WIDTH + 18, 36);
+    controls.set_overflow(gtk::Overflow::Visible);
+    card_shell.add_overlay(&controls);
+    card_shell.set_measure_overlay(&controls, false);
+
+    let remove_button = gtk::Button::from_icon_name("edit-delete-symbolic");
+    remove_button.add_css_class("icon-button");
+    remove_button.add_css_class("card-control-button");
+    remove_button.add_css_class("card-hover-delete");
+    remove_button.add_css_class("destructive");
+    remove_button.set_size_request(36, 36);
+    remove_button.set_tooltip_text(Some("Remove timezone."));
+    controls.put(&remove_button, f64::from(READ_CARD_WIDTH - 18), 0.0);
+
+    ReadCardWidgets {
+        entry: entry.clone(),
+        root: card_shell,
+        title,
+        time_entry,
+        timezone_label,
+        delta_label,
+        controls,
+        remove_button,
+        dirty: Rc::new(Cell::new(false)),
+        suppress_changes: Rc::new(Cell::new(false)),
+    }
+}
+
+fn rebuild_read_cards(state: &mut PopupState, entries: &[TimezoneEntry]) {
+    while let Some(child) = state.cards_flow.first_child() {
+        state.cards_flow.remove(&child);
+    }
+    state.read_cards.clear();
+
+    let state_handle = state.self_handle.upgrade();
+    for entry in entries {
+        let widgets = build_read_card(entry, &state.time_format);
+        if let Some(state_handle) = state_handle.as_ref() {
+            bind_time_entry_events(
+                state_handle,
+                &widgets.time_entry,
+                entry.timezone.clone(),
+                widgets.dirty.clone(),
+                widgets.suppress_changes.clone(),
+            );
+
+            let state_for_remove = state_handle.clone();
+            let timezone_name_for_remove = entry.timezone.clone();
+            widgets.remove_button.connect_clicked(move |_| {
+                remove_timezone_entry(&state_for_remove, &timezone_name_for_remove);
+            });
+        }
+
+        state.cards_flow.append(&widgets.root);
+        state.read_cards.push(widgets);
+    }
+}
+
+fn update_read_cards(
+    state: &mut PopupState,
+    entries: &[TimezoneEntry],
+    anchor: &DateTime<chrono_tz::Tz>,
+) {
+    let current_order = state
+        .read_cards
+        .iter()
+        .map(|card| card.entry.timezone.clone())
+        .collect::<Vec<_>>();
+    let desired_order = entries
+        .iter()
+        .map(|entry| entry.timezone.clone())
+        .collect::<Vec<_>>();
+
+    if current_order != desired_order && state.editing_timezone.is_none() {
+        rebuild_read_cards(state, entries);
+    }
+
+    let update_entries = if current_order == desired_order {
+        entries.to_vec()
+    } else {
+        state
+            .read_cards
+            .iter()
+            .map(|card| card.entry.clone())
+            .collect::<Vec<_>>()
+    };
+
+    let reference_utc = state.reference_utc;
+    let time_format = state.time_format.clone();
+    let editing_timezone = state.editing_timezone.clone();
+
+    for (card, entry) in state.read_cards.iter_mut().zip(update_entries.iter()) {
+        card.entry = entry.clone();
+        let zoned = zoned_datetime(reference_utc, &entry.timezone);
+        card.title.set_text(&read_card_title(entry));
+        card.timezone_label
+            .set_text(&format_timezone_notation(&zoned));
+        card.delta_label
+            .set_text(&relative_time_label(anchor, &zoned));
+        configure_manual_time_entry(&card.time_entry, &time_format);
+
+        if editing_timezone.as_deref() == Some(entry.timezone.as_str()) {
+            continue;
+        }
+
+        set_entry_error(&card.time_entry, false);
+        set_time_entry_text(
+            &card.time_entry,
+            &card.suppress_changes,
+            &format_display_time(&zoned, &time_format),
+        );
+        card.dirty.set(false);
+    }
+
+    set_read_card_controls(state);
+}
+
 fn render_read_view(state: &mut PopupState) {
     let anchor = zoned_datetime(state.reference_utc, &state.local_timezone);
-    state
-        .read_summary_time
-        .set_text(&format_display_time(&anchor, &state.time_format));
+    configure_manual_time_entry(&state.read_summary_time, &state.time_format);
+    if state.editing_timezone.as_deref() != Some(state.local_timezone.as_str()) {
+        set_entry_error(&state.read_summary_time, false);
+        set_time_entry_text(
+            &state.read_summary_time,
+            &state.read_summary_suppress_changes,
+            &format_display_time(&anchor, &state.time_format),
+        );
+        state.read_summary_dirty.set(false);
+    }
     state
         .read_summary_location
         .set_text(&location_with_zone_notation(&anchor_label(state), &anchor));
@@ -837,6 +1054,7 @@ fn render_read_view(state: &mut PopupState) {
         state.timeline_labels.remove(&child);
     }
 
+    let entries = read_entries(state);
     let timeline_items = build_timeline_items(
         &state.config.timezones,
         &state.local_timezone,
@@ -892,90 +1110,7 @@ fn render_read_view(state: &mut PopupState) {
     }
     state.timeline_area.queue_draw();
 
-    let entries = read_entries(state);
-    while let Some(child) = state.cards_flow.first_child() {
-        state.cards_flow.remove(&child);
-    }
-    let can_remove = state.config.timezones.len() > 1;
-    let show_card_controls = can_remove && matches!(state.screen_mode, PopupScreen::Edit);
-    let state_handle = state.self_handle.upgrade();
-    for entry in entries {
-        let zoned = zoned_datetime(state.reference_utc, &entry.timezone);
-
-        let card_shell = gtk::Overlay::new();
-        card_shell.set_overflow(gtk::Overflow::Visible);
-        card_shell.set_size_request(READ_CARD_WIDTH, -1);
-        card_shell.add_css_class("timezone-card-shell");
-
-        let card = gtk::Box::new(Orientation::Vertical, 16);
-        card.add_css_class("timezone-card");
-        card.set_margin_top(18);
-        card.set_size_request(READ_CARD_WIDTH, -1);
-        card_shell.set_child(Some(&card));
-
-        let header = gtk::Box::new(Orientation::Horizontal, 16);
-        header.set_halign(Align::Fill);
-
-        let title = gtk::Label::new(Some(&read_card_title(&entry)));
-        title.set_xalign(0.0);
-        title.set_hexpand(true);
-        title.set_wrap(false);
-        title.set_ellipsize(gtk::pango::EllipsizeMode::End);
-        title.set_single_line_mode(true);
-        title.add_css_class("timezone-card-title");
-        header.append(&title);
-
-        let timezone_label = gtk::Label::new(Some(&format_timezone_notation(&zoned)));
-        timezone_label.set_xalign(1.0);
-        timezone_label.set_halign(Align::End);
-        timezone_label.add_css_class("timezone-card-meta");
-        header.append(&timezone_label);
-
-        card.append(&header);
-
-        let time_label = gtk::Label::new(Some(&format_display_time(&zoned, &state.time_format)));
-        time_label.set_xalign(0.0);
-        time_label.add_css_class("timezone-card-time");
-        card.append(&time_label);
-
-        let delta_label = gtk::Label::new(Some(&relative_time_label(&anchor, &zoned)));
-        delta_label.set_xalign(0.0);
-        delta_label.set_halign(Align::Start);
-        delta_label.add_css_class("timezone-card-meta");
-        card.append(&delta_label);
-
-        let remove_button = gtk::Button::from_icon_name("edit-delete-symbolic");
-        remove_button.add_css_class("icon-button");
-        remove_button.add_css_class("card-control-button");
-        remove_button.add_css_class("card-hover-delete");
-        remove_button.add_css_class("destructive");
-        remove_button.set_size_request(36, 36);
-        remove_button.set_tooltip_text(Some("Remove timezone."));
-
-        let controls = gtk::Fixed::new();
-        controls.set_halign(Align::Start);
-        controls.set_valign(Align::Start);
-        controls.set_size_request(READ_CARD_WIDTH + 18, 36);
-        controls.set_overflow(gtk::Overflow::Visible);
-        controls.set_visible(show_card_controls);
-        controls.set_opacity(if show_card_controls { 1.0 } else { 0.0 });
-        controls.set_sensitive(show_card_controls);
-        controls.put(&remove_button, f64::from(READ_CARD_WIDTH - 18), 0.0);
-        card_shell.add_overlay(&controls);
-        card_shell.set_measure_overlay(&controls, false);
-
-        remove_button.set_sensitive(show_card_controls);
-
-        if let Some(state_handle) = state_handle.as_ref() {
-            let state_for_remove = state_handle.clone();
-            let timezone_name_for_remove = entry.timezone.clone();
-            remove_button.connect_clicked(move |_| {
-                remove_timezone_entry(&state_for_remove, &timezone_name_for_remove);
-            });
-        }
-
-        state.cards_flow.append(&card_shell);
-    }
+    update_read_cards(state, &entries, &anchor);
 }
 
 fn can_add_more_locations(state: &PopupState) -> bool {
@@ -1121,6 +1256,7 @@ fn update_screen_mode(state: &PopupState) {
         row.remove_button.set_visible(in_edit && can_remove);
         row.remove_button.set_sensitive(can_remove);
     }
+    set_read_card_controls(state);
     update_row_separators(state);
     sync_map_hover_card(state);
 }
@@ -1375,19 +1511,24 @@ fn build_row(entry: &TimezoneEntry, time_format: &str) -> RowWidgets {
     }
 }
 
-fn bind_row_events(state_handle: &Rc<RefCell<PopupState>>, row: &RowWidgets) {
-    let timezone_name = row.entry.timezone.clone();
-    let dirty = row.dirty.clone();
-    let suppress_changes = row.suppress_changes.clone();
+fn bind_time_entry_events(
+    state_handle: &Rc<RefCell<PopupState>>,
+    time_entry: &gtk::Entry,
+    timezone_name: String,
+    dirty: Rc<Cell<bool>>,
+    suppress_changes: Rc<Cell<bool>>,
+) {
     let state_for_change = state_handle.clone();
     let timezone_name_for_change = timezone_name.clone();
-    row.time_entry.connect_changed(move |time_entry| {
-        if suppress_changes.get() {
+    let dirty_for_change = dirty.clone();
+    let suppress_changes_for_change = suppress_changes.clone();
+    time_entry.connect_changed(move |time_entry| {
+        if suppress_changes_for_change.get() {
             return;
         }
 
-        dirty.set(true);
-        time_entry.remove_css_class("error");
+        dirty_for_change.set(true);
+        set_entry_error(time_entry, false);
         if let Ok(state) = state_for_change.try_borrow() {
             clear_status(&state);
         }
@@ -1396,12 +1537,12 @@ fn bind_row_events(state_handle: &Rc<RefCell<PopupState>>, row: &RowWidgets) {
 
     let focus_controller = gtk::EventControllerFocus::new();
     let timezone_name_for_enter = timezone_name.clone();
-    let dirty_for_enter = row.dirty.clone();
+    let dirty_for_enter = dirty.clone();
     let state_for_enter = state_handle.clone();
-    let time_entry_for_enter = row.time_entry.clone();
+    let time_entry_for_enter = time_entry.clone();
     focus_controller.connect_enter(move |_| {
         dirty_for_enter.set(false);
-        time_entry_for_enter.remove_css_class("error");
+        set_entry_error(&time_entry_for_enter, false);
         time_entry_for_enter.select_region(0, -1);
         let mut state = state_for_enter.borrow_mut();
         state.editing_timezone = Some(timezone_name_for_enter.clone());
@@ -1409,7 +1550,7 @@ fn bind_row_events(state_handle: &Rc<RefCell<PopupState>>, row: &RowWidgets) {
     });
 
     let timezone_name_for_leave = timezone_name.clone();
-    let dirty_for_leave = row.dirty.clone();
+    let dirty_for_leave = dirty.clone();
     let state_for_leave = state_handle.clone();
     focus_controller.connect_leave(move |_| {
         {
@@ -1431,12 +1572,23 @@ fn bind_row_events(state_handle: &Rc<RefCell<PopupState>>, row: &RowWidgets) {
             update_row_widgets(&mut state);
         }
     });
-    row.time_entry.add_controller(focus_controller);
+    time_entry.add_controller(focus_controller);
 
     let state_for_activate = state_handle.clone();
-    row.time_entry.connect_activate(move |_| {
+    time_entry.connect_activate(move |_| {
         let _ = flush_live_apply(&state_for_activate, &timezone_name, true);
     });
+}
+
+fn bind_row_events(state_handle: &Rc<RefCell<PopupState>>, row: &RowWidgets) {
+    let timezone_name = row.entry.timezone.clone();
+    bind_time_entry_events(
+        state_handle,
+        &row.time_entry,
+        timezone_name.clone(),
+        row.dirty.clone(),
+        row.suppress_changes.clone(),
+    );
 
     let timezone_name_for_remove = row.entry.timezone.clone();
     let state_for_remove = state_handle.clone();
@@ -2221,6 +2373,12 @@ fn reset_live_now(state_handle: &Rc<RefCell<PopupState>>) {
     cancel_pending_apply(&mut state);
     state.live = true;
     state.reference_utc = Utc::now();
+    state.read_summary_dirty.set(false);
+    set_entry_error(&state.read_summary_time, false);
+    for card in &state.read_cards {
+        card.dirty.set(false);
+        set_entry_error(&card.time_entry, false);
+    }
     for row in &state.rows {
         row.dirty.set(false);
         set_row_error(row, false);
@@ -2230,22 +2388,51 @@ fn reset_live_now(state_handle: &Rc<RefCell<PopupState>>) {
     update_row_widgets(&mut state);
 }
 
+#[derive(Clone, Copy)]
+enum ManualEntryTarget {
+    Summary,
+    Card(usize),
+    Row(usize),
+}
+
 fn apply_manual_entry(
     state_handle: &Rc<RefCell<PopupState>>,
     timezone_name: &str,
     show_errors: bool,
 ) -> bool {
-    let (raw_value, dirty, row_index) = {
+    let (raw_value, dirty, target) = {
         let state = state_handle.borrow();
-        let Some((index, row)) = state
+        if timezone_name == state.local_timezone && state.read_summary_dirty.get() {
+            (
+                state.read_summary_time.text().to_string(),
+                state.read_summary_dirty.get(),
+                ManualEntryTarget::Summary,
+            )
+        } else if let Some((index, card)) = state
+            .read_cards
+            .iter()
+            .enumerate()
+            .find(|(_, card)| card.entry.timezone == timezone_name && card.dirty.get())
+        {
+            (
+                card.time_entry.text().to_string(),
+                card.dirty.get(),
+                ManualEntryTarget::Card(index),
+            )
+        } else if let Some((index, row)) = state
             .rows
             .iter()
             .enumerate()
             .find(|(_, row)| row.entry.timezone == timezone_name)
-        else {
+        {
+            (
+                row.time_entry.text().to_string(),
+                row.dirty.get(),
+                ManualEntryTarget::Row(index),
+            )
+        } else {
             return false;
-        };
-        (row.time_entry.text().to_string(), row.dirty.get(), index)
+        }
     };
     if !dirty {
         return false;
@@ -2258,8 +2445,20 @@ fn apply_manual_entry(
             Err(error) => {
                 if show_errors {
                     let state = state_handle.borrow();
-                    if let Some(row) = state.rows.get(row_index) {
-                        set_row_error(row, true);
+                    match target {
+                        ManualEntryTarget::Summary => {
+                            set_entry_error(&state.read_summary_time, true);
+                        }
+                        ManualEntryTarget::Card(index) => {
+                            if let Some(card) = state.read_cards.get(index) {
+                                set_entry_error(&card.time_entry, true);
+                            }
+                        }
+                        ManualEntryTarget::Row(index) => {
+                            if let Some(row) = state.rows.get(index) {
+                                set_row_error(row, true);
+                            }
+                        }
                     }
                     set_status(&state, error, true);
                 }
@@ -2274,20 +2473,60 @@ fn apply_manual_entry(
     update_live_button(&state);
 
     if show_errors {
-        if let Some(active_row) = state.rows.get(row_index) {
-            let rendered = format_display_time(
-                &zoned_datetime(parsed_reference.reference_utc, timezone_name),
-                &state.time_format,
-            );
-            active_row.suppress_changes.set(true);
-            active_row.time_entry.set_text(&rendered);
-            active_row.time_entry.set_position(-1);
-            active_row.suppress_changes.set(false);
+        let rendered = format_display_time(
+            &zoned_datetime(parsed_reference.reference_utc, timezone_name),
+            &state.time_format,
+        );
+        match target {
+            ManualEntryTarget::Summary => {
+                set_time_entry_text(
+                    &state.read_summary_time,
+                    &state.read_summary_suppress_changes,
+                    &rendered,
+                );
+                state.read_summary_time.set_position(-1);
+            }
+            ManualEntryTarget::Card(index) => {
+                if let Some(active_card) = state.read_cards.get(index) {
+                    set_time_entry_text(
+                        &active_card.time_entry,
+                        &active_card.suppress_changes,
+                        &rendered,
+                    );
+                    active_card.time_entry.set_position(-1);
+                }
+            }
+            ManualEntryTarget::Row(index) => {
+                if let Some(active_row) = state.rows.get(index) {
+                    set_time_entry_text(
+                        &active_row.time_entry,
+                        &active_row.suppress_changes,
+                        &rendered,
+                    );
+                    active_row.time_entry.set_position(-1);
+                }
+            }
         }
     }
 
-    for row in &state.rows {
-        row.dirty.set(false);
+    let preserve_target_dirty =
+        !show_errors && state.editing_timezone.as_deref() == Some(timezone_name);
+    state
+        .read_summary_dirty
+        .set(preserve_target_dirty && matches!(target, ManualEntryTarget::Summary));
+    set_entry_error(&state.read_summary_time, false);
+    for (index, card) in state.read_cards.iter().enumerate() {
+        card.dirty.set(
+            preserve_target_dirty
+                && matches!(target, ManualEntryTarget::Card(target_index) if target_index == index),
+        );
+        set_entry_error(&card.time_entry, false);
+    }
+    for (index, row) in state.rows.iter().enumerate() {
+        row.dirty.set(
+            preserve_target_dirty
+                && matches!(target, ManualEntryTarget::Row(target_index) if target_index == index),
+        );
         set_row_error(row, false);
     }
     update_row_widgets(&mut state);
@@ -2369,9 +2608,12 @@ fn build_window(
     read_summary.set_halign(Align::Center);
     read_root.append(&read_summary);
 
-    let read_summary_time = gtk::Label::new(None);
-    read_summary_time.set_xalign(0.5);
+    let read_summary_time = gtk::Entry::new();
+    gtk::prelude::EditableExt::set_alignment(&read_summary_time, 0.5);
+    configure_manual_time_entry(&read_summary_time, DEFAULT_TIME_FORMAT);
+    read_summary_time.set_halign(Align::Center);
     read_summary_time.add_css_class("read-summary-time");
+    read_summary_time.set_tooltip_text(Some("Enter a time in your current timezone."));
     read_summary.append(&read_summary_time);
 
     let read_summary_location = gtk::Label::new(None);
@@ -2608,6 +2850,9 @@ fn build_window(
     window.set_child(Some(&overlay));
     let (remote_search_sender, remote_search_receiver) = mpsc::channel::<RemoteSearchMessage>();
 
+    let read_summary_dirty = Rc::new(Cell::new(false));
+    let read_summary_suppress_changes = Rc::new(Cell::new(false));
+
     let state = Rc::new(RefCell::new(PopupState {
         config_manager,
         config,
@@ -2643,9 +2888,12 @@ fn build_window(
         time_format_dropdown: time_format_dropdown.clone(),
         read_summary_time: read_summary_time.clone(),
         read_summary_location: read_summary_location.clone(),
+        read_summary_dirty: read_summary_dirty.clone(),
+        read_summary_suppress_changes: read_summary_suppress_changes.clone(),
         timeline_area: timeline_area.clone(),
         timeline_labels: timeline_labels.clone(),
         cards_flow: cards_flow.clone(),
+        read_cards: Vec::new(),
         add_entry: add_entry.clone(),
         search_results_scroller: search_results_scroller.clone(),
         search_results_box: search_results_box.clone(),
@@ -2672,6 +2920,13 @@ fn build_window(
         self_handle: Weak::new(),
     }));
     state.borrow_mut().self_handle = Rc::downgrade(&state);
+    bind_time_entry_events(
+        &state,
+        &read_summary_time,
+        state.borrow().local_timezone.clone(),
+        read_summary_dirty,
+        read_summary_suppress_changes,
+    );
 
     let state_for_timeline = state.clone();
     timeline_area.set_draw_func(move |_, context, width, height| {

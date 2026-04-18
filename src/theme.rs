@@ -97,6 +97,25 @@ window {{
   letter-spacing: -0.04em;
 }}
 
+entry.read-summary-time {{
+  caret-color: {accent};
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 18px;
+  padding: 0 18px;
+  min-height: 92px;
+}}
+
+entry.read-summary-time:focus {{
+  background: {time_chip_background};
+  border-color: {accent_focus_border};
+  box-shadow: 0 0 0 3px {accent_focus_shadow};
+}}
+
+entry.read-summary-time.error {{
+  border-color: rgba(255, 139, 139, 0.92);
+}}
+
 .read-summary-location {{
   color: {read_location};
   font-size: 20px;
@@ -189,6 +208,25 @@ button.card-hover-delete image {{
   font-size: 52px;
   font-weight: 700;
   letter-spacing: -0.04em;
+}}
+
+entry.timezone-card-time {{
+  caret-color: {accent};
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 14px;
+  padding: 0 8px;
+  min-height: 66px;
+}}
+
+entry.timezone-card-time:focus {{
+  background: {time_chip_background};
+  border-color: {accent_focus_border};
+  box-shadow: 0 0 0 3px {accent_focus_shadow};
+}}
+
+entry.timezone-card-time.error {{
+  border-color: rgba(255, 139, 139, 0.92);
 }}
 
 .timezone-card-meta {{

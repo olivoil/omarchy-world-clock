@@ -239,9 +239,9 @@ entry.timezone-card-time {{
 }}
 
 entry.timezone-card-time:focus {{
-  background: {time_chip_background};
-  border-color: {accent_focus_border};
-  box-shadow: 0 0 0 3px {accent_focus_shadow};
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
 }}
 
 entry.timezone-card-time.error {{

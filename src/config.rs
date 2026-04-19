@@ -35,32 +35,89 @@ const STANDARD_TZ_REGIONS: [&str; 10] = [
     "Indian",
     "Pacific",
 ];
-const MANUAL_CITY_ALIASES: [(&str, &str); 9] = [
-    ("Austin", "America/Chicago"),
-    ("Bangalore", "Asia/Kolkata"),
-    ("Bengaluru", "Asia/Kolkata"),
-    ("Delhi", "Asia/Kolkata"),
-    ("Faridabad", "Asia/Kolkata"),
-    ("Gurgaon", "Asia/Kolkata"),
-    ("Gurugram", "Asia/Kolkata"),
-    ("New Delhi", "Asia/Kolkata"),
-    ("Noida", "Asia/Kolkata"),
+#[derive(Debug, Clone, Copy)]
+struct ManualCityAlias {
+    alias: &'static str,
+    timezone: &'static str,
+    latitude: f64,
+    longitude: f64,
+}
+
+const MANUAL_CITY_ALIASES: [ManualCityAlias; 9] = [
+    ManualCityAlias {
+        alias: "Austin",
+        timezone: "America/Chicago",
+        latitude: 30.2672,
+        longitude: -97.7431,
+    },
+    ManualCityAlias {
+        alias: "Bangalore",
+        timezone: "Asia/Kolkata",
+        latitude: 12.9716,
+        longitude: 77.5946,
+    },
+    ManualCityAlias {
+        alias: "Bengaluru",
+        timezone: "Asia/Kolkata",
+        latitude: 12.9716,
+        longitude: 77.5946,
+    },
+    ManualCityAlias {
+        alias: "Delhi",
+        timezone: "Asia/Kolkata",
+        latitude: 28.6139,
+        longitude: 77.2090,
+    },
+    ManualCityAlias {
+        alias: "Faridabad",
+        timezone: "Asia/Kolkata",
+        latitude: 28.4089,
+        longitude: 77.3178,
+    },
+    ManualCityAlias {
+        alias: "Gurgaon",
+        timezone: "Asia/Kolkata",
+        latitude: 28.4595,
+        longitude: 77.0266,
+    },
+    ManualCityAlias {
+        alias: "Gurugram",
+        timezone: "Asia/Kolkata",
+        latitude: 28.4595,
+        longitude: 77.0266,
+    },
+    ManualCityAlias {
+        alias: "New Delhi",
+        timezone: "Asia/Kolkata",
+        latitude: 28.6139,
+        longitude: 77.2090,
+    },
+    ManualCityAlias {
+        alias: "Noida",
+        timezone: "Asia/Kolkata",
+        latitude: 28.5355,
+        longitude: 77.3910,
+    },
 ];
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AppConfig {
     pub timezones: Vec<TimezoneEntry>,
     pub sort_mode: String,
     pub time_format: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TimezoneEntry {
     pub timezone: String,
     #[serde(default)]
     pub label: String,
     #[serde(default)]
     pub locked: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latitude: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub longitude: Option<f64>,
 }
 
 impl TimezoneEntry {
@@ -73,11 +130,13 @@ impl TimezoneEntry {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TimezoneSearchResult {
     pub timezone: String,
     pub title: String,
     pub subtitle: String,
+    pub latitude: Option<f64>,
+    pub longitude: Option<f64>,
 }
 
 #[derive(Debug, Clone)]
@@ -86,6 +145,8 @@ struct AliasRecord {
     normalized_alias: String,
     alias_words: Vec<String>,
     timezone: String,
+    latitude: Option<f64>,
+    longitude: Option<f64>,
 }
 
 #[derive(Debug, Clone)]
@@ -130,6 +191,8 @@ struct RemotePlaceResult {
     name: Option<String>,
     admin1: Option<String>,
     country: Option<String>,
+    latitude: Option<f64>,
+    longitude: Option<f64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -142,6 +205,10 @@ enum RawTimezoneEntry {
         label: String,
         #[serde(default)]
         locked: bool,
+        #[serde(default)]
+        latitude: Option<f64>,
+        #[serde(default)]
+        longitude: Option<f64>,
     },
 }
 
@@ -222,6 +289,16 @@ impl ConfigManager {
     }
 
     pub fn add_timezone(&self, timezone_name: &str, label: &str) -> anyhow::Result<AppConfig> {
+        self.add_timezone_with_coordinate(timezone_name, label, None, None)
+    }
+
+    pub fn add_timezone_with_coordinate(
+        &self,
+        timezone_name: &str,
+        label: &str,
+        latitude: Option<f64>,
+        longitude: Option<f64>,
+    ) -> anyhow::Result<AppConfig> {
         let mut config = self.load()?;
         let timezone_name = canonical_timezone_name(timezone_name);
         if timezone_name.is_empty() || !is_valid_timezone(&timezone_name) {
@@ -233,10 +310,13 @@ impl ConfigManager {
             .iter()
             .any(|entry| entry.timezone == timezone_name)
         {
+            let (latitude, longitude) = sanitize_place_coordinate(latitude, longitude);
             config.timezones.push(TimezoneEntry {
                 timezone: timezone_name,
                 label: label.trim().to_string(),
                 locked: false,
+                latitude,
+                longitude,
             });
             config = self.normalize_config(config);
             self.save(&config)?;
@@ -373,6 +453,8 @@ impl ConfigManager {
                         timezone: local_timezone,
                         label: String::new(),
                         locked: false,
+                        latitude: None,
+                        longitude: None,
                     },
                 );
             }
@@ -392,24 +474,29 @@ impl ConfigManager {
     }
 
     fn parse_entry(&self, raw_entry: RawTimezoneEntry) -> Option<TimezoneEntry> {
-        let (timezone, label, locked) = match raw_entry {
-            RawTimezoneEntry::Legacy(timezone) => (timezone, String::new(), false),
+        let (timezone, label, locked, latitude, longitude) = match raw_entry {
+            RawTimezoneEntry::Legacy(timezone) => (timezone, String::new(), false, None, None),
             RawTimezoneEntry::Structured {
                 timezone,
                 label,
                 locked,
-            } => (timezone, label, locked),
+                latitude,
+                longitude,
+            } => (timezone, label, locked, latitude, longitude),
         };
 
         let timezone = canonical_timezone_name(&timezone);
         if timezone.is_empty() || !is_valid_timezone(&timezone) {
             return None;
         }
+        let (latitude, longitude) = sanitize_place_coordinate(latitude, longitude);
 
         Some(TimezoneEntry {
             timezone,
             label: label.trim().to_string(),
             locked,
+            latitude,
+            longitude,
         })
     }
 
@@ -427,10 +514,13 @@ impl ConfigManager {
                 continue;
             }
 
+            let (latitude, longitude) = sanitize_place_coordinate(entry.latitude, entry.longitude);
             let normalized = TimezoneEntry {
                 timezone,
                 label: entry.label.trim().to_string(),
                 locked: entry.locked,
+                latitude,
+                longitude,
             };
 
             if normalized.locked {
@@ -464,6 +554,8 @@ impl ConfigManager {
                 timezone: local_timezone,
                 label: String::new(),
                 locked: false,
+                latitude: None,
+                longitude: None,
             }]
         };
 
@@ -481,6 +573,25 @@ fn valid_sort_mode(value: &str) -> bool {
 
 fn valid_time_format(value: &str) -> bool {
     VALID_TIME_FORMATS.contains(&value)
+}
+
+fn valid_place_coordinate(latitude: f64, longitude: f64) -> bool {
+    latitude.is_finite()
+        && longitude.is_finite()
+        && (-90.0..=90.0).contains(&latitude)
+        && (-180.0..=180.0).contains(&longitude)
+}
+
+fn sanitize_place_coordinate(
+    latitude: Option<f64>,
+    longitude: Option<f64>,
+) -> (Option<f64>, Option<f64>) {
+    match (latitude, longitude) {
+        (Some(latitude), Some(longitude)) if valid_place_coordinate(latitude, longitude) => {
+            (Some(latitude), Some(longitude))
+        }
+        _ => (None, None),
+    }
 }
 
 fn home_dir() -> PathBuf {
@@ -970,6 +1081,8 @@ impl TimezoneResolver {
                 timezone: alias.timezone.clone(),
                 title: alias.alias.clone(),
                 subtitle: format!("{}  ·  {}", alias.timezone, abbreviation_text),
+                latitude: alias.latitude,
+                longitude: alias.longitude,
             });
             if results.len() >= limit {
                 return results;
@@ -989,6 +1102,8 @@ impl TimezoneResolver {
                 timezone: record.timezone.clone(),
                 title: record.city.clone(),
                 subtitle: format!("{}  ·  {}", record.timezone, abbreviation_text),
+                latitude: None,
+                longitude: None,
             });
             if results.len() >= limit {
                 break;
@@ -1014,6 +1129,8 @@ impl TimezoneResolver {
                 timezone: record.timezone.clone(),
                 title: record.city.clone(),
                 subtitle: format!("{}  ·  {}", record.timezone, abbreviation_text),
+                latitude: None,
+                longitude: None,
             });
         }
 
@@ -1025,6 +1142,8 @@ impl TimezoneResolver {
             title: friendly_timezone_name(&canonical_timezone),
             subtitle: canonical_timezone.clone(),
             timezone: canonical_timezone,
+            latitude: None,
+            longitude: None,
         })
     }
 
@@ -1049,12 +1168,17 @@ impl TimezoneResolver {
 
     fn build_alias_records(&self) -> Vec<AliasRecord> {
         let mut aliases = HashMap::new();
-        for (alias, timezone_name) in MANUAL_CITY_ALIASES {
-            self.add_alias_record(&mut aliases, alias, timezone_name);
+        for alias in MANUAL_CITY_ALIASES {
+            self.add_alias_record(
+                &mut aliases,
+                alias.alias,
+                alias.timezone,
+                Some((alias.latitude, alias.longitude)),
+            );
         }
 
         for (alias, timezone_name) in timezone_link_aliases() {
-            self.add_alias_record(&mut aliases, alias, timezone_name);
+            self.add_alias_record(&mut aliases, alias, timezone_name, None);
 
             let mut alias_parts = alias.split('/');
             let alias_region = alias_parts.next().unwrap_or_default();
@@ -1066,7 +1190,12 @@ impl TimezoneResolver {
                 && STANDARD_TZ_REGIONS.contains(&alias_region)
                 && Self::is_city_alias_candidate(alias_city)
             {
-                self.add_alias_record(&mut aliases, &alias_city.replace('_', " "), timezone_name);
+                self.add_alias_record(
+                    &mut aliases,
+                    &alias_city.replace('_', " "),
+                    timezone_name,
+                    None,
+                );
             }
         }
 
@@ -1084,6 +1213,7 @@ impl TimezoneResolver {
         aliases: &mut HashMap<(String, String), AliasRecord>,
         alias: &str,
         timezone_name: &str,
+        coordinate: Option<(f64, f64)>,
     ) {
         let canonical_timezone = canonical_timezone_name(timezone_name);
         if !self.zones.contains(&canonical_timezone) {
@@ -1099,6 +1229,10 @@ impl TimezoneResolver {
         if aliases.contains_key(&key) {
             return;
         }
+        let (latitude, longitude) = coordinate
+            .filter(|(latitude, longitude)| valid_place_coordinate(*latitude, *longitude))
+            .map(|(latitude, longitude)| (Some(latitude), Some(longitude)))
+            .unwrap_or((None, None));
 
         aliases.insert(
             key,
@@ -1107,6 +1241,8 @@ impl TimezoneResolver {
                 normalized_alias: normalized_alias.clone(),
                 alias_words: unique_words(&normalized_alias),
                 timezone: canonical_timezone,
+                latitude,
+                longitude,
             },
         );
     }
@@ -1312,11 +1448,14 @@ impl RemotePlaceSearch {
             if !location_summary.is_empty() {
                 subtitle_parts.push(location_summary);
             }
+            let (latitude, longitude) = sanitize_place_coordinate(item.latitude, item.longitude);
 
             results.push(TimezoneSearchResult {
                 timezone: timezone_name,
                 title,
                 subtitle: subtitle_parts.join("  ·  "),
+                latitude,
+                longitude,
             });
         }
 
@@ -1383,7 +1522,7 @@ fn unique_words(value: &str) -> Vec<String> {
 mod tests {
     use super::{
         canonical_timezone_name, detect_system_time_format_with_paths, ordered_timezones,
-        AppConfig, ConfigManager, TimezoneEntry,
+        AppConfig, ConfigManager, TimezoneEntry, TimezoneResolver,
     };
     use chrono::{TimeZone, Utc};
     use std::fs;
@@ -1406,6 +1545,8 @@ mod tests {
                     timezone: "UTC".to_string(),
                     label: String::new(),
                     locked: false,
+                    latitude: None,
+                    longitude: None,
                 }],
                 sort_mode: "manual".to_string(),
                 time_format: "system".to_string(),
@@ -1429,11 +1570,15 @@ mod tests {
                     timezone: "UTC".to_string(),
                     label: String::new(),
                     locked: false,
+                    latitude: None,
+                    longitude: None,
                 },
                 TimezoneEntry {
                     timezone: "Asia/Tokyo".to_string(),
                     label: String::new(),
                     locked: false,
+                    latitude: None,
+                    longitude: None,
                 },
             ]
         );
@@ -1449,11 +1594,15 @@ mod tests {
                     timezone: "UTC".to_string(),
                     label: "Home".to_string(),
                     locked: false,
+                    latitude: None,
+                    longitude: None,
                 },
                 TimezoneEntry {
                     timezone: "Asia/Tokyo".to_string(),
                     label: "Tokyo".to_string(),
                     locked: true,
+                    latitude: None,
+                    longitude: None,
                 },
             ],
             sort_mode: "manual".to_string(),
@@ -1474,16 +1623,22 @@ mod tests {
                 timezone: "UTC".to_string(),
                 label: "Home".to_string(),
                 locked: false,
+                latitude: None,
+                longitude: None,
             },
             TimezoneEntry {
                 timezone: "Asia/Tokyo".to_string(),
                 label: "Tokyo".to_string(),
                 locked: true,
+                latitude: None,
+                longitude: None,
             },
             TimezoneEntry {
                 timezone: "America/New_York".to_string(),
                 label: "New York".to_string(),
                 locked: false,
+                latitude: None,
+                longitude: None,
             },
         ];
 
@@ -1527,6 +1682,40 @@ mod tests {
         assert_eq!(updated.timezones.len(), 2);
         assert_eq!(duplicated.timezones.len(), 2);
         assert_eq!(duplicated.timezones[1].label, "Tokyo");
+    }
+
+    #[test]
+    fn add_timezone_with_coordinate_persists_valid_place_coordinate() {
+        let temp_dir = TempDir::new().unwrap();
+        let manager = manager_in(&temp_dir);
+        manager.load_with_local_timezone("UTC").unwrap();
+
+        let updated = manager
+            .add_timezone_with_coordinate(
+                "America/Chicago",
+                "Austin",
+                Some(30.2672),
+                Some(-97.7431),
+            )
+            .unwrap();
+
+        assert_eq!(updated.timezones[1].label, "Austin");
+        assert_eq!(updated.timezones[1].latitude, Some(30.2672));
+        assert_eq!(updated.timezones[1].longitude, Some(-97.7431));
+
+        let loaded = manager.load_with_local_timezone("UTC").unwrap();
+        assert_eq!(loaded.timezones[1].latitude, Some(30.2672));
+        assert_eq!(loaded.timezones[1].longitude, Some(-97.7431));
+    }
+
+    #[test]
+    fn manual_city_alias_results_include_place_coordinates() {
+        let resolver = TimezoneResolver::new(Some(vec!["America/Chicago".to_string()]));
+        let result = resolver.search("Austin", 1).pop().unwrap();
+
+        assert_eq!(result.timezone, "America/Chicago");
+        assert_eq!(result.latitude, Some(30.2672));
+        assert_eq!(result.longitude, Some(-97.7431));
     }
 
     #[test]

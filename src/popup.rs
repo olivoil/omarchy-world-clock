@@ -24,7 +24,7 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::rc::{Rc, Weak};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{mpsc, Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
 use tzf_rs::Finder as TimezoneFinder;
@@ -71,6 +71,7 @@ struct PopupState {
     resolver: TimezoneResolver,
     place_search: Arc<Mutex<RemotePlaceSearch>>,
     remote_search_sender: mpsc::Sender<RemoteSearchMessage>,
+    marker_coordinate_sender: mpsc::Sender<MarkerCoordinateMessage>,
     local_timezone: String,
     time_format: String,
     reference_utc: DateTime<Utc>,
@@ -95,7 +96,6 @@ struct PopupState {
     cancel_button: gtk::Button,
     sort_mode_dropdown: gtk::DropDown,
     time_format_dropdown: gtk::DropDown,
-    read_summary_time_stack: gtk::Stack,
     read_summary_time_display: gtk::DrawingArea,
     read_summary_time: gtk::Entry,
     read_summary_location: gtk::Label,
@@ -117,6 +117,8 @@ struct PopupState {
     add_map_hover_meta: gtk::Label,
     add_map_hover_relative: gtk::Label,
     hovered_map_result: Option<TimezoneSearchResult>,
+    marker_coordinate_cache: BTreeMap<String, MapCoordinate>,
+    pending_marker_coordinate_queries: HashSet<String>,
     local_search_results: Vec<TimezoneSearchResult>,
     remote_search_results: Vec<TimezoneSearchResult>,
     search_results: Vec<TimezoneSearchResult>,
@@ -139,6 +141,11 @@ struct RemoteSearchMessage {
     generation: u64,
     query: String,
     results: Vec<TimezoneSearchResult>,
+}
+
+struct MarkerCoordinateMessage {
+    key: String,
+    coordinate: Option<MapCoordinate>,
 }
 
 const READ_PANEL_TARGET_HEIGHT: i32 = 540;
@@ -168,6 +175,11 @@ const ADD_MAP_HEIGHT: i32 = READ_TIMELINE_WIDTH / 2;
 const ADD_MAP_ASPECT_RATIO: f32 = 2.0;
 const ADD_MAP_HOVER_CARD_WIDTH: i32 = 272;
 const ADD_MAP_HOVER_CARD_HEIGHT: i32 = 140;
+const MAP_MARKER_LABEL_HEIGHT: f64 = 24.0;
+const MAP_MARKER_LABEL_MARGIN: f64 = 8.0;
+const MAP_MARKER_LABEL_GAP: f64 = 9.0;
+const MAP_MARKER_LABEL_MAX_WIDTH: f64 = 148.0;
+const MAP_MARKER_LABEL_COLLISION_PADDING: f64 = 4.0;
 const WORLD_MAP_ASSET_BYTES: &[u8] = include_bytes!("../assets/world-map.png");
 const SORT_MODE_VALUES: [&str; 3] = ["manual", "alpha", "time"];
 const TIME_FORMAT_VALUES: [&str; 3] = ["system", "24h", "ampm"];
@@ -179,6 +191,35 @@ struct TimelineItem {
     zone_text: String,
     zone_tooltip: Option<String>,
     entry_count: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct MapCoordinate {
+    latitude: f64,
+    longitude: f64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct MapLocationMarker {
+    label: String,
+    coordinate: MapCoordinate,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct MapLabelRect {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct MapLocationMarkerLayout {
+    point_x: f64,
+    point_y: f64,
+    label: String,
+    label_rect: MapLabelRect,
+    connector_x: f64,
 }
 
 struct TimelineGroupBuilder {
@@ -278,6 +319,10 @@ const WORLD_LANDMASSES: [&[(f64, f64)]; 6] = [
     GREENLAND_POINTS,
 ];
 const MAP_LEGEND_LABELS: [&str; 7] = ["-12", "-8", "-4", "+0", "+4", "+8", "+12"];
+const ZONE_TAB_PATHS: [&str; 2] = [
+    "/usr/share/zoneinfo/zone1970.tab",
+    "/usr/share/zoneinfo/zone.tab",
+];
 
 impl Drop for PidGuard {
     fn drop(&mut self) {
@@ -289,6 +334,14 @@ fn clear_box(container: &gtk::Box) {
     while let Some(child) = container.first_child() {
         container.remove(&child);
     }
+}
+
+fn point_is_inside_widget(source: &gtk::Widget, target: &gtk::Widget, x: f64, y: f64) -> bool {
+    let Some((target_x, target_y)) = source.translate_coordinates(target, x, y) else {
+        return false;
+    };
+
+    target.contains(target_x, target_y)
 }
 
 fn debug_popup_event(message: &str) {
@@ -473,6 +526,8 @@ fn timeline_entries(
                 timezone: local_timezone.to_string(),
                 label: String::new(),
                 locked: false,
+                latitude: None,
+                longitude: None,
             });
         visible.push(local_entry);
     }
@@ -722,6 +777,8 @@ fn summary_search_result(
         timezone: timezone_name.to_string(),
         title: label.to_string(),
         subtitle: timezone_name.to_string(),
+        latitude: None,
+        longitude: None,
     });
 
     if let Some(location_context) = trailing_location_segments(label) {
@@ -931,9 +988,16 @@ fn color_components(hex_value: &str, fallback: (f64, f64, f64)) -> (f64, f64, f6
         .unwrap_or(fallback)
 }
 
-fn draw_read_summary_time(context: &gtk::cairo::Context, width: i32, height: i32, text: &str) {
+fn draw_read_summary_time(
+    context: &gtk::cairo::Context,
+    width: i32,
+    height: i32,
+    text: &str,
+    cursor_position: Option<usize>,
+) {
     let palette = load_palette();
     let foreground = color_components(&palette.foreground, (0.85, 0.88, 0.94));
+    let accent = color_components(&palette.accent, foreground);
     let layout = pangocairo::functions::create_layout(context);
     let font = gtk::pango::FontDescription::from_string("JetBrainsMono Nerd Font Mono Bold 72");
     layout.set_font_description(Some(&font));
@@ -948,6 +1012,245 @@ fn draw_read_summary_time(context: &gtk::cairo::Context, width: i32, height: i32
     context.set_source_rgba(foreground.0, foreground.1, foreground.2, 1.0);
     context.move_to(x.round(), y.round());
     pangocairo::functions::show_layout(context, &layout);
+
+    if let Some(cursor_position) = cursor_position {
+        let cursor_text = text
+            .chars()
+            .take(cursor_position.min(text.chars().count()))
+            .collect::<String>();
+        let cursor_layout = pangocairo::functions::create_layout(context);
+        cursor_layout.set_font_description(Some(&font));
+        cursor_layout.set_text(&cursor_text);
+        let (_cursor_ink, cursor_logical) = cursor_layout.pixel_extents();
+        let cursor_x = (x + cursor_logical.width() as f64 + 4.0).round();
+        let cursor_top = (y + ink.y() as f64 + 4.0).round();
+        let cursor_height = (ink_height - 8.0).max(1.0);
+
+        context.set_source_rgba(accent.0, accent.1, accent.2, 0.95);
+        context.rectangle(cursor_x, cursor_top, 3.0, cursor_height);
+        let _ = context.fill();
+    }
+}
+
+fn read_summary_editing(state: &PopupState) -> bool {
+    state.editing_timezone.as_deref() == Some(state.local_timezone.as_str())
+}
+
+fn parse_iso6709_component(component: &str, degree_digits: usize) -> Option<f64> {
+    let sign = match component.chars().next()? {
+        '+' => 1.0,
+        '-' => -1.0,
+        _ => return None,
+    };
+    let digits = &component[1..];
+    if digits.len() != degree_digits + 2 && digits.len() != degree_digits + 4 {
+        return None;
+    }
+
+    let degrees = digits.get(..degree_digits)?.parse::<f64>().ok()?;
+    let minutes = digits
+        .get(degree_digits..degree_digits + 2)?
+        .parse::<f64>()
+        .ok()?;
+    let seconds = if digits.len() == degree_digits + 4 {
+        digits
+            .get(degree_digits + 2..degree_digits + 4)?
+            .parse::<f64>()
+            .ok()?
+    } else {
+        0.0
+    };
+
+    if minutes >= 60.0 || seconds >= 60.0 {
+        return None;
+    }
+
+    Some(sign * (degrees + minutes / 60.0 + seconds / 3600.0))
+}
+
+fn parse_zone_tab_coordinate(value: &str) -> Option<MapCoordinate> {
+    let longitude_start = value
+        .char_indices()
+        .skip(1)
+        .find_map(|(index, character)| matches!(character, '+' | '-').then_some(index))?;
+    let latitude = parse_iso6709_component(value.get(..longitude_start)?, 2)?;
+    let longitude = parse_iso6709_component(value.get(longitude_start..)?, 3)?;
+
+    Some(MapCoordinate {
+        latitude,
+        longitude,
+    })
+}
+
+fn merge_zone_tab_coordinates(coordinates: &mut BTreeMap<String, MapCoordinate>, text: &str) {
+    for (timezone_name, coordinate) in text.lines().filter_map(|line| {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            return None;
+        }
+        let mut columns = trimmed.split('\t');
+        let _country_codes = columns.next()?;
+        let coordinate_text = columns.next()?;
+        let timezone_name = columns.next()?;
+        let coordinate = parse_zone_tab_coordinate(coordinate_text)?;
+        Some((timezone_name.to_string(), coordinate))
+    }) {
+        coordinates.entry(timezone_name).or_insert(coordinate);
+    }
+}
+
+fn timezone_coordinate_lookup() -> &'static BTreeMap<String, MapCoordinate> {
+    static COORDINATES: OnceLock<BTreeMap<String, MapCoordinate>> = OnceLock::new();
+    COORDINATES.get_or_init(|| {
+        let mut coordinates = BTreeMap::new();
+        for path in ZONE_TAB_PATHS {
+            let Ok(text) = fs::read_to_string(path) else {
+                continue;
+            };
+            merge_zone_tab_coordinates(&mut coordinates, &text);
+        }
+        coordinates
+    })
+}
+
+fn map_marker_key(entry: &TimezoneEntry) -> String {
+    format!("{}\n{}", entry.timezone, read_card_title(entry))
+}
+
+fn resolver_coordinate_for_entry(
+    resolver: &TimezoneResolver,
+    entry: &TimezoneEntry,
+) -> Option<MapCoordinate> {
+    resolver
+        .search(&read_card_title(entry), 1)
+        .first()
+        .filter(|result| result.timezone == entry.timezone)
+        .and_then(search_result_coordinate)
+}
+
+fn map_location_markers(state: &PopupState) -> Vec<MapLocationMarker> {
+    let coordinates = timezone_coordinate_lookup();
+    state
+        .config
+        .timezones
+        .iter()
+        .filter_map(|entry| {
+            entry_place_coordinate(entry)
+                .or_else(|| {
+                    state
+                        .marker_coordinate_cache
+                        .get(&map_marker_key(entry))
+                        .copied()
+                })
+                .or_else(|| coordinates.get(&entry.timezone).copied())
+                .or_else(|| resolver_coordinate_for_entry(&state.resolver, entry))
+                .map(|coordinate| MapLocationMarker {
+                    label: read_card_title(entry),
+                    coordinate,
+                })
+        })
+        .collect()
+}
+
+fn marker_coordinate_query(entry: &TimezoneEntry) -> Option<String> {
+    if entry_place_coordinate(entry).is_some() {
+        return None;
+    }
+
+    let label = read_card_title(entry);
+    let timezone_label = friendly_timezone_name(&entry.timezone);
+    if label.trim().is_empty() || label == timezone_label || label == entry.timezone {
+        return None;
+    }
+    Some(label)
+}
+
+fn remote_marker_coordinate(timezone: &str, query: &str) -> Option<MapCoordinate> {
+    let mut search = RemotePlaceSearch::new(Some(vec![timezone.to_string()]), None);
+    search
+        .search(query, 8)
+        .into_iter()
+        .find(|result| result.timezone == timezone)
+        .and_then(|result| search_result_coordinate(&result))
+}
+
+fn ensure_map_marker_coordinates(state_handle: &Rc<RefCell<PopupState>>) {
+    let requests = {
+        let mut state = state_handle.borrow_mut();
+        if !matches!(state.screen_mode, PopupScreen::Add) {
+            return;
+        }
+
+        let mut requests = Vec::new();
+        let entries = state.config.timezones.clone();
+        for entry in entries {
+            if resolver_coordinate_for_entry(&state.resolver, &entry).is_some() {
+                continue;
+            }
+            let Some(query) = marker_coordinate_query(&entry) else {
+                continue;
+            };
+            let key = map_marker_key(&entry);
+            if state.marker_coordinate_cache.contains_key(&key)
+                || !state.pending_marker_coordinate_queries.insert(key.clone())
+            {
+                continue;
+            }
+
+            requests.push((
+                key,
+                entry.timezone,
+                query,
+                state.marker_coordinate_sender.clone(),
+            ));
+        }
+        requests
+    };
+
+    for (key, timezone, query, sender) in requests {
+        thread::spawn(move || {
+            let coordinate = remote_marker_coordinate(&timezone, &query);
+            let _ = sender.send(MarkerCoordinateMessage { key, coordinate });
+        });
+    }
+}
+
+fn valid_map_coordinate(latitude: f64, longitude: f64) -> bool {
+    latitude.is_finite()
+        && longitude.is_finite()
+        && (-90.0..=90.0).contains(&latitude)
+        && (-180.0..=180.0).contains(&longitude)
+}
+
+fn coordinate_from_pair(latitude: Option<f64>, longitude: Option<f64>) -> Option<MapCoordinate> {
+    match (latitude, longitude) {
+        (Some(latitude), Some(longitude)) if valid_map_coordinate(latitude, longitude) => {
+            Some(MapCoordinate {
+                latitude,
+                longitude,
+            })
+        }
+        _ => None,
+    }
+}
+
+fn search_result_coordinate(result: &TimezoneSearchResult) -> Option<MapCoordinate> {
+    coordinate_from_pair(result.latitude, result.longitude)
+}
+
+fn entry_place_coordinate(entry: &TimezoneEntry) -> Option<MapCoordinate> {
+    coordinate_from_pair(entry.latitude, entry.longitude)
+}
+
+fn lng_lat_to_map_coordinates(
+    longitude: f64,
+    latitude: f64,
+    width: f64,
+    height: f64,
+) -> (f64, f64) {
+    let x = ((longitude + 180.0) / 360.0).clamp(0.0, 1.0) * width;
+    let y = ((90.0 - latitude) / 180.0).clamp(0.0, 1.0) * height;
+    (x, y)
 }
 
 fn load_world_map_texture() -> Option<gdk::Texture> {
@@ -1011,9 +1314,330 @@ fn draw_add_map_fallback(context: &gtk::cairo::Context, width: f64, height: f64)
     }
 }
 
-fn draw_add_map_overlay(context: &gtk::cairo::Context, width: f64, height: f64) {
+fn draw_rounded_rectangle(
+    context: &gtk::cairo::Context,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+    radius: f64,
+) {
+    let radius = radius.min(width / 2.0).min(height / 2.0);
+    context.new_sub_path();
+    context.arc(
+        x + width - radius,
+        y + radius,
+        radius,
+        -std::f64::consts::FRAC_PI_2,
+        0.0,
+    );
+    context.arc(
+        x + width - radius,
+        y + height - radius,
+        radius,
+        0.0,
+        std::f64::consts::FRAC_PI_2,
+    );
+    context.arc(
+        x + radius,
+        y + height - radius,
+        radius,
+        std::f64::consts::FRAC_PI_2,
+        std::f64::consts::PI,
+    );
+    context.arc(
+        x + radius,
+        y + radius,
+        radius,
+        std::f64::consts::PI,
+        std::f64::consts::PI * 1.5,
+    );
+    context.close_path();
+}
+
+fn compact_map_marker_label(label: &str) -> String {
+    let trimmed = label.trim();
+    if trimmed.chars().count() <= 18 {
+        return trimmed.to_string();
+    }
+
+    let mut compact = trimmed.chars().take(15).collect::<String>();
+    compact.push_str("...");
+    compact
+}
+
+impl MapLabelRect {
+    fn right(self) -> f64 {
+        self.x + self.width
+    }
+
+    fn bottom(self) -> f64 {
+        self.y + self.height
+    }
+
+    fn padded(self, padding: f64) -> Self {
+        Self {
+            x: self.x - padding,
+            y: self.y - padding,
+            width: self.width + padding * 2.0,
+            height: self.height + padding * 2.0,
+        }
+    }
+
+    fn overlaps(self, other: Self) -> bool {
+        self.x < other.right()
+            && self.right() > other.x
+            && self.y < other.bottom()
+            && self.bottom() > other.y
+    }
+
+    fn overlap_area(self, other: Self) -> f64 {
+        if !self.overlaps(other) {
+            return 0.0;
+        }
+
+        let overlap_width = self.right().min(other.right()) - self.x.max(other.x);
+        let overlap_height = self.bottom().min(other.bottom()) - self.y.max(other.y);
+        overlap_width.max(0.0) * overlap_height.max(0.0)
+    }
+}
+
+fn map_marker_label_width(label: &str) -> f64 {
+    (label.chars().count() as f64 * 7.2 + 16.0).clamp(32.0, MAP_MARKER_LABEL_MAX_WIDTH)
+}
+
+fn clamped_map_label_rect(
+    x: f64,
+    y: f64,
+    width: f64,
+    map_width: f64,
+    map_height: f64,
+) -> MapLabelRect {
+    MapLabelRect {
+        x: x.clamp(
+            MAP_MARKER_LABEL_MARGIN,
+            (map_width - width - MAP_MARKER_LABEL_MARGIN).max(MAP_MARKER_LABEL_MARGIN),
+        ),
+        y: y.clamp(
+            MAP_MARKER_LABEL_MARGIN,
+            (map_height - MAP_MARKER_LABEL_HEIGHT - MAP_MARKER_LABEL_MARGIN)
+                .max(MAP_MARKER_LABEL_MARGIN),
+        ),
+        width,
+        height: MAP_MARKER_LABEL_HEIGHT,
+    }
+}
+
+fn map_label_position_candidates(
+    point_x: f64,
+    point_y: f64,
+    label_width: f64,
+    map_width: f64,
+    map_height: f64,
+) -> Vec<MapLabelRect> {
+    let row_gap = MAP_MARKER_LABEL_HEIGHT + 6.0;
+    let offsets = [
+        0.0,
+        -row_gap,
+        row_gap,
+        -row_gap * 2.0,
+        row_gap * 2.0,
+        -row_gap * 3.0,
+        row_gap * 3.0,
+    ];
+    let side_positions = if point_x < map_width / 2.0 {
+        [
+            point_x + MAP_MARKER_LABEL_GAP,
+            point_x - MAP_MARKER_LABEL_GAP - label_width,
+        ]
+    } else {
+        [
+            point_x - MAP_MARKER_LABEL_GAP - label_width,
+            point_x + MAP_MARKER_LABEL_GAP,
+        ]
+    };
+
+    let mut candidates = Vec::new();
+    for offset in offsets {
+        for label_x in side_positions {
+            let label_y = point_y - MAP_MARKER_LABEL_HEIGHT / 2.0 + offset;
+            let rect = clamped_map_label_rect(label_x, label_y, label_width, map_width, map_height);
+            if !candidates.iter().any(|candidate| *candidate == rect) {
+                candidates.push(rect);
+            }
+        }
+    }
+    candidates
+}
+
+fn map_label_collision_score(candidate: MapLabelRect, placed: &[MapLabelRect]) -> f64 {
+    let padded_candidate = candidate.padded(MAP_MARKER_LABEL_COLLISION_PADDING);
+    placed
+        .iter()
+        .map(|rect| padded_candidate.overlap_area(rect.padded(MAP_MARKER_LABEL_COLLISION_PADDING)))
+        .sum()
+}
+
+fn choose_map_label_rect(
+    point_x: f64,
+    point_y: f64,
+    label_width: f64,
+    map_width: f64,
+    map_height: f64,
+    placed: &[MapLabelRect],
+) -> MapLabelRect {
+    let candidates =
+        map_label_position_candidates(point_x, point_y, label_width, map_width, map_height);
+
+    for candidate in &candidates {
+        if !placed.iter().any(|rect| {
+            candidate
+                .padded(MAP_MARKER_LABEL_COLLISION_PADDING)
+                .overlaps(rect.padded(MAP_MARKER_LABEL_COLLISION_PADDING))
+        }) {
+            return *candidate;
+        }
+    }
+
+    candidates
+        .into_iter()
+        .min_by(|left, right| {
+            let left_score = map_label_collision_score(*left, placed)
+                + (left.y + left.height / 2.0 - point_y).abs() * 0.01;
+            let right_score = map_label_collision_score(*right, placed)
+                + (right.y + right.height / 2.0 - point_y).abs() * 0.01;
+            left_score
+                .partial_cmp(&right_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .unwrap_or_else(|| {
+            clamped_map_label_rect(
+                point_x + MAP_MARKER_LABEL_GAP,
+                point_y - MAP_MARKER_LABEL_HEIGHT / 2.0,
+                label_width,
+                map_width,
+                map_height,
+            )
+        })
+}
+
+fn layout_map_location_markers(
+    markers: &[MapLocationMarker],
+    width: f64,
+    height: f64,
+) -> Vec<MapLocationMarkerLayout> {
+    let mut layouts = Vec::with_capacity(markers.len());
+    let mut placed = Vec::new();
+
+    for marker in markers {
+        let (point_x, point_y) = lng_lat_to_map_coordinates(
+            marker.coordinate.longitude,
+            marker.coordinate.latitude,
+            width,
+            height,
+        );
+        let label = compact_map_marker_label(&marker.label);
+        let label_rect = choose_map_label_rect(
+            point_x,
+            point_y,
+            map_marker_label_width(&label),
+            width,
+            height,
+            &placed,
+        );
+        let connector_x = if label_rect.x + label_rect.width / 2.0 < point_x {
+            label_rect.right()
+        } else {
+            label_rect.x
+        };
+
+        placed.push(label_rect);
+        layouts.push(MapLocationMarkerLayout {
+            point_x,
+            point_y,
+            label,
+            label_rect,
+            connector_x,
+        });
+    }
+
+    layouts
+}
+
+fn draw_map_location_marker(
+    context: &gtk::cairo::Context,
+    layout: &MapLocationMarkerLayout,
+    foreground: (f64, f64, f64),
+    background: (f64, f64, f64),
+    accent: (f64, f64, f64),
+) {
+    context.set_source_rgba(accent.0, accent.1, accent.2, 0.30);
+    context.set_line_width(1.0);
+    context.move_to(layout.point_x, layout.point_y);
+    context.line_to(
+        layout.connector_x,
+        layout.label_rect.y + layout.label_rect.height / 2.0,
+    );
+    let _ = context.stroke();
+
+    context.arc(
+        layout.point_x,
+        layout.point_y,
+        8.0,
+        0.0,
+        std::f64::consts::TAU,
+    );
+    context.set_source_rgba(accent.0, accent.1, accent.2, 0.18);
+    let _ = context.fill();
+
+    context.arc(
+        layout.point_x,
+        layout.point_y,
+        4.5,
+        0.0,
+        std::f64::consts::TAU,
+    );
+    context.set_source_rgba(accent.0, accent.1, accent.2, 0.95);
+    let _ = context.fill_preserve();
+    context.set_source_rgba(background.0, background.1, background.2, 0.82);
+    context.set_line_width(1.4);
+    let _ = context.stroke();
+
+    draw_rounded_rectangle(
+        context,
+        layout.label_rect.x,
+        layout.label_rect.y,
+        layout.label_rect.width,
+        layout.label_rect.height,
+        12.0,
+    );
+    context.set_source_rgba(background.0, background.1, background.2, 0.86);
+    let _ = context.fill_preserve();
+    context.set_source_rgba(accent.0, accent.1, accent.2, 0.28);
+    context.set_line_width(1.0);
+    let _ = context.stroke();
+
+    context.select_font_face(
+        "Sans",
+        gtk::cairo::FontSlant::Normal,
+        gtk::cairo::FontWeight::Bold,
+    );
+    context.set_font_size(12.0);
+    context.set_source_rgba(foreground.0, foreground.1, foreground.2, 0.94);
+    context.move_to(layout.label_rect.x + 8.0, layout.label_rect.y + 16.4);
+    let _ = context.show_text(&layout.label);
+}
+
+fn draw_add_map_overlay(
+    context: &gtk::cairo::Context,
+    width: f64,
+    height: f64,
+    markers: &[MapLocationMarker],
+) {
     let palette = load_palette();
     let foreground = color_components(&palette.foreground, (0.85, 0.88, 0.94));
+    let background = color_components(&palette.background, (0.04, 0.09, 0.18));
+    let accent = color_components(&palette.accent, (0.95, 0.66, 0.41));
 
     context.set_source_rgba(foreground.0, foreground.1, foreground.2, 0.10);
     context.set_line_width(1.0);
@@ -1022,6 +1646,10 @@ fn draw_add_map_overlay(context: &gtk::cairo::Context, width: f64, height: f64) 
         context.move_to(x, 10.0);
         context.line_to(x, height - 10.0);
         let _ = context.stroke();
+    }
+
+    for layout in layout_map_location_markers(markers, width, height) {
+        draw_map_location_marker(context, &layout, foreground, background, accent);
     }
 }
 
@@ -1247,10 +1875,8 @@ fn render_read_view(state: &mut PopupState) {
     state.read_summary_time_display.queue_draw();
 
     configure_manual_time_entry(&state.read_summary_time, &state.time_format);
-    if state.editing_timezone.as_deref() != Some(state.local_timezone.as_str()) {
-        state
-            .read_summary_time_stack
-            .set_visible_child_name("display");
+    if !read_summary_editing(state) {
+        state.read_summary_time.set_can_target(false);
         set_entry_error(&state.read_summary_time, false);
         set_time_entry_text(
             &state.read_summary_time,
@@ -1341,7 +1967,7 @@ fn screen_mode_for_read_entry_count(
     }
 }
 
-fn is_dismissible_screen(state: &PopupState) -> bool {
+fn is_keyboard_or_focus_dismissible_screen(state: &PopupState) -> bool {
     matches!(state.screen_mode, PopupScreen::Read)
         || (matches!(state.screen_mode, PopupScreen::Add)
             && read_entry_count(&state.config.timezones, &state.local_timezone) == 0)
@@ -1499,9 +2125,18 @@ fn merge_search_results(
     limit: usize,
 ) -> Vec<TimezoneSearchResult> {
     let mut seen_timezones = HashSet::new();
-    let mut results = Vec::new();
+    let mut results: Vec<TimezoneSearchResult> = Vec::new();
     for result in local_results.iter().chain(remote_results.iter()) {
         if !seen_timezones.insert(result.timezone.clone()) {
+            if let Some(existing) = results
+                .iter_mut()
+                .find(|existing| existing.timezone == result.timezone)
+            {
+                if existing.latitude.is_none() && result.latitude.is_some() {
+                    existing.latitude = result.latitude;
+                    existing.longitude = result.longitude;
+                }
+            }
             continue;
         }
         results.push(result.clone());
@@ -1643,6 +2278,7 @@ fn set_screen_mode(state_handle: &Rc<RefCell<PopupState>>, screen_mode: PopupScr
         });
     }
     queue_map_draw.queue_draw();
+    ensure_map_marker_coordinates(state_handle);
 }
 
 fn refresh_config_state(state: &mut PopupState, config: AppConfig) {
@@ -2024,6 +2660,8 @@ fn render_search_results(state_handle: &Rc<RefCell<PopupState>>) {
                 &state_for_click,
                 &result_for_click.timezone,
                 &result_for_click.title,
+                result_for_click.latitude,
+                result_for_click.longitude,
             );
         });
 
@@ -2148,6 +2786,25 @@ fn single_visible_search_match(
     None
 }
 
+fn coordinate_for_input(
+    state: &PopupState,
+    raw_value: &str,
+    timezone_name: &str,
+) -> Option<MapCoordinate> {
+    let normalized_value = TimezoneResolver::normalize(raw_value);
+    state
+        .search_results
+        .iter()
+        .chain(state.local_search_results.iter())
+        .find(|result| {
+            result.timezone == timezone_name
+                && (normalized_value.is_empty()
+                    || TimezoneResolver::normalize(&result.title).starts_with(&normalized_value))
+                && search_result_coordinate(result).is_some()
+        })
+        .and_then(search_result_coordinate)
+}
+
 fn submit_add_timezone(state_handle: &Rc<RefCell<PopupState>>) {
     let raw_value = state_handle.borrow().add_entry.text().trim().to_string();
     let timezone_name = {
@@ -2161,7 +2818,13 @@ fn submit_add_timezone(state_handle: &Rc<RefCell<PopupState>>) {
             single_visible_search_match(&state, &raw_value)
         };
         if let Some(result) = single_match {
-            add_timezone(state_handle, &result.timezone, &result.title);
+            add_timezone(
+                state_handle,
+                &result.timezone,
+                &result.title,
+                result.latitude,
+                result.longitude,
+            );
             return;
         }
 
@@ -2178,14 +2841,25 @@ fn submit_add_timezone(state_handle: &Rc<RefCell<PopupState>>) {
         return;
     };
 
-    let label = {
+    let (label, latitude, longitude) = {
         let state = state_handle.borrow();
-        label_for_input(&state, &raw_value, &timezone_name)
+        let coordinate = coordinate_for_input(&state, &raw_value, &timezone_name);
+        (
+            label_for_input(&state, &raw_value, &timezone_name),
+            coordinate.map(|coordinate| coordinate.latitude),
+            coordinate.map(|coordinate| coordinate.longitude),
+        )
     };
-    add_timezone(state_handle, &timezone_name, &label);
+    add_timezone(state_handle, &timezone_name, &label, latitude, longitude);
 }
 
-fn add_timezone(state_handle: &Rc<RefCell<PopupState>>, timezone_name: &str, label: &str) {
+fn add_timezone(
+    state_handle: &Rc<RefCell<PopupState>>,
+    timezone_name: &str,
+    label: &str,
+    latitude: Option<f64>,
+    longitude: Option<f64>,
+) {
     let display_name = if label.trim().is_empty() {
         timezone_name.to_string()
     } else {
@@ -2221,20 +2895,27 @@ fn add_timezone(state_handle: &Rc<RefCell<PopupState>>, timezone_name: &str, lab
     }
 
     let config_manager = state_handle.borrow().config_manager.clone();
-    match config_manager.add_timezone(timezone_name, label) {
+    match config_manager.add_timezone_with_coordinate(timezone_name, label, latitude, longitude) {
         Ok(config) => {
             debug_popup_event(&format!(
                 "add_timezone success timezone={timezone_name} label={display_name}"
             ));
-            {
+            let (add_entry, add_map_area) = {
                 let mut state = state_handle.borrow_mut();
                 refresh_config_state(&mut state, config);
-            }
-            set_screen_mode(state_handle, PopupScreen::Read);
+                clear_search_results(&mut state);
+                (state.add_entry.clone(), state.add_map_area.clone())
+            };
+            add_entry.set_text("");
+            add_map_area.queue_draw();
             {
                 let state = state_handle.borrow();
                 set_status(&state, &format!("Added {display_name}."), false);
             }
+            glib::idle_add_local_once(move || {
+                let _ = add_entry.grab_focus();
+            });
+            ensure_map_marker_coordinates(state_handle);
         }
         Err(error) => {
             let state = state_handle.borrow();
@@ -2607,9 +3288,8 @@ fn reset_live_now(state_handle: &Rc<RefCell<PopupState>>) {
     }
     clear_status(&state);
     update_live_button(&state);
-    state
-        .read_summary_time_stack
-        .set_visible_child_name("display");
+    state.read_summary_time.set_can_target(false);
+    state.read_summary_time_display.queue_draw();
     update_row_widgets(&mut state);
 }
 
@@ -2804,14 +3484,15 @@ fn build_window(
     live_button.set_valign(Align::Center);
     header_start.append(&live_button);
 
-    let header_actions = gtk::Box::new(Orientation::Horizontal, 8);
-    header.set_end_widget(Some(&header_actions));
-
-    let cancel_button = gtk::Button::with_label("Cancel");
-    cancel_button.add_css_class("flat-button");
+    let cancel_button = gtk::Button::from_icon_name("go-previous-symbolic");
+    cancel_button.add_css_class("icon-button");
     cancel_button.set_valign(Align::Center);
     cancel_button.set_visible(false);
-    header_actions.append(&cancel_button);
+    cancel_button.set_tooltip_text(Some("Back to world clock."));
+    header_start.append(&cancel_button);
+
+    let header_actions = gtk::Box::new(Orientation::Horizontal, 8);
+    header.set_end_widget(Some(&header_actions));
 
     let add_button = gtk::Button::from_icon_name("list-add-symbolic");
     add_button.add_css_class("icon-button");
@@ -2836,13 +3517,11 @@ fn build_window(
     read_summary.set_halign(Align::Center);
     read_root.append(&read_summary);
 
-    let read_summary_time_stack = gtk::Stack::new();
-    read_summary_time_stack.set_halign(Align::Center);
-    read_summary_time_stack.set_hhomogeneous(false);
-    read_summary_time_stack.set_vhomogeneous(false);
-    read_summary_time_stack.set_size_request(READ_SUMMARY_TIME_WIDTH, READ_SUMMARY_TIME_HEIGHT);
-    read_summary_time_stack.add_css_class("read-summary-time-stack");
-    read_summary.append(&read_summary_time_stack);
+    let read_summary_time_overlay = gtk::Overlay::new();
+    read_summary_time_overlay.set_halign(Align::Center);
+    read_summary_time_overlay.set_size_request(READ_SUMMARY_TIME_WIDTH, READ_SUMMARY_TIME_HEIGHT);
+    read_summary_time_overlay.add_css_class("read-summary-time-stack");
+    read_summary.append(&read_summary_time_overlay);
 
     let read_summary_time_display = gtk::DrawingArea::new();
     read_summary_time_display.set_halign(Align::Center);
@@ -2853,7 +3532,7 @@ fn build_window(
     read_summary_time_display.add_css_class("read-summary-time-display");
     read_summary_time_display
         .set_tooltip_text(Some("Click to enter a time in your current timezone."));
-    read_summary_time_stack.add_named(&read_summary_time_display, Some("display"));
+    read_summary_time_overlay.set_child(Some(&read_summary_time_display));
 
     let read_summary_time = gtk::Entry::new();
     gtk::prelude::EditableExt::set_alignment(&read_summary_time, 0.5);
@@ -2861,10 +3540,12 @@ fn build_window(
     read_summary_time.set_halign(Align::Center);
     read_summary_time.set_valign(Align::Center);
     read_summary_time.set_size_request(READ_SUMMARY_TIME_WIDTH, READ_SUMMARY_TIME_HEIGHT);
+    read_summary_time.set_opacity(0.0);
+    read_summary_time.set_can_target(false);
     read_summary_time.add_css_class("read-summary-time");
     read_summary_time.set_tooltip_text(Some("Enter a time in your current timezone."));
-    read_summary_time_stack.add_named(&read_summary_time, Some("edit"));
-    read_summary_time_stack.set_visible_child_name("display");
+    read_summary_time_overlay.add_overlay(&read_summary_time);
+    read_summary_time_overlay.set_measure_overlay(&read_summary_time, false);
 
     let read_summary_location = gtk::Label::new(None);
     read_summary_location.set_xalign(0.5);
@@ -3101,6 +3782,8 @@ fn build_window(
 
     window.set_child(Some(&overlay));
     let (remote_search_sender, remote_search_receiver) = mpsc::channel::<RemoteSearchMessage>();
+    let (marker_coordinate_sender, marker_coordinate_receiver) =
+        mpsc::channel::<MarkerCoordinateMessage>();
 
     let read_summary_dirty = Rc::new(Cell::new(false));
     let read_summary_suppress_changes = Rc::new(Cell::new(false));
@@ -3118,6 +3801,7 @@ fn build_window(
             None,
         ))),
         remote_search_sender,
+        marker_coordinate_sender,
         local_timezone,
         time_format: String::new(),
         reference_utc: Utc::now(),
@@ -3142,7 +3826,6 @@ fn build_window(
         cancel_button: cancel_button.clone(),
         sort_mode_dropdown: sort_mode_dropdown.clone(),
         time_format_dropdown: time_format_dropdown.clone(),
-        read_summary_time_stack: read_summary_time_stack.clone(),
         read_summary_time_display: read_summary_time_display.clone(),
         read_summary_time: read_summary_time.clone(),
         read_summary_location: read_summary_location.clone(),
@@ -3164,6 +3847,8 @@ fn build_window(
         add_map_hover_meta: add_map_hover_meta.clone(),
         add_map_hover_relative: add_map_hover_relative.clone(),
         hovered_map_result: None,
+        marker_coordinate_cache: BTreeMap::new(),
+        pending_marker_coordinate_queries: HashSet::new(),
         local_search_results: Vec::new(),
         remote_search_results: Vec::new(),
         search_results: Vec::new(),
@@ -3186,27 +3871,28 @@ fn build_window(
         read_summary_suppress_changes,
     );
 
-    let summary_stack_for_click = read_summary_time_stack.clone();
     let summary_entry_for_click = read_summary_time.clone();
+    let summary_display_for_click = read_summary_time_display.clone();
     let summary_click = gtk::GestureClick::new();
     summary_click.connect_released(move |_, _, _, _| {
-        summary_stack_for_click.set_visible_child_name("edit");
+        summary_entry_for_click.set_can_target(true);
         summary_entry_for_click.grab_focus();
         summary_entry_for_click.select_region(0, -1);
+        summary_display_for_click.queue_draw();
     });
     read_summary_time_display.add_controller(summary_click);
 
-    let summary_stack_for_focus = read_summary_time_stack.clone();
-    let summary_display_focus = gtk::EventControllerFocus::new();
-    summary_display_focus.connect_enter(move |_| {
-        summary_stack_for_focus.set_visible_child_name("edit");
+    let summary_display_for_change = read_summary_time_display.clone();
+    read_summary_time.connect_changed(move |_| {
+        summary_display_for_change.queue_draw();
     });
-    read_summary_time.add_controller(summary_display_focus);
 
-    let summary_stack_for_blur = read_summary_time_stack.clone();
+    let summary_display_for_blur = read_summary_time_display.clone();
+    let summary_entry_for_blur = read_summary_time.clone();
     let summary_display_blur = gtk::EventControllerFocus::new();
     summary_display_blur.connect_leave(move |_| {
-        summary_stack_for_blur.set_visible_child_name("display");
+        summary_entry_for_blur.set_can_target(false);
+        summary_display_for_blur.queue_draw();
     });
     read_summary_time.add_controller(summary_display_blur);
 
@@ -3214,8 +3900,15 @@ fn build_window(
     read_summary_time_display.set_draw_func(move |_, context, width, height| {
         let state = state_for_summary_time.borrow();
         let anchor = zoned_datetime(state.reference_utc, &state.local_timezone);
-        let text = format_display_time(&anchor, &state.time_format);
-        draw_read_summary_time(context, width, height, &text);
+        let editing = read_summary_editing(&state);
+        let text = if editing {
+            state.read_summary_time.text().to_string()
+        } else {
+            format_display_time(&anchor, &state.time_format)
+        };
+        let cursor_position = (editing && state.read_summary_time.has_focus())
+            .then(|| state.read_summary_time.position().max(0) as usize);
+        draw_read_summary_time(context, width, height, &text, cursor_position);
     });
 
     let state_for_timeline = state.clone();
@@ -3271,8 +3964,13 @@ fn build_window(
         }
     });
 
+    let state_for_add_map_overlay = state.clone();
     add_map_area.set_draw_func(move |_, context, width, height| {
-        draw_add_map_overlay(context, width as f64, height as f64);
+        let markers = {
+            let state = state_for_add_map_overlay.borrow();
+            map_location_markers(&state)
+        };
+        draw_add_map_overlay(context, width as f64, height as f64, &markers);
     });
 
     add_map_fallback.set_draw_func(move |_, context, width, height| {
@@ -3314,6 +4012,33 @@ fn build_window(
 
         if should_render {
             render_search_results(&state_for_remote_results);
+        }
+
+        ControlFlow::Continue
+    });
+
+    let state_for_marker_coordinates = state.clone();
+    let window_weak_for_marker_coordinates = window.downgrade();
+    glib::timeout_add_local(Duration::from_millis(80), move || {
+        if window_weak_for_marker_coordinates.upgrade().is_none() {
+            return ControlFlow::Break;
+        }
+
+        let mut should_draw = false;
+        while let Ok(message) = marker_coordinate_receiver.try_recv() {
+            let mut state = state_for_marker_coordinates.borrow_mut();
+            state.pending_marker_coordinate_queries.remove(&message.key);
+            if let Some(coordinate) = message.coordinate {
+                state
+                    .marker_coordinate_cache
+                    .insert(message.key, coordinate);
+                should_draw = true;
+            }
+        }
+
+        if should_draw {
+            let state = state_for_marker_coordinates.borrow();
+            state.add_map_area.queue_draw();
         }
 
         ControlFlow::Continue
@@ -3475,14 +4200,20 @@ fn build_window(
             )
         };
         if let Some(result) = hovered_result {
-            add_timezone(&state_for_map_click, &result.timezone, &result.title);
+            add_timezone(
+                &state_for_map_click,
+                &result.timezone,
+                &result.title,
+                result.latitude,
+                result.longitude,
+            );
         }
     });
     add_map_area.add_controller(map_click);
 
     let state_for_click = state.clone();
     let window_for_click = window.clone();
-    let overlay_for_click = overlay.clone();
+    let overlay_for_click = overlay.clone().upcast::<gtk::Widget>();
     let panel_for_click = panel.clone().upcast::<gtk::Widget>();
     let dismiss_click = gtk::GestureClick::new();
     dismiss_click.set_button(0);
@@ -3492,16 +4223,14 @@ fn build_window(
             "dismiss_click pressed x={x:.1} y={y:.1} dismiss_armed={} screen={:?}",
             state.dismiss_armed, state.screen_mode
         ));
-        if !state.dismiss_armed || !is_dismissible_screen(&state) {
+        if !state.dismiss_armed {
             return;
         }
         drop(state);
 
-        if let Some(picked) = overlay_for_click.pick(x, y, gtk::PickFlags::DEFAULT) {
-            if picked == panel_for_click || picked.is_ancestor(&panel_for_click) {
-                debug_popup_event("dismiss_click inside_panel");
-                return;
-            }
+        if point_is_inside_widget(&overlay_for_click, &panel_for_click, x, y) {
+            debug_popup_event("dismiss_click inside_panel");
+            return;
         }
 
         request_window_close(&state_for_click, &window_for_click, "dismiss_click");
@@ -3545,7 +4274,7 @@ pub fn run_popup(pid_path: &Path, config_path: Option<PathBuf>) -> Result<()> {
         if key == gdk::Key::Escape {
             let should_close = {
                 let state = state_for_escape.borrow();
-                is_dismissible_screen(&state)
+                is_keyboard_or_focus_dismissible_screen(&state)
             };
             if should_close {
                 request_window_close(&state_for_escape, &window_for_escape, "escape");
@@ -3571,7 +4300,10 @@ pub fn run_popup(pid_path: &Path, config_path: Option<PathBuf>) -> Result<()> {
             state.dismiss_armed,
             state.screen_mode
         ));
-        if state.dismiss_armed && is_dismissible_screen(&state) && !window.is_active() {
+        if state.dismiss_armed
+            && is_keyboard_or_focus_dismissible_screen(&state)
+            && !window.is_active()
+        {
             drop(state);
             request_window_close(&state_for_focus, window, "focus_lost_read_mode");
         }
@@ -3624,21 +4356,26 @@ pub fn run_popup(pid_path: &Path, config_path: Option<PathBuf>) -> Result<()> {
 mod tests {
     use super::{
         build_timeline_items, first_location_segment, format_timeline_zone_text,
-        map_coordinates_to_lng_lat, read_card_row_width, read_card_title, read_entry_count,
-        screen_mode_for_read_entry_count, search_result_subtitle, sort_read_entries_by_time,
-        summary_search_result, timeline_entries, timeline_side_hours,
-        timeline_tick_relative_minutes, visible_read_entries, PopupScreen, READ_CARD_COLUMNS,
-        READ_CARD_LIMIT, READ_CARD_SPACING, READ_CARD_WIDTH,
+        layout_map_location_markers, lng_lat_to_map_coordinates, map_coordinates_to_lng_lat,
+        merge_zone_tab_coordinates, parse_zone_tab_coordinate, read_card_row_width,
+        read_card_title, read_entry_count, screen_mode_for_read_entry_count,
+        search_result_subtitle, sort_read_entries_by_time, summary_search_result, timeline_entries,
+        timeline_side_hours, timeline_tick_relative_minutes, visible_read_entries, MapCoordinate,
+        MapLocationMarker, PopupScreen, READ_CARD_COLUMNS, READ_CARD_LIMIT, READ_CARD_SPACING,
+        READ_CARD_WIDTH,
     };
     use crate::config::{TimezoneEntry, TimezoneSearchResult};
     use crate::time::zoned_datetime;
     use chrono::{TimeZone, Utc};
+    use std::collections::BTreeMap;
 
     fn entry(timezone: &str) -> TimezoneEntry {
         TimezoneEntry {
             timezone: timezone.to_string(),
             label: String::new(),
             locked: false,
+            latitude: None,
+            longitude: None,
         }
     }
 
@@ -3848,6 +4585,8 @@ mod tests {
             timezone: "America/Vancouver".to_string(),
             label: "Vancouver Island, British Columbia, Canada".to_string(),
             locked: false,
+            latitude: None,
+            longitude: None,
         };
 
         assert_eq!(read_card_title(&entry), "Vancouver Island");
@@ -3877,6 +4616,8 @@ mod tests {
                 timezone: "Europe/Madrid".to_string(),
                 title: "Madrid".to_string(),
                 subtitle: "Europe/Madrid  ·  CET / CEST".to_string(),
+                latitude: None,
+                longitude: None,
             }),
         );
 
@@ -3894,6 +4635,8 @@ mod tests {
             timezone: "Europe/Paris".to_string(),
             title: "Barc, Normandy, France".to_string(),
             subtitle: "Europe/Paris  ·  Normandy, France".to_string(),
+            latitude: None,
+            longitude: None,
         };
 
         let subtitle = search_result_subtitle(
@@ -3910,6 +4653,8 @@ mod tests {
             timezone: "Europe/Paris".to_string(),
             title: "Paris".to_string(),
             subtitle: "Europe/Paris  ·  CET / CEST".to_string(),
+            latitude: None,
+            longitude: None,
         };
 
         let subtitle = search_result_subtitle(
@@ -3932,5 +4677,87 @@ mod tests {
         let bottom_right = map_coordinates_to_lng_lat(900.0, 450.0, 900.0, 450.0).unwrap();
         assert!(bottom_right.0 > 179.9);
         assert!(bottom_right.1 < -89.9);
+    }
+
+    #[test]
+    fn zone_tab_coordinates_parse_minutes_and_seconds() {
+        let cancun = parse_zone_tab_coordinate("+2105-08646").unwrap();
+        assert!((cancun.latitude - 21.0833).abs() < 0.001);
+        assert!((cancun.longitude + 86.7667).abs() < 0.001);
+
+        let new_york = parse_zone_tab_coordinate("+404251-0740023").unwrap();
+        assert!((new_york.latitude - 40.7142).abs() < 0.001);
+        assert!((new_york.longitude + 74.0064).abs() < 0.001);
+    }
+
+    #[test]
+    fn zone_tab_coordinates_merge_missing_entries_without_overwriting() {
+        let primary = "US\t+404251-0740023\tAmerica/New_York\n";
+        let fallback = "US\t+4100-07500\tAmerica/New_York\nCA\t+4916-12307\tAmerica/Vancouver\n";
+        let mut coordinates = BTreeMap::new();
+
+        merge_zone_tab_coordinates(&mut coordinates, primary);
+        merge_zone_tab_coordinates(&mut coordinates, fallback);
+
+        let new_york = coordinates.get("America/New_York").unwrap();
+        assert!((new_york.latitude - 40.7142).abs() < 0.001);
+        assert!((new_york.longitude + 74.0064).abs() < 0.001);
+
+        let vancouver = coordinates.get("America/Vancouver").unwrap();
+        assert!((vancouver.latitude - 49.2667).abs() < 0.001);
+        assert!((vancouver.longitude + 123.1167).abs() < 0.001);
+    }
+
+    #[test]
+    fn lng_lat_coordinates_project_to_map_pixels() {
+        assert_eq!(
+            lng_lat_to_map_coordinates(0.0, 0.0, 900.0, 450.0),
+            (450.0, 225.0)
+        );
+        assert_eq!(
+            lng_lat_to_map_coordinates(-180.0, 90.0, 900.0, 450.0),
+            (0.0, 0.0)
+        );
+    }
+
+    #[test]
+    fn map_marker_layout_avoids_overlapping_nearby_labels() {
+        let markers = vec![
+            MapLocationMarker {
+                label: "Austin".to_string(),
+                coordinate: MapCoordinate {
+                    latitude: 30.2672,
+                    longitude: -97.7431,
+                },
+            },
+            MapLocationMarker {
+                label: "Monterrey".to_string(),
+                coordinate: MapCoordinate {
+                    latitude: 25.6866,
+                    longitude: -100.3161,
+                },
+            },
+            MapLocationMarker {
+                label: "Cancun".to_string(),
+                coordinate: MapCoordinate {
+                    latitude: 21.1619,
+                    longitude: -86.8515,
+                },
+            },
+        ];
+
+        let layouts = layout_map_location_markers(&markers, 900.0, 450.0);
+
+        assert_eq!(layouts.len(), markers.len());
+        for (index, layout) in layouts.iter().enumerate() {
+            for other in layouts.iter().skip(index + 1) {
+                assert!(
+                    !layout.label_rect.overlaps(other.label_rect),
+                    "{} overlaps {}",
+                    layout.label,
+                    other.label
+                );
+            }
+        }
     }
 }

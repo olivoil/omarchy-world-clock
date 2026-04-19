@@ -332,6 +332,14 @@ fn clear_box(container: &gtk::Box) {
     }
 }
 
+fn point_is_inside_widget(source: &gtk::Widget, target: &gtk::Widget, x: f64, y: f64) -> bool {
+    let Some((target_x, target_y)) = source.translate_coordinates(target, x, y) else {
+        return false;
+    };
+
+    target.contains(target_x, target_y)
+}
+
 fn debug_popup_event(message: &str) {
     if std::env::var_os("OMARCHY_WORLD_CLOCK_DEBUG").is_none() {
         return;
@@ -733,13 +741,63 @@ fn anchor_label(state: &PopupState) -> String {
         .unwrap_or_else(|| friendly_timezone_name(&state.local_timezone))
 }
 
-fn location_with_zone_notation(label: &str, zoned: &DateTime<chrono_tz::Tz>) -> String {
-    let notation = format_timezone_notation(zoned);
-    if label == notation {
-        return label.to_string();
+fn first_location_segment(label: &str) -> String {
+    let trimmed = label.trim();
+    label
+        .split(',')
+        .map(str::trim)
+        .find(|part| !part.is_empty())
+        .unwrap_or(trimmed)
+        .to_string()
+}
+
+fn trailing_location_segments(label: &str) -> Option<String> {
+    let parts = label
+        .split(',')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>();
+    if parts.len() <= 1 {
+        None
+    } else {
+        Some(parts[1..].join(", "))
+    }
+}
+
+fn summary_search_result(
+    timezone_name: &str,
+    label: &str,
+    resolver_result: Option<TimezoneSearchResult>,
+) -> TimezoneSearchResult {
+    let mut result = resolver_result.unwrap_or_else(|| TimezoneSearchResult {
+        timezone: timezone_name.to_string(),
+        title: label.to_string(),
+        subtitle: timezone_name.to_string(),
+        latitude: None,
+        longitude: None,
+    });
+
+    if let Some(location_context) = trailing_location_segments(label) {
+        result.subtitle = format!("{}  ·  {}", result.timezone, location_context);
+    } else if result.subtitle.trim().is_empty() {
+        result.subtitle = result.timezone.clone();
     }
 
-    format!("{label}  ·  {notation}")
+    result
+}
+
+fn read_summary_title(state: &PopupState) -> String {
+    first_location_segment(&anchor_label(state))
+}
+
+fn read_summary_subtitle(state: &PopupState) -> String {
+    let label = anchor_label(state);
+    let result = summary_search_result(
+        &state.local_timezone,
+        &label,
+        state.resolver.describe_timezone(&state.local_timezone),
+    );
+    search_result_subtitle(&result, &state.reference_utc)
 }
 
 fn relative_time_label(
@@ -972,33 +1030,34 @@ fn parse_zone_tab_coordinate(value: &str) -> Option<MapCoordinate> {
     })
 }
 
+fn merge_zone_tab_coordinates(coordinates: &mut BTreeMap<String, MapCoordinate>, text: &str) {
+    for (timezone_name, coordinate) in text.lines().filter_map(|line| {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            return None;
+        }
+        let mut columns = trimmed.split('\t');
+        let _country_codes = columns.next()?;
+        let coordinate_text = columns.next()?;
+        let timezone_name = columns.next()?;
+        let coordinate = parse_zone_tab_coordinate(coordinate_text)?;
+        Some((timezone_name.to_string(), coordinate))
+    }) {
+        coordinates.entry(timezone_name).or_insert(coordinate);
+    }
+}
+
 fn timezone_coordinate_lookup() -> &'static BTreeMap<String, MapCoordinate> {
     static COORDINATES: OnceLock<BTreeMap<String, MapCoordinate>> = OnceLock::new();
     COORDINATES.get_or_init(|| {
+        let mut coordinates = BTreeMap::new();
         for path in ZONE_TAB_PATHS {
             let Ok(text) = fs::read_to_string(path) else {
                 continue;
             };
-            let coordinates = text
-                .lines()
-                .filter_map(|line| {
-                    let trimmed = line.trim();
-                    if trimmed.is_empty() || trimmed.starts_with('#') {
-                        return None;
-                    }
-                    let mut columns = trimmed.split('\t');
-                    let _country_codes = columns.next()?;
-                    let coordinate_text = columns.next()?;
-                    let timezone_name = columns.next()?;
-                    let coordinate = parse_zone_tab_coordinate(coordinate_text)?;
-                    Some((timezone_name.to_string(), coordinate))
-                })
-                .collect::<BTreeMap<_, _>>();
-            if !coordinates.is_empty() {
-                return coordinates;
-            }
+            merge_zone_tab_coordinates(&mut coordinates, &text);
         }
-        BTreeMap::new()
+        coordinates
     })
 }
 
@@ -1054,6 +1113,15 @@ fn marker_coordinate_query(entry: &TimezoneEntry) -> Option<String> {
     Some(label)
 }
 
+fn remote_marker_coordinate(timezone: &str, query: &str) -> Option<MapCoordinate> {
+    let mut search = RemotePlaceSearch::new(Some(vec![timezone.to_string()]), None);
+    search
+        .search(query, 8)
+        .into_iter()
+        .find(|result| result.timezone == timezone)
+        .and_then(|result| search_result_coordinate(&result))
+}
+
 fn ensure_map_marker_coordinates(state_handle: &Rc<RefCell<PopupState>>) {
     let requests = {
         let mut state = state_handle.borrow_mut();
@@ -1082,24 +1150,14 @@ fn ensure_map_marker_coordinates(state_handle: &Rc<RefCell<PopupState>>) {
                 entry.timezone,
                 query,
                 state.marker_coordinate_sender.clone(),
-                state.place_search.clone(),
             ));
         }
         requests
     };
 
-    for (key, timezone, query, sender, place_search) in requests {
+    for (key, timezone, query, sender) in requests {
         thread::spawn(move || {
-            let coordinate = place_search
-                .lock()
-                .map(|mut search| {
-                    search
-                        .search(&query, 8)
-                        .into_iter()
-                        .find(|result| result.timezone == timezone)
-                        .and_then(|result| search_result_coordinate(&result))
-                })
-                .unwrap_or(None);
+            let coordinate = remote_marker_coordinate(&timezone, &query);
             let _ = sender.send(MarkerCoordinateMessage { key, coordinate });
         });
     }
@@ -1595,10 +1653,15 @@ fn build_read_card(entry: &TimezoneEntry, time_format: &str) -> ReadCardWidgets 
     time_entry.set_halign(Align::Start);
     time_entry.add_css_class("timezone-card-time");
     time_entry.set_tooltip_text(Some("Enter a time in this timezone."));
-    card.append(&time_entry);
+
+    let time_group = gtk::Box::new(Orientation::Vertical, 0);
+    time_group.set_halign(Align::Fill);
+    time_group.append(&time_entry);
 
     let footer = gtk::Box::new(Orientation::Horizontal, 0);
     footer.set_halign(Align::Fill);
+    footer.set_margin_start(4);
+    footer.add_css_class("timezone-card-subtitle-row");
 
     let delta_label = gtk::Label::new(None);
     delta_label.set_xalign(0.0);
@@ -1610,7 +1673,8 @@ fn build_read_card(entry: &TimezoneEntry, time_format: &str) -> ReadCardWidgets 
     delta_label.add_css_class("timezone-card-meta");
     footer.append(&delta_label);
 
-    card.append(&footer);
+    time_group.append(&footer);
+    card.append(&time_group);
 
     let controls = gtk::Box::new(Orientation::Horizontal, 0);
     controls.set_halign(Align::Start);
@@ -1619,8 +1683,8 @@ fn build_read_card(entry: &TimezoneEntry, time_format: &str) -> ReadCardWidgets 
     controls.set_overflow(gtk::Overflow::Visible);
     card_shell.connect_get_child_position(|overlay, _| {
         Some(gdk::Rectangle::new(
-            (overlay.allocated_width() - 18).max(0),
-            0,
+            (overlay.allocated_width() - 22).max(0),
+            4,
             36,
             36,
         ))
@@ -1767,7 +1831,7 @@ fn render_read_view(state: &mut PopupState) {
     }
     state
         .read_summary_location
-        .set_text(&location_with_zone_notation(&anchor_label(state), &anchor));
+        .set_text(&read_summary_subtitle(state));
 
     while let Some(child) = state.timeline_labels.first_child() {
         state.timeline_labels.remove(&child);
@@ -1847,7 +1911,7 @@ fn screen_mode_for_read_entry_count(
     }
 }
 
-fn is_dismissible_screen(state: &PopupState) -> bool {
+fn is_keyboard_or_focus_dismissible_screen(state: &PopupState) -> bool {
     matches!(state.screen_mode, PopupScreen::Read)
         || (matches!(state.screen_mode, PopupScreen::Add)
             && read_entry_count(&state.config.timezones, &state.local_timezone) == 0)
@@ -1948,11 +2012,12 @@ fn update_screen_mode(state: &PopupState) {
     let can_add_more = can_add_more_locations(state);
 
     state.content_stack.set_visible_child_name(page_name);
-    state.panel_title.set_text(if in_add {
-        "Add a Location"
+    let title = if in_add {
+        "Add a Location".to_string()
     } else {
-        "World Clock"
-    });
+        read_summary_title(state)
+    };
+    state.panel_title.set_text(&title);
 
     state.live_button.set_visible(!in_add);
     state.edit_button.set_visible(!in_add);
@@ -3347,6 +3412,9 @@ fn build_window(
 
     let title = gtk::Label::new(Some("World Clock"));
     title.set_xalign(0.5);
+    title.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    title.set_single_line_mode(true);
+    title.set_max_width_chars(32);
     title.add_css_class("panel-title");
     header.set_center_widget(Some(&title));
 
@@ -3387,7 +3455,7 @@ fn build_window(
     read_root.add_css_class("read-mode");
     content_stack.add_named(&read_root, Some("read"));
 
-    let read_summary = gtk::Box::new(Orientation::Vertical, 8);
+    let read_summary = gtk::Box::new(Orientation::Vertical, 0);
     read_summary.set_halign(Align::Center);
     read_root.append(&read_summary);
 
@@ -3401,6 +3469,11 @@ fn build_window(
 
     let read_summary_location = gtk::Label::new(None);
     read_summary_location.set_xalign(0.5);
+    read_summary_location.set_halign(Align::Center);
+    read_summary_location.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    read_summary_location.set_single_line_mode(true);
+    read_summary_location.set_max_width_chars(64);
+    read_summary_location.set_margin_bottom(12);
     read_summary_location.add_css_class("read-summary-location");
     read_summary.append(&read_summary_location);
 
@@ -4019,7 +4092,7 @@ fn build_window(
 
     let state_for_click = state.clone();
     let window_for_click = window.clone();
-    let overlay_for_click = overlay.clone();
+    let overlay_for_click = overlay.clone().upcast::<gtk::Widget>();
     let panel_for_click = panel.clone().upcast::<gtk::Widget>();
     let dismiss_click = gtk::GestureClick::new();
     dismiss_click.set_button(0);
@@ -4029,16 +4102,14 @@ fn build_window(
             "dismiss_click pressed x={x:.1} y={y:.1} dismiss_armed={} screen={:?}",
             state.dismiss_armed, state.screen_mode
         ));
-        if !state.dismiss_armed || !is_dismissible_screen(&state) {
+        if !state.dismiss_armed {
             return;
         }
         drop(state);
 
-        if let Some(picked) = overlay_for_click.pick(x, y, gtk::PickFlags::DEFAULT) {
-            if picked == panel_for_click || picked.is_ancestor(&panel_for_click) {
-                debug_popup_event("dismiss_click inside_panel");
-                return;
-            }
+        if point_is_inside_widget(&overlay_for_click, &panel_for_click, x, y) {
+            debug_popup_event("dismiss_click inside_panel");
+            return;
         }
 
         request_window_close(&state_for_click, &window_for_click, "dismiss_click");
@@ -4082,7 +4153,7 @@ pub fn run_popup(pid_path: &Path, config_path: Option<PathBuf>) -> Result<()> {
         if key == gdk::Key::Escape {
             let should_close = {
                 let state = state_for_escape.borrow();
-                is_dismissible_screen(&state)
+                is_keyboard_or_focus_dismissible_screen(&state)
             };
             if should_close {
                 request_window_close(&state_for_escape, &window_for_escape, "escape");
@@ -4108,7 +4179,10 @@ pub fn run_popup(pid_path: &Path, config_path: Option<PathBuf>) -> Result<()> {
             state.dismiss_armed,
             state.screen_mode
         ));
-        if state.dismiss_armed && is_dismissible_screen(&state) && !window.is_active() {
+        if state.dismiss_armed
+            && is_keyboard_or_focus_dismissible_screen(&state)
+            && !window.is_active()
+        {
             drop(state);
             request_window_close(&state_for_focus, window, "focus_lost_read_mode");
         }
@@ -4160,16 +4234,19 @@ pub fn run_popup(pid_path: &Path, config_path: Option<PathBuf>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_timeline_items, format_timeline_zone_text, layout_map_location_markers,
-        lng_lat_to_map_coordinates, map_coordinates_to_lng_lat, parse_zone_tab_coordinate,
-        read_card_row_width, read_card_title, read_entry_count, screen_mode_for_read_entry_count,
-        search_result_subtitle, sort_read_entries_by_time, timeline_entries, timeline_side_hours,
-        timeline_tick_relative_minutes, visible_read_entries, MapCoordinate, MapLocationMarker,
-        PopupScreen, READ_CARD_COLUMNS, READ_CARD_LIMIT, READ_CARD_SPACING, READ_CARD_WIDTH,
+        build_timeline_items, first_location_segment, format_timeline_zone_text,
+        layout_map_location_markers, lng_lat_to_map_coordinates, map_coordinates_to_lng_lat,
+        merge_zone_tab_coordinates, parse_zone_tab_coordinate, read_card_row_width,
+        read_card_title, read_entry_count, screen_mode_for_read_entry_count,
+        search_result_subtitle, sort_read_entries_by_time, summary_search_result, timeline_entries,
+        timeline_side_hours, timeline_tick_relative_minutes, visible_read_entries, MapCoordinate,
+        MapLocationMarker, PopupScreen, READ_CARD_COLUMNS, READ_CARD_LIMIT, READ_CARD_SPACING,
+        READ_CARD_WIDTH,
     };
     use crate::config::{TimezoneEntry, TimezoneSearchResult};
     use crate::time::zoned_datetime;
     use chrono::{TimeZone, Utc};
+    use std::collections::BTreeMap;
 
     fn entry(timezone: &str) -> TimezoneEntry {
         TimezoneEntry {
@@ -4402,6 +4479,36 @@ mod tests {
     }
 
     #[test]
+    fn first_location_segment_uses_the_city_from_a_place_label() {
+        assert_eq!(
+            first_location_segment("Barcelona, Catalonia, Spain"),
+            "Barcelona"
+        );
+    }
+
+    #[test]
+    fn summary_search_result_uses_label_context_for_metadata() {
+        let result = summary_search_result(
+            "Europe/Madrid",
+            "Barcelona, Catalonia, Spain",
+            Some(TimezoneSearchResult {
+                timezone: "Europe/Madrid".to_string(),
+                title: "Madrid".to_string(),
+                subtitle: "Europe/Madrid  ·  CET / CEST".to_string(),
+                latitude: None,
+                longitude: None,
+            }),
+        );
+
+        let subtitle = search_result_subtitle(
+            &result,
+            &Utc.with_ymd_and_hms(2026, 4, 18, 12, 0, 0).unwrap(),
+        );
+
+        assert_eq!(subtitle, "Europe/Madrid  ·  CEST  ·  Catalonia, Spain");
+    }
+
+    #[test]
     fn search_result_subtitle_inserts_current_abbreviation_after_timezone() {
         let result = TimezoneSearchResult {
             timezone: "Europe/Paris".to_string(),
@@ -4460,6 +4567,24 @@ mod tests {
         let new_york = parse_zone_tab_coordinate("+404251-0740023").unwrap();
         assert!((new_york.latitude - 40.7142).abs() < 0.001);
         assert!((new_york.longitude + 74.0064).abs() < 0.001);
+    }
+
+    #[test]
+    fn zone_tab_coordinates_merge_missing_entries_without_overwriting() {
+        let primary = "US\t+404251-0740023\tAmerica/New_York\n";
+        let fallback = "US\t+4100-07500\tAmerica/New_York\nCA\t+4916-12307\tAmerica/Vancouver\n";
+        let mut coordinates = BTreeMap::new();
+
+        merge_zone_tab_coordinates(&mut coordinates, primary);
+        merge_zone_tab_coordinates(&mut coordinates, fallback);
+
+        let new_york = coordinates.get("America/New_York").unwrap();
+        assert!((new_york.latitude - 40.7142).abs() < 0.001);
+        assert!((new_york.longitude + 74.0064).abs() < 0.001);
+
+        let vancouver = coordinates.get("America/Vancouver").unwrap();
+        assert!((vancouver.latitude - 49.2667).abs() < 0.001);
+        assert!((vancouver.longitude + 123.1167).abs() < 0.001);
     }
 
     #[test]

@@ -79,7 +79,7 @@ window {{
   background: {panel_background};
   border: 1px solid {panel_border};
   border-radius: 18px;
-  padding: 18px 26px 20px 26px;
+  padding: 18px 32px 26px 32px;
   box-shadow: 0 18px 36px {shadow};
 }}
 
@@ -103,7 +103,7 @@ entry.read-summary-time {{
   border: 1px solid transparent;
   border-radius: 18px;
   padding: 0 18px;
-  min-height: 92px;
+  min-height: 78px;
 }}
 
 entry.read-summary-time:focus {{
@@ -118,7 +118,7 @@ entry.read-summary-time.error {{
 
 .read-summary-location {{
   color: {read_location};
-  font-size: 20px;
+  font-size: 16px;
   font-weight: 600;
 }}
 
@@ -216,7 +216,11 @@ entry.timezone-card-time {{
   border: 1px solid transparent;
   border-radius: 14px;
   padding: 0;
-  min-height: 66px;
+  min-height: 48px;
+}}
+
+.timezone-card-subtitle-row {{
+  margin-top: -8px;
 }}
 
 entry.timezone-card-time:focus {{

@@ -171,6 +171,11 @@ const ADD_MAP_HEIGHT: i32 = READ_TIMELINE_WIDTH / 2;
 const ADD_MAP_ASPECT_RATIO: f32 = 2.0;
 const ADD_MAP_HOVER_CARD_WIDTH: i32 = 272;
 const ADD_MAP_HOVER_CARD_HEIGHT: i32 = 140;
+const MAP_MARKER_LABEL_HEIGHT: f64 = 24.0;
+const MAP_MARKER_LABEL_MARGIN: f64 = 8.0;
+const MAP_MARKER_LABEL_GAP: f64 = 9.0;
+const MAP_MARKER_LABEL_MAX_WIDTH: f64 = 148.0;
+const MAP_MARKER_LABEL_COLLISION_PADDING: f64 = 4.0;
 const WORLD_MAP_ASSET_BYTES: &[u8] = include_bytes!("../assets/world-map.png");
 const SORT_MODE_VALUES: [&str; 3] = ["manual", "alpha", "time"];
 const TIME_FORMAT_VALUES: [&str; 3] = ["system", "24h", "ampm"];
@@ -194,6 +199,23 @@ struct MapCoordinate {
 struct MapLocationMarker {
     label: String,
     coordinate: MapCoordinate,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct MapLabelRect {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct MapLocationMarkerLayout {
+    point_x: f64,
+    point_y: f64,
+    label: String,
+    label_rect: MapLabelRect,
+    connector_x: f64,
 }
 
 struct TimelineGroupBuilder {
@@ -1234,57 +1256,251 @@ fn compact_map_marker_label(label: &str) -> String {
     compact
 }
 
-fn draw_map_location_marker(
-    context: &gtk::cairo::Context,
-    marker: &MapLocationMarker,
+impl MapLabelRect {
+    fn right(self) -> f64 {
+        self.x + self.width
+    }
+
+    fn bottom(self) -> f64 {
+        self.y + self.height
+    }
+
+    fn padded(self, padding: f64) -> Self {
+        Self {
+            x: self.x - padding,
+            y: self.y - padding,
+            width: self.width + padding * 2.0,
+            height: self.height + padding * 2.0,
+        }
+    }
+
+    fn overlaps(self, other: Self) -> bool {
+        self.x < other.right()
+            && self.right() > other.x
+            && self.y < other.bottom()
+            && self.bottom() > other.y
+    }
+
+    fn overlap_area(self, other: Self) -> f64 {
+        if !self.overlaps(other) {
+            return 0.0;
+        }
+
+        let overlap_width = self.right().min(other.right()) - self.x.max(other.x);
+        let overlap_height = self.bottom().min(other.bottom()) - self.y.max(other.y);
+        overlap_width.max(0.0) * overlap_height.max(0.0)
+    }
+}
+
+fn map_marker_label_width(label: &str) -> f64 {
+    (label.chars().count() as f64 * 7.2 + 16.0).clamp(32.0, MAP_MARKER_LABEL_MAX_WIDTH)
+}
+
+fn clamped_map_label_rect(
+    x: f64,
+    y: f64,
+    width: f64,
+    map_width: f64,
+    map_height: f64,
+) -> MapLabelRect {
+    MapLabelRect {
+        x: x.clamp(
+            MAP_MARKER_LABEL_MARGIN,
+            (map_width - width - MAP_MARKER_LABEL_MARGIN).max(MAP_MARKER_LABEL_MARGIN),
+        ),
+        y: y.clamp(
+            MAP_MARKER_LABEL_MARGIN,
+            (map_height - MAP_MARKER_LABEL_HEIGHT - MAP_MARKER_LABEL_MARGIN)
+                .max(MAP_MARKER_LABEL_MARGIN),
+        ),
+        width,
+        height: MAP_MARKER_LABEL_HEIGHT,
+    }
+}
+
+fn map_label_position_candidates(
+    point_x: f64,
+    point_y: f64,
+    label_width: f64,
+    map_width: f64,
+    map_height: f64,
+) -> Vec<MapLabelRect> {
+    let row_gap = MAP_MARKER_LABEL_HEIGHT + 6.0;
+    let offsets = [
+        0.0,
+        -row_gap,
+        row_gap,
+        -row_gap * 2.0,
+        row_gap * 2.0,
+        -row_gap * 3.0,
+        row_gap * 3.0,
+    ];
+    let side_positions = if point_x < map_width / 2.0 {
+        [
+            point_x + MAP_MARKER_LABEL_GAP,
+            point_x - MAP_MARKER_LABEL_GAP - label_width,
+        ]
+    } else {
+        [
+            point_x - MAP_MARKER_LABEL_GAP - label_width,
+            point_x + MAP_MARKER_LABEL_GAP,
+        ]
+    };
+
+    let mut candidates = Vec::new();
+    for offset in offsets {
+        for label_x in side_positions {
+            let label_y = point_y - MAP_MARKER_LABEL_HEIGHT / 2.0 + offset;
+            let rect = clamped_map_label_rect(label_x, label_y, label_width, map_width, map_height);
+            if !candidates.iter().any(|candidate| *candidate == rect) {
+                candidates.push(rect);
+            }
+        }
+    }
+    candidates
+}
+
+fn map_label_collision_score(candidate: MapLabelRect, placed: &[MapLabelRect]) -> f64 {
+    let padded_candidate = candidate.padded(MAP_MARKER_LABEL_COLLISION_PADDING);
+    placed
+        .iter()
+        .map(|rect| padded_candidate.overlap_area(rect.padded(MAP_MARKER_LABEL_COLLISION_PADDING)))
+        .sum()
+}
+
+fn choose_map_label_rect(
+    point_x: f64,
+    point_y: f64,
+    label_width: f64,
+    map_width: f64,
+    map_height: f64,
+    placed: &[MapLabelRect],
+) -> MapLabelRect {
+    let candidates =
+        map_label_position_candidates(point_x, point_y, label_width, map_width, map_height);
+
+    for candidate in &candidates {
+        if !placed.iter().any(|rect| {
+            candidate
+                .padded(MAP_MARKER_LABEL_COLLISION_PADDING)
+                .overlaps(rect.padded(MAP_MARKER_LABEL_COLLISION_PADDING))
+        }) {
+            return *candidate;
+        }
+    }
+
+    candidates
+        .into_iter()
+        .min_by(|left, right| {
+            let left_score = map_label_collision_score(*left, placed)
+                + (left.y + left.height / 2.0 - point_y).abs() * 0.01;
+            let right_score = map_label_collision_score(*right, placed)
+                + (right.y + right.height / 2.0 - point_y).abs() * 0.01;
+            left_score
+                .partial_cmp(&right_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .unwrap_or_else(|| {
+            clamped_map_label_rect(
+                point_x + MAP_MARKER_LABEL_GAP,
+                point_y - MAP_MARKER_LABEL_HEIGHT / 2.0,
+                label_width,
+                map_width,
+                map_height,
+            )
+        })
+}
+
+fn layout_map_location_markers(
+    markers: &[MapLocationMarker],
     width: f64,
     height: f64,
+) -> Vec<MapLocationMarkerLayout> {
+    let mut layouts = Vec::with_capacity(markers.len());
+    let mut placed = Vec::new();
+
+    for marker in markers {
+        let (point_x, point_y) = lng_lat_to_map_coordinates(
+            marker.coordinate.longitude,
+            marker.coordinate.latitude,
+            width,
+            height,
+        );
+        let label = compact_map_marker_label(&marker.label);
+        let label_rect = choose_map_label_rect(
+            point_x,
+            point_y,
+            map_marker_label_width(&label),
+            width,
+            height,
+            &placed,
+        );
+        let connector_x = if label_rect.x + label_rect.width / 2.0 < point_x {
+            label_rect.right()
+        } else {
+            label_rect.x
+        };
+
+        placed.push(label_rect);
+        layouts.push(MapLocationMarkerLayout {
+            point_x,
+            point_y,
+            label,
+            label_rect,
+            connector_x,
+        });
+    }
+
+    layouts
+}
+
+fn draw_map_location_marker(
+    context: &gtk::cairo::Context,
+    layout: &MapLocationMarkerLayout,
     foreground: (f64, f64, f64),
     background: (f64, f64, f64),
     accent: (f64, f64, f64),
 ) {
-    let (x, y) = lng_lat_to_map_coordinates(
-        marker.coordinate.longitude,
-        marker.coordinate.latitude,
-        width,
-        height,
-    );
-    let label = compact_map_marker_label(&marker.label);
-    let label_width = (label.chars().count() as f64 * 7.2 + 16.0).clamp(32.0, 148.0);
-    let label_height = 24.0;
-    let gap = 9.0;
-    let label_on_right = x + gap + label_width <= width - 8.0;
-    let label_x = if label_on_right {
-        x + gap
-    } else {
-        x - gap - label_width
-    }
-    .clamp(8.0, (width - label_width - 8.0).max(8.0));
-    let label_y = (y - label_height / 2.0).clamp(8.0, (height - label_height - 8.0).max(8.0));
-    let connector_x = if label_on_right {
-        label_x
-    } else {
-        label_x + label_width
-    };
-
     context.set_source_rgba(accent.0, accent.1, accent.2, 0.30);
     context.set_line_width(1.0);
-    context.move_to(x, y);
-    context.line_to(connector_x, label_y + label_height / 2.0);
+    context.move_to(layout.point_x, layout.point_y);
+    context.line_to(
+        layout.connector_x,
+        layout.label_rect.y + layout.label_rect.height / 2.0,
+    );
     let _ = context.stroke();
 
-    context.arc(x, y, 8.0, 0.0, std::f64::consts::TAU);
+    context.arc(
+        layout.point_x,
+        layout.point_y,
+        8.0,
+        0.0,
+        std::f64::consts::TAU,
+    );
     context.set_source_rgba(accent.0, accent.1, accent.2, 0.18);
     let _ = context.fill();
 
-    context.arc(x, y, 4.5, 0.0, std::f64::consts::TAU);
+    context.arc(
+        layout.point_x,
+        layout.point_y,
+        4.5,
+        0.0,
+        std::f64::consts::TAU,
+    );
     context.set_source_rgba(accent.0, accent.1, accent.2, 0.95);
     let _ = context.fill_preserve();
     context.set_source_rgba(background.0, background.1, background.2, 0.82);
     context.set_line_width(1.4);
     let _ = context.stroke();
 
-    draw_rounded_rectangle(context, label_x, label_y, label_width, label_height, 12.0);
+    draw_rounded_rectangle(
+        context,
+        layout.label_rect.x,
+        layout.label_rect.y,
+        layout.label_rect.width,
+        layout.label_rect.height,
+        12.0,
+    );
     context.set_source_rgba(background.0, background.1, background.2, 0.86);
     let _ = context.fill_preserve();
     context.set_source_rgba(accent.0, accent.1, accent.2, 0.28);
@@ -1298,8 +1514,8 @@ fn draw_map_location_marker(
     );
     context.set_font_size(12.0);
     context.set_source_rgba(foreground.0, foreground.1, foreground.2, 0.94);
-    context.move_to(label_x + 8.0, label_y + 16.4);
-    let _ = context.show_text(&label);
+    context.move_to(layout.label_rect.x + 8.0, layout.label_rect.y + 16.4);
+    let _ = context.show_text(&layout.label);
 }
 
 fn draw_add_map_overlay(
@@ -1322,10 +1538,8 @@ fn draw_add_map_overlay(
         let _ = context.stroke();
     }
 
-    for marker in markers {
-        draw_map_location_marker(
-            context, marker, width, height, foreground, background, accent,
-        );
+    for layout in layout_map_location_markers(markers, width, height) {
+        draw_map_location_marker(context, &layout, foreground, background, accent);
     }
 }
 
@@ -3946,12 +4160,12 @@ pub fn run_popup(pid_path: &Path, config_path: Option<PathBuf>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_timeline_items, format_timeline_zone_text, lng_lat_to_map_coordinates,
-        map_coordinates_to_lng_lat, parse_zone_tab_coordinate, read_card_row_width,
-        read_card_title, read_entry_count, screen_mode_for_read_entry_count,
+        build_timeline_items, format_timeline_zone_text, layout_map_location_markers,
+        lng_lat_to_map_coordinates, map_coordinates_to_lng_lat, parse_zone_tab_coordinate,
+        read_card_row_width, read_card_title, read_entry_count, screen_mode_for_read_entry_count,
         search_result_subtitle, sort_read_entries_by_time, timeline_entries, timeline_side_hours,
-        timeline_tick_relative_minutes, visible_read_entries, PopupScreen, READ_CARD_COLUMNS,
-        READ_CARD_LIMIT, READ_CARD_SPACING, READ_CARD_WIDTH,
+        timeline_tick_relative_minutes, visible_read_entries, MapCoordinate, MapLocationMarker,
+        PopupScreen, READ_CARD_COLUMNS, READ_CARD_LIMIT, READ_CARD_SPACING, READ_CARD_WIDTH,
     };
     use crate::config::{TimezoneEntry, TimezoneSearchResult};
     use crate::time::zoned_datetime;
@@ -4258,5 +4472,46 @@ mod tests {
             lng_lat_to_map_coordinates(-180.0, 90.0, 900.0, 450.0),
             (0.0, 0.0)
         );
+    }
+
+    #[test]
+    fn map_marker_layout_avoids_overlapping_nearby_labels() {
+        let markers = vec![
+            MapLocationMarker {
+                label: "Austin".to_string(),
+                coordinate: MapCoordinate {
+                    latitude: 30.2672,
+                    longitude: -97.7431,
+                },
+            },
+            MapLocationMarker {
+                label: "Monterrey".to_string(),
+                coordinate: MapCoordinate {
+                    latitude: 25.6866,
+                    longitude: -100.3161,
+                },
+            },
+            MapLocationMarker {
+                label: "Cancun".to_string(),
+                coordinate: MapCoordinate {
+                    latitude: 21.1619,
+                    longitude: -86.8515,
+                },
+            },
+        ];
+
+        let layouts = layout_map_location_markers(&markers, 900.0, 450.0);
+
+        assert_eq!(layouts.len(), markers.len());
+        for (index, layout) in layouts.iter().enumerate() {
+            for other in layouts.iter().skip(index + 1) {
+                assert!(
+                    !layout.label_rect.overlaps(other.label_rect),
+                    "{} overlaps {}",
+                    layout.label,
+                    other.label
+                );
+            }
+        }
     }
 }

@@ -1005,10 +1005,15 @@ fn build_read_card(entry: &TimezoneEntry, time_format: &str) -> ReadCardWidgets 
     time_entry.set_halign(Align::Start);
     time_entry.add_css_class("timezone-card-time");
     time_entry.set_tooltip_text(Some("Enter a time in this timezone."));
-    card.append(&time_entry);
+
+    let time_group = gtk::Box::new(Orientation::Vertical, 0);
+    time_group.set_halign(Align::Fill);
+    time_group.append(&time_entry);
 
     let footer = gtk::Box::new(Orientation::Horizontal, 0);
     footer.set_halign(Align::Fill);
+    footer.set_margin_start(4);
+    footer.add_css_class("timezone-card-subtitle-row");
 
     let delta_label = gtk::Label::new(None);
     delta_label.set_xalign(0.0);
@@ -1020,7 +1025,8 @@ fn build_read_card(entry: &TimezoneEntry, time_format: &str) -> ReadCardWidgets 
     delta_label.add_css_class("timezone-card-meta");
     footer.append(&delta_label);
 
-    card.append(&footer);
+    time_group.append(&footer);
+    card.append(&time_group);
 
     let controls = gtk::Box::new(Orientation::Horizontal, 0);
     controls.set_halign(Align::Start);
@@ -1029,8 +1035,8 @@ fn build_read_card(entry: &TimezoneEntry, time_format: &str) -> ReadCardWidgets 
     controls.set_overflow(gtk::Overflow::Visible);
     card_shell.connect_get_child_position(|overlay, _| {
         Some(gdk::Rectangle::new(
-            (overlay.allocated_width() - 18).max(0),
-            0,
+            (overlay.allocated_width() - 22).max(0),
+            4,
             36,
             36,
         ))

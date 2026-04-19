@@ -57,7 +57,7 @@ struct ReadCardWidgets {
     root: gtk::Overlay,
     title: gtk::Label,
     time_entry: gtk::Entry,
-    time_edit_overlay: gtk::DrawingArea,
+    time_cursor_area: gtk::DrawingArea,
     timezone_label: gtk::Label,
     delta_label: gtk::Label,
     controls: gtk::Box,
@@ -102,6 +102,7 @@ struct PopupState {
     read_summary_location: gtk::Label,
     read_summary_dirty: Rc<Cell<bool>>,
     read_summary_suppress_changes: Rc<Cell<bool>>,
+    read_time_cursor_visible: Rc<Cell<bool>>,
     timeline_area: gtk::DrawingArea,
     timeline_labels: gtk::Fixed,
     cards_grid: gtk::Box,
@@ -172,6 +173,9 @@ const READ_CARD_WIDTH: i32 =
     (READ_TIMELINE_WIDTH - (READ_CARD_SPACING * (READ_CARD_COLUMNS - 1))) / READ_CARD_COLUMNS;
 const READ_SUMMARY_TIME_WIDTH: i32 = 560;
 const READ_SUMMARY_TIME_HEIGHT: i32 = 126;
+const READ_TIME_CURSOR_HEIGHT_RATIO: f64 = 0.60;
+const READ_TIME_CURSOR_WIDTH: f64 = 3.0;
+const READ_TIME_CURSOR_BLINK_MS: u64 = 530;
 const ADD_SEARCH_RESULT_LIMIT: usize = 8;
 const ADD_MAP_HEIGHT: i32 = READ_TIMELINE_WIDTH / 2;
 const ADD_MAP_ASPECT_RATIO: f32 = 2.0;
@@ -358,6 +362,15 @@ fn debug_popup_event(message: &str) {
     {
         let _ = writeln!(file, "{message}");
     }
+}
+
+fn keep_popup_open_for_inspection() -> bool {
+    std::env::var_os("OMARCHY_WORLD_CLOCK_KEEP_OPEN").is_some()
+        || std::env::var("GTK_DEBUG").ok().is_some_and(|value| {
+            value
+                .split(|separator: char| matches!(separator, ',' | ';' | ':' | ' '))
+                .any(|flag| flag.trim() == "interactive")
+        })
 }
 
 fn request_window_close(
@@ -589,7 +602,26 @@ fn clear_status(state: &PopupState) {
 fn queue_read_time_edit_overlays(state: &PopupState) {
     state.read_summary_time_cursor.queue_draw();
     for card in &state.read_cards {
-        card.time_edit_overlay.queue_draw();
+        card.time_cursor_area.queue_draw();
+    }
+}
+
+fn reset_read_time_cursor_blink(state: &PopupState) {
+    state.read_time_cursor_visible.set(true);
+    queue_read_time_edit_overlays(state);
+}
+
+fn reset_read_time_cursor_blink_deferred(state_handle: &Rc<RefCell<PopupState>>) {
+    match state_handle.try_borrow() {
+        Ok(state) => reset_read_time_cursor_blink(&state),
+        Err(_) => {
+            let state_for_idle = state_handle.clone();
+            glib::idle_add_local_once(move || {
+                if let Ok(state) = state_for_idle.try_borrow() {
+                    reset_read_time_cursor_blink(&state);
+                }
+            });
+        }
     }
 }
 
@@ -602,7 +634,7 @@ fn update_time_entry_focus_state(
         Ok(mut state) => {
             state.editing_timezone = Some(timezone_name);
             clear_status(&state);
-            queue_read_time_edit_overlays(&state);
+            reset_read_time_cursor_blink(&state);
         }
         Err(_) => {
             debug_popup_event("time_entry_focus_enter deferred busy_state");
@@ -620,7 +652,7 @@ fn update_time_entry_focus_state(
                 };
                 state.editing_timezone = Some(timezone_name);
                 clear_status(&state);
-                queue_read_time_edit_overlays(&state);
+                reset_read_time_cursor_blink(&state);
             });
         }
     }
@@ -1000,94 +1032,67 @@ fn color_components(hex_value: &str, fallback: (f64, f64, f64)) -> (f64, f64, f6
         .unwrap_or(fallback)
 }
 
-fn draw_read_card_time_edit_cursor(
+fn find_text_child(widget: &gtk::Widget) -> Option<gtk::Text> {
+    let mut child = widget.first_child();
+    while let Some(current) = child {
+        if let Ok(text) = current.clone().downcast::<gtk::Text>() {
+            return Some(text);
+        }
+        if let Some(text) = find_text_child(&current) {
+            return Some(text);
+        }
+        child = current.next_sibling();
+    }
+    None
+}
+
+fn entry_text_child(entry: &gtk::Entry) -> Option<gtk::Text> {
+    find_text_child(entry.upcast_ref::<gtk::Widget>())
+}
+
+fn draw_read_time_cursor(
+    area: &gtk::DrawingArea,
     context: &gtk::cairo::Context,
-    width: i32,
-    height: i32,
-    text: &str,
-    cursor_position: Option<usize>,
-    selection_bounds: Option<(usize, usize)>,
+    entry: &gtk::Entry,
+    cursor_visible: bool,
 ) {
-    if selection_bounds.is_some_and(|(start, end)| start != end) {
+    if !cursor_visible
+        || entry
+            .selection_bounds()
+            .is_some_and(|(start, end)| start != end)
+    {
         return;
     }
 
-    let Some(cursor_position) = cursor_position else {
+    let Some(text_child) = entry_text_child(entry) else {
+        return;
+    };
+    if !entry.has_focus() && !text_child.has_focus() {
+        return;
+    }
+
+    let (strong, _) = text_child.compute_cursor_extents(entry.position().max(0) as usize);
+    let Some((cursor_x, cursor_y)) =
+        text_child.translate_coordinates(area, f64::from(strong.x()), f64::from(strong.y()))
+    else {
         return;
     };
 
-    let palette = load_palette();
-    let foreground = color_components(&palette.foreground, (0.85, 0.88, 0.94));
-    let accent = color_components(&palette.accent, foreground);
-    let font = gtk::pango::FontDescription::from_string("JetBrainsMono Nerd Font Mono Bold 39");
-    let layout = pangocairo::functions::create_layout(context);
-    layout.set_font_description(Some(&font));
-    layout.set_text(text);
-
-    let (ink, _logical) = layout.pixel_extents();
-    let ink_height = ink.height().max(1) as f64;
-    let y = ((height as f64 - ink_height) / 2.0) - ink.y() as f64;
-
-    let cursor_text = text
-        .chars()
-        .take(cursor_position.min(text.chars().count()))
-        .collect::<String>();
-    let cursor_layout = pangocairo::functions::create_layout(context);
-    cursor_layout.set_font_description(Some(&font));
-    cursor_layout.set_text(&cursor_text);
-    let (_, cursor_logical) = cursor_layout.pixel_extents();
-
-    let cursor_x = (cursor_logical.width() as f64 + 2.0)
+    let native_height = f64::from(strong.height()).max(1.0);
+    let cursor_height = (native_height * READ_TIME_CURSOR_HEIGHT_RATIO).max(1.0);
+    let area_width = f64::from(area.allocated_width()).max(0.0);
+    let area_height = f64::from(area.allocated_height()).max(0.0);
+    let x = cursor_x
         .round()
-        .clamp(0.0, width.saturating_sub(3) as f64);
-    let cursor_top = (y + ink.y() as f64 + 1.0).round();
-    let cursor_height = (ink_height - 2.0).max(1.0);
-
-    context.set_source_rgba(accent.0, accent.1, accent.2, 0.95);
-    context.rectangle(cursor_x, cursor_top, 3.0, cursor_height);
-    let _ = context.fill();
-}
-
-fn draw_read_summary_time_edit_cursor(
-    context: &gtk::cairo::Context,
-    width: i32,
-    height: i32,
-    text: &str,
-    cursor_position: usize,
-) {
-    let palette = load_palette();
-    let foreground = color_components(&palette.foreground, (0.85, 0.88, 0.94));
-    let accent = color_components(&palette.accent, foreground);
-    let font = gtk::pango::FontDescription::from_string("JetBrainsMono Nerd Font Mono Bold 72");
-    let layout = pangocairo::functions::create_layout(context);
-    layout.set_font_description(Some(&font));
-    layout.set_text(text);
-
-    let (ink, logical) = layout.pixel_extents();
-    let ink_height = ink.height().max(1) as f64;
-    let content_x = 18.0;
-    let content_width = (width as f64 - 36.0).max(1.0);
-    let text_width = logical.width().max(1) as f64;
-    let text_x = content_x + ((content_width - text_width) / 2.0);
-    let text_y = ((height as f64 - ink_height) / 2.0) - ink.y() as f64;
-
-    let cursor_text = text
-        .chars()
-        .take(cursor_position.min(text.chars().count()))
-        .collect::<String>();
-    let cursor_layout = pangocairo::functions::create_layout(context);
-    cursor_layout.set_font_description(Some(&font));
-    cursor_layout.set_text(&cursor_text);
-    let (_, cursor_logical) = cursor_layout.pixel_extents();
-
-    let cursor_x = (text_x + cursor_logical.width() as f64 - 2.0)
+        .clamp(0.0, (area_width - READ_TIME_CURSOR_WIDTH).max(0.0));
+    let y = (cursor_y + (native_height - cursor_height) / 2.0)
         .round()
-        .clamp(0.0, width.saturating_sub(2) as f64);
-    let cursor_top = (text_y + ink.y() as f64 + 1.0).round();
-    let cursor_height = (ink_height - 2.0).max(1.0);
+        .clamp(0.0, (area_height - cursor_height).max(0.0));
 
+    let palette = load_palette();
+    let accent = color_components(&palette.accent, (0.95, 0.66, 0.41));
     context.set_source_rgba(accent.0, accent.1, accent.2, 0.95);
-    context.rectangle(cursor_x, cursor_top, 2.0, cursor_height);
+    context.rectangle(x, y, READ_TIME_CURSOR_WIDTH, cursor_height);
     let _ = context.fill();
 }
 
@@ -1770,12 +1775,17 @@ fn build_read_card(entry: &TimezoneEntry, time_format: &str) -> ReadCardWidgets 
     time_entry_overlay.set_overflow(gtk::Overflow::Visible);
     time_entry_overlay.set_child(Some(&time_entry));
 
-    let time_edit_overlay = gtk::DrawingArea::new();
-    time_edit_overlay.set_halign(Align::Fill);
-    time_edit_overlay.set_valign(Align::Fill);
-    time_edit_overlay.set_can_target(false);
-    time_entry_overlay.add_overlay(&time_edit_overlay);
-    time_entry_overlay.set_measure_overlay(&time_edit_overlay, false);
+    let time_cursor_area = gtk::DrawingArea::new();
+    time_cursor_area.set_content_width(READ_CARD_WIDTH);
+    time_cursor_area.set_content_height(76);
+    time_cursor_area.set_size_request(READ_CARD_WIDTH, 76);
+    time_cursor_area.set_halign(Align::Fill);
+    time_cursor_area.set_valign(Align::Fill);
+    time_cursor_area.set_hexpand(true);
+    time_cursor_area.set_vexpand(true);
+    time_cursor_area.set_can_target(false);
+    time_entry_overlay.add_overlay(&time_cursor_area);
+    time_entry_overlay.set_measure_overlay(&time_cursor_area, false);
 
     let time_group = gtk::Box::new(Orientation::Vertical, 0);
     time_group.set_halign(Align::Fill);
@@ -1830,7 +1840,7 @@ fn build_read_card(entry: &TimezoneEntry, time_format: &str) -> ReadCardWidgets 
         root: card_shell,
         title,
         time_entry,
-        time_edit_overlay,
+        time_cursor_area,
         timezone_label,
         delta_label,
         controls,
@@ -1872,44 +1882,34 @@ fn rebuild_read_cards(state: &mut PopupState, entries: &[TimezoneEntry]) {
             let timezone_for_cursor = entry.timezone.clone();
             let time_entry_for_cursor = widgets.time_entry.clone();
             widgets
-                .time_edit_overlay
-                .set_draw_func(move |_, context, width, height| {
+                .time_cursor_area
+                .set_draw_func(move |area, context, _, _| {
                     let Ok(state) = state_for_cursor.try_borrow() else {
                         return;
                     };
-                    if state.editing_timezone.as_deref() != Some(timezone_for_cursor.as_str()) {
-                        return;
+                    if state.editing_timezone.as_deref() == Some(timezone_for_cursor.as_str()) {
+                        draw_read_time_cursor(
+                            area,
+                            context,
+                            &time_entry_for_cursor,
+                            state.read_time_cursor_visible.get(),
+                        );
                     }
-                    drop(state);
-
-                    let text = time_entry_for_cursor.text().to_string();
-                    let cursor_position = Some(time_entry_for_cursor.position().max(0) as usize);
-                    let selection_bounds = time_entry_for_cursor
-                        .selection_bounds()
-                        .map(|(start, end)| (start.max(0) as usize, end.max(0) as usize));
-                    draw_read_card_time_edit_cursor(
-                        context,
-                        width,
-                        height,
-                        &text,
-                        cursor_position,
-                        selection_bounds,
-                    );
                 });
 
-            let card_edit_overlay_for_change = widgets.time_edit_overlay.clone();
-            widgets
-                .time_entry
-                .connect_changed(move |_| card_edit_overlay_for_change.queue_draw());
+            let state_for_cursor_change = state_handle.clone();
+            widgets.time_entry.connect_changed(move |_| {
+                reset_read_time_cursor_blink_deferred(&state_for_cursor_change);
+            });
 
-            let card_edit_overlay_for_cursor = widgets.time_edit_overlay.clone();
-            widgets
-                .time_entry
-                .connect_cursor_position_notify(move |_| card_edit_overlay_for_cursor.queue_draw());
+            let state_for_cursor_position = state_handle.clone();
+            widgets.time_entry.connect_cursor_position_notify(move |_| {
+                reset_read_time_cursor_blink_deferred(&state_for_cursor_position);
+            });
 
-            let card_edit_overlay_for_selection = widgets.time_edit_overlay.clone();
+            let state_for_cursor_selection = state_handle.clone();
             widgets.time_entry.connect_selection_bound_notify(move |_| {
-                card_edit_overlay_for_selection.queue_draw()
+                reset_read_time_cursor_blink_deferred(&state_for_cursor_selection);
             });
 
             let state_for_remove = state_handle.clone();
@@ -1968,7 +1968,6 @@ fn update_read_cards(
         card.delta_label
             .set_text(&relative_time_label(anchor, &zoned));
         configure_manual_time_entry(&card.time_entry, &time_format);
-        card.time_edit_overlay.queue_draw();
 
         if editing_timezone.as_deref() == Some(entry.timezone.as_str()) {
             continue;
@@ -1984,6 +1983,7 @@ fn update_read_cards(
     }
 
     set_read_card_controls(state);
+    queue_read_time_edit_overlays(state);
 }
 
 fn render_read_view(state: &mut PopupState) {
@@ -2065,6 +2065,7 @@ fn render_read_view(state: &mut PopupState) {
     state.timeline_area.queue_draw();
 
     update_read_cards(state, &entries, &anchor);
+    queue_read_time_edit_overlays(state);
 }
 
 fn can_add_more_locations(state: &PopupState) -> bool {
@@ -3395,7 +3396,6 @@ fn reset_live_now(state_handle: &Rc<RefCell<PopupState>>) {
     for card in &state.read_cards {
         card.dirty.set(false);
         set_entry_error(&card.time_entry, false);
-        card.time_edit_overlay.queue_draw();
     }
     for row in &state.rows {
         row.dirty.set(false);
@@ -3404,6 +3404,7 @@ fn reset_live_now(state_handle: &Rc<RefCell<PopupState>>) {
     clear_status(&state);
     update_live_button(&state);
     update_row_widgets(&mut state);
+    reset_read_time_cursor_blink(&state);
 }
 
 #[derive(Clone, Copy)]
@@ -3570,6 +3571,9 @@ fn build_window(
     top_band.set_halign(Align::Center);
     top_band.set_valign(Align::Center);
     overlay.add_overlay(&top_band);
+    if keep_popup_open_for_inspection() {
+        overlay.set_measure_overlay(&top_band, true);
+    }
 
     let panel = gtk::Box::new(Orientation::Vertical, 14);
     panel.add_css_class("world-clock-panel");
@@ -3647,11 +3651,13 @@ fn build_window(
     read_summary_time_overlay.set_child(Some(&read_summary_time));
 
     let read_summary_time_cursor = gtk::DrawingArea::new();
-    read_summary_time_cursor.set_halign(Align::Fill);
-    read_summary_time_cursor.set_valign(Align::Fill);
     read_summary_time_cursor.set_content_width(READ_SUMMARY_TIME_WIDTH);
     read_summary_time_cursor.set_content_height(READ_SUMMARY_TIME_HEIGHT);
     read_summary_time_cursor.set_size_request(READ_SUMMARY_TIME_WIDTH, READ_SUMMARY_TIME_HEIGHT);
+    read_summary_time_cursor.set_halign(Align::Fill);
+    read_summary_time_cursor.set_valign(Align::Fill);
+    read_summary_time_cursor.set_hexpand(true);
+    read_summary_time_cursor.set_vexpand(true);
     read_summary_time_cursor.set_can_target(false);
     read_summary_time_overlay.add_overlay(&read_summary_time_cursor);
     read_summary_time_overlay.set_measure_overlay(&read_summary_time_cursor, false);
@@ -3897,6 +3903,7 @@ fn build_window(
 
     let read_summary_dirty = Rc::new(Cell::new(false));
     let read_summary_suppress_changes = Rc::new(Cell::new(false));
+    let read_time_cursor_visible = Rc::new(Cell::new(true));
     let initial_screen_mode = screen_mode_for_read_entry_count(
         PopupScreen::Read,
         read_entry_count(&config.timezones, &local_timezone),
@@ -3941,6 +3948,7 @@ fn build_window(
         read_summary_location: read_summary_location.clone(),
         read_summary_dirty: read_summary_dirty.clone(),
         read_summary_suppress_changes: read_summary_suppress_changes.clone(),
+        read_time_cursor_visible,
         timeline_area: timeline_area.clone(),
         timeline_labels: timeline_labels.clone(),
         cards_grid: cards_grid.clone(),
@@ -3981,38 +3989,33 @@ fn build_window(
         read_summary_suppress_changes,
     );
 
-    let summary_cursor_for_change = read_summary_time_cursor.clone();
-    read_summary_time.connect_changed(move |_| summary_cursor_for_change.queue_draw());
-
-    let summary_cursor_for_position = read_summary_time_cursor.clone();
-    read_summary_time
-        .connect_cursor_position_notify(move |_| summary_cursor_for_position.queue_draw());
-
-    let summary_cursor_for_selection = read_summary_time_cursor.clone();
-    read_summary_time
-        .connect_selection_bound_notify(move |_| summary_cursor_for_selection.queue_draw());
-
     let state_for_summary_cursor = state.clone();
-    read_summary_time_cursor.set_draw_func(move |_, context, width, height| {
+    let read_summary_time_for_cursor = read_summary_time.clone();
+    read_summary_time_cursor.set_draw_func(move |area, context, _, _| {
         let state = state_for_summary_cursor.borrow();
-        if !read_summary_editing(&state) {
-            return;
+        if read_summary_editing(&state) {
+            draw_read_time_cursor(
+                area,
+                context,
+                &read_summary_time_for_cursor,
+                state.read_time_cursor_visible.get(),
+            );
         }
-        if state
-            .read_summary_time
-            .selection_bounds()
-            .is_some_and(|(start, end)| start != end)
-        {
-            return;
-        }
+    });
 
-        draw_read_summary_time_edit_cursor(
-            context,
-            width,
-            height,
-            &state.read_summary_time.text(),
-            state.read_summary_time.position().max(0) as usize,
-        );
+    let state_for_summary_cursor_change = state.clone();
+    read_summary_time.connect_changed(move |_| {
+        reset_read_time_cursor_blink_deferred(&state_for_summary_cursor_change);
+    });
+
+    let state_for_summary_cursor_position = state.clone();
+    read_summary_time.connect_cursor_position_notify(move |_| {
+        reset_read_time_cursor_blink_deferred(&state_for_summary_cursor_position);
+    });
+
+    let state_for_summary_cursor_selection = state.clone();
+    read_summary_time.connect_selection_bound_notify(move |_| {
+        reset_read_time_cursor_blink_deferred(&state_for_summary_cursor_selection);
     });
 
     let state_for_timeline = state.clone();
@@ -4088,6 +4091,34 @@ fn build_window(
         update_live_button(&state_mut);
         update_screen_mode(&state_mut);
     }
+
+    let state_for_cursor_blink = state.clone();
+    let window_weak_for_cursor_blink = window.downgrade();
+    glib::timeout_add_local(
+        Duration::from_millis(READ_TIME_CURSOR_BLINK_MS),
+        move || {
+            if window_weak_for_cursor_blink.upgrade().is_none() {
+                return ControlFlow::Break;
+            }
+
+            let Ok(state) = state_for_cursor_blink.try_borrow() else {
+                return ControlFlow::Continue;
+            };
+            if state.editing_timezone.is_none() {
+                if !state.read_time_cursor_visible.get() {
+                    state.read_time_cursor_visible.set(true);
+                    queue_read_time_edit_overlays(&state);
+                }
+                return ControlFlow::Continue;
+            }
+
+            state
+                .read_time_cursor_visible
+                .set(!state.read_time_cursor_visible.get());
+            queue_read_time_edit_overlays(&state);
+            ControlFlow::Continue
+        },
+    );
 
     let state_for_remote_results = state.clone();
     let window_weak_for_remote_results = window.downgrade();
@@ -4330,6 +4361,10 @@ fn build_window(
         if !state.dismiss_armed {
             return;
         }
+        if keep_popup_open_for_inspection() {
+            debug_popup_event("dismiss_click ignored for inspection");
+            return;
+        }
         drop(state);
 
         if point_is_inside_widget(&overlay_for_click, &panel_for_click, x, y) {
@@ -4363,13 +4398,18 @@ pub fn run_popup(pid_path: &Path, config_path: Option<PathBuf>) -> Result<()> {
     let local_timezone = detect_local_timezone();
 
     let window = gtk::Window::new();
+    let inspection_mode = keep_popup_open_for_inspection();
     window.set_title(Some("Omarchy World Clock"));
-    window.set_decorated(false);
-    window.set_resizable(false);
+    window.set_decorated(inspection_mode);
+    window.set_resizable(inspection_mode);
     window.set_focusable(true);
     window.set_can_focus(true);
     let state = build_window(config_manager, config, local_timezone, &window);
-    let _ = configure_layer_shell(&window);
+    if inspection_mode {
+        window.set_default_size(READ_PANEL_WIDTH + 64, READ_PANEL_TARGET_HEIGHT + 120);
+    } else {
+        let _ = configure_layer_shell(&window);
+    }
 
     let key_controller = gtk::EventControllerKey::new();
     let state_for_escape = state.clone();
@@ -4407,6 +4447,7 @@ pub fn run_popup(pid_path: &Path, config_path: Option<PathBuf>) -> Result<()> {
         if state.dismiss_armed
             && is_keyboard_or_focus_dismissible_screen(&state)
             && !window.is_active()
+            && !keep_popup_open_for_inspection()
         {
             drop(state);
             request_window_close(&state_for_focus, window, "focus_lost_read_mode");

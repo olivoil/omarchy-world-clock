@@ -94,6 +94,7 @@ window {{
   font-family: "JetBrainsMono Nerd Font Mono", "JetBrains Mono", monospace;
   font-size: 96px;
   font-weight: 700;
+  line-height: 0.82;
   letter-spacing: 0;
 }}
 
@@ -109,7 +110,12 @@ entry.read-summary-time {{
 
 entry.read-summary-time text {{
   color: {foreground};
+  caret-color: transparent;
+  font-family: "JetBrainsMono Nerd Font Mono", "JetBrains Mono", monospace;
+  font-size: 96px;
+  font-weight: 700;
   background: transparent;
+  line-height: 0.82;
   padding: 0;
 }}
 
@@ -228,6 +234,7 @@ button.card-hover-delete image {{
   font-family: "JetBrainsMono Nerd Font Mono", "JetBrains Mono", monospace;
   font-size: 52px;
   font-weight: 700;
+  line-height: 0.82;
   letter-spacing: 0;
 }}
 
@@ -238,6 +245,14 @@ entry.timezone-card-time {{
   border-radius: 14px;
   padding: 0;
   min-height: 48px;
+}}
+
+entry.timezone-card-time text {{
+  caret-color: transparent;
+  font-family: "JetBrainsMono Nerd Font Mono", "JetBrains Mono", monospace;
+  font-size: 52px;
+  font-weight: 700;
+  line-height: 0.82;
 }}
 
 .timezone-card-subtitle-row {{
@@ -259,6 +274,7 @@ entry.timezone-card-time:focus text,
 entry.timezone-card-time:focus-visible text,
 entry.timezone-card-time:focus-within text {{
   background: transparent;
+  line-height: 0.82;
   outline-color: transparent;
   outline-offset: 0;
   outline-width: 0;

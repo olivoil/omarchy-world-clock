@@ -143,6 +143,7 @@ const READ_PANEL_TARGET_HEIGHT: i32 = 540;
 const READ_PANEL_WIDTH: i32 = (READ_PANEL_TARGET_HEIGHT * 16) / 9;
 const READ_TIMELINE_WIDTH: i32 = READ_PANEL_WIDTH - 60;
 const READ_SECTION_SPACING: i32 = 18;
+const READ_TIMELINE_TOP_MARGIN: i32 = 12;
 const READ_TIMELINE_HEIGHT: i32 = 128;
 const TIMELINE_LINE_Y: f64 = 64.0;
 const TIMELINE_PADDING: f64 = 28.0;
@@ -2636,6 +2637,7 @@ fn build_window(
     let timeline_overlay = gtk::Overlay::new();
     timeline_overlay.add_css_class("timeline-shell");
     timeline_overlay.set_halign(Align::Center);
+    timeline_overlay.set_margin_top(READ_TIMELINE_TOP_MARGIN);
     timeline_overlay.set_width_request(READ_TIMELINE_WIDTH);
     read_root.append(&timeline_overlay);
 

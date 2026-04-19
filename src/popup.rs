@@ -143,6 +143,7 @@ const READ_PANEL_TARGET_HEIGHT: i32 = 540;
 const READ_PANEL_WIDTH: i32 = (READ_PANEL_TARGET_HEIGHT * 16) / 9;
 const READ_TIMELINE_WIDTH: i32 = READ_PANEL_WIDTH - 60;
 const READ_SECTION_SPACING: i32 = 18;
+const READ_TIMELINE_TOP_MARGIN: i32 = 12;
 const READ_TIMELINE_HEIGHT: i32 = 128;
 const TIMELINE_LINE_Y: f64 = 64.0;
 const TIMELINE_PADDING: f64 = 28.0;
@@ -881,13 +882,27 @@ fn build_read_card(entry: &TimezoneEntry, time_format: &str) -> ReadCardWidgets 
     card.set_size_request(READ_CARD_WIDTH, -1);
     card_shell.set_child(Some(&card));
 
+    let header = gtk::Box::new(Orientation::Horizontal, 12);
+    header.set_halign(Align::Fill);
+    card.append(&header);
+
     let title = gtk::Label::new(None);
     title.set_xalign(0.0);
+    title.set_hexpand(true);
     title.set_wrap(false);
     title.set_ellipsize(gtk::pango::EllipsizeMode::End);
     title.set_single_line_mode(true);
     title.add_css_class("timezone-card-title");
-    card.append(&title);
+    header.append(&title);
+
+    let timezone_label = gtk::Label::new(None);
+    timezone_label.set_xalign(1.0);
+    timezone_label.set_halign(Align::End);
+    timezone_label.set_wrap(false);
+    timezone_label.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    timezone_label.set_single_line_mode(true);
+    timezone_label.add_css_class("timezone-card-meta");
+    header.append(&timezone_label);
 
     let time_entry = gtk::Entry::new();
     gtk::prelude::EditableExt::set_alignment(&time_entry, 0.0);
@@ -897,18 +912,16 @@ fn build_read_card(entry: &TimezoneEntry, time_format: &str) -> ReadCardWidgets 
     time_entry.set_tooltip_text(Some("Enter a time in this timezone."));
     card.append(&time_entry);
 
-    let footer = gtk::Box::new(Orientation::Horizontal, 16);
+    let footer = gtk::Box::new(Orientation::Horizontal, 0);
     footer.set_halign(Align::Fill);
 
-    let timezone_label = gtk::Label::new(None);
-    timezone_label.set_xalign(0.0);
-    timezone_label.set_hexpand(true);
-    timezone_label.add_css_class("timezone-card-meta");
-    footer.append(&timezone_label);
-
     let delta_label = gtk::Label::new(None);
-    delta_label.set_xalign(1.0);
-    delta_label.set_halign(Align::End);
+    delta_label.set_xalign(0.0);
+    delta_label.set_hexpand(true);
+    delta_label.set_halign(Align::Start);
+    delta_label.set_wrap(false);
+    delta_label.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    delta_label.set_single_line_mode(true);
     delta_label.add_css_class("timezone-card-meta");
     footer.append(&delta_label);
 
@@ -2624,6 +2637,7 @@ fn build_window(
     let timeline_overlay = gtk::Overlay::new();
     timeline_overlay.add_css_class("timeline-shell");
     timeline_overlay.set_halign(Align::Center);
+    timeline_overlay.set_margin_top(READ_TIMELINE_TOP_MARGIN);
     timeline_overlay.set_width_request(READ_TIMELINE_WIDTH);
     read_root.append(&timeline_overlay);
 

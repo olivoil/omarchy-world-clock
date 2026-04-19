@@ -215,7 +215,7 @@ entry.timezone-card-time {{
   background: transparent;
   border: 1px solid transparent;
   border-radius: 14px;
-  padding: 0 8px;
+  padding: 0;
   min-height: 66px;
 }}
 

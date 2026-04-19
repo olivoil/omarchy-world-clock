@@ -577,14 +577,21 @@ fn refresh_time_entry_focus_leave(state_handle: &Rc<RefCell<PopupState>>) {
 
 fn clear_time_entry_focus_state(
     state_handle: &Rc<RefCell<PopupState>>,
+    focus_controller: &gtk::EventControllerFocus,
     timezone_name: String,
     dirty: Rc<Cell<bool>>,
 ) {
     let Ok(mut state) = state_handle.try_borrow_mut() else {
         debug_popup_event("time_entry_focus_leave deferred busy_state");
         let state_for_idle = state_handle.clone();
+        let focus_for_idle = focus_controller.clone();
         glib::idle_add_local_once(move || {
-            clear_time_entry_focus_state(&state_for_idle, timezone_name, dirty);
+            if focus_for_idle.is_focus() {
+                debug_popup_event("time_entry_focus_leave skipped stale_focus");
+                return;
+            }
+
+            clear_time_entry_focus_state(&state_for_idle, &focus_for_idle, timezone_name, dirty);
         });
         return;
     };
@@ -1632,9 +1639,10 @@ fn bind_time_entry_events(
     let timezone_name_for_leave = timezone_name.clone();
     let dirty_for_leave = dirty.clone();
     let state_for_leave = state_handle.clone();
-    focus_controller.connect_leave(move |_| {
+    focus_controller.connect_leave(move |focus_controller| {
         clear_time_entry_focus_state(
             &state_for_leave,
+            focus_controller,
             timezone_name_for_leave.clone(),
             dirty_for_leave.clone(),
         );

@@ -92,24 +92,68 @@ window {{
 .read-summary-time {{
   color: {foreground};
   font-family: "JetBrainsMono Nerd Font Mono", "JetBrains Mono", monospace;
-  font-size: 72px;
+  font-size: 96px;
   font-weight: 700;
-  letter-spacing: -0.04em;
+  line-height: 0.82;
+  letter-spacing: 0;
 }}
 
 entry.read-summary-time {{
-  caret-color: {accent};
+  color: {foreground};
+  caret-color: transparent;
   background: transparent;
   border: 1px solid transparent;
   border-radius: 18px;
+  box-shadow: none;
+  outline-color: transparent;
+  outline-offset: 0;
+  outline-style: none;
+  outline-width: 0;
   padding: 0 18px;
-  min-height: 78px;
+  min-height: 126px;
 }}
 
-entry.read-summary-time:focus {{
-  background: {time_chip_background};
-  border-color: {accent_focus_border};
-  box-shadow: 0 0 0 3px {accent_focus_shadow};
+entry.read-summary-time text {{
+  color: {foreground};
+  caret-color: transparent;
+  font-family: "JetBrainsMono Nerd Font Mono", "JetBrains Mono", monospace;
+  font-size: 96px;
+  font-weight: 700;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  line-height: 0.82;
+  outline-color: transparent;
+  outline-offset: 0;
+  outline-style: none;
+  outline-width: 0;
+  padding: 0;
+}}
+
+entry.read-summary-time:focus,
+entry.read-summary-time:focus-visible,
+entry.read-summary-time:focus-within {{
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  outline-color: transparent;
+  outline-offset: 0;
+  outline-style: none;
+  outline-width: 0;
+}}
+
+entry.read-summary-time:focus text,
+entry.read-summary-time:focus-visible text,
+entry.read-summary-time:focus-within text,
+entry.read-summary-time text:focus,
+entry.read-summary-time text:focus-visible {{
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  outline-color: transparent;
+  outline-offset: 0;
+  outline-style: none;
+  outline-width: 0;
 }}
 
 entry.read-summary-time.error {{
@@ -207,26 +251,67 @@ button.card-hover-delete image {{
   font-family: "JetBrainsMono Nerd Font Mono", "JetBrains Mono", monospace;
   font-size: 52px;
   font-weight: 700;
-  letter-spacing: -0.04em;
+  line-height: 0.82;
+  letter-spacing: 0;
 }}
 
 entry.timezone-card-time {{
-  caret-color: {accent};
+  caret-color: transparent;
   background: transparent;
   border: 1px solid transparent;
   border-radius: 14px;
+  box-shadow: none;
+  outline-color: transparent;
+  outline-offset: 0;
+  outline-style: none;
+  outline-width: 0;
   padding: 0;
   min-height: 48px;
+}}
+
+entry.timezone-card-time text {{
+  caret-color: transparent;
+  font-family: "JetBrainsMono Nerd Font Mono", "JetBrains Mono", monospace;
+  font-size: 52px;
+  font-weight: 700;
+  border: none;
+  box-shadow: none;
+  line-height: 0.82;
+  outline-color: transparent;
+  outline-offset: 0;
+  outline-style: none;
+  outline-width: 0;
 }}
 
 .timezone-card-subtitle-row {{
   margin-top: -8px;
 }}
 
-entry.timezone-card-time:focus {{
-  background: {time_chip_background};
-  border-color: {accent_focus_border};
-  box-shadow: 0 0 0 3px {accent_focus_shadow};
+entry.timezone-card-time:focus,
+entry.timezone-card-time:focus-visible,
+entry.timezone-card-time:focus-within {{
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  outline-color: transparent;
+  outline-offset: 0;
+  outline-style: none;
+  outline-width: 0;
+}}
+
+entry.timezone-card-time:focus text,
+entry.timezone-card-time:focus-visible text,
+entry.timezone-card-time:focus-within text,
+entry.timezone-card-time text:focus,
+entry.timezone-card-time text:focus-visible {{
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  line-height: 0.82;
+  outline-color: transparent;
+  outline-offset: 0;
+  outline-style: none;
+  outline-width: 0;
 }}
 
 entry.timezone-card-time.error {{
@@ -488,7 +573,7 @@ dropdown.popup-select > button {{
   min-height: 42px;
   padding: 10px 16px;
   font-size: 15px;
-  font-weight: 650;
+  font-weight: 600;
 }}
 
 dropdown.popup-select > button:hover {{
@@ -533,7 +618,7 @@ dropdown.popup-select popover.background row:selected {{
 dropdown.popup-select popover.background row label {{
   color: {foreground};
   font-size: 16px;
-  font-weight: 650;
+  font-weight: 600;
 }}
 
 dropdown.popup-select popover.background row:selected label {{

@@ -303,10 +303,10 @@ Drag reordering is available only when all of the following are true:
 
 ## Empty State
 
-If there are no configured rows:
+If there are no configured non-local rows:
 
-- the popup shows an empty-state title and helper copy
-- edit mode still allows adding timezones
+- the popup opens directly to the `Add a Location` screen
+- no empty-state filler is shown before the add flow
 - the Waybar tooltip shows `No additional timezones yet.`
 
 ## Performance and Feel

@@ -97,34 +97,25 @@ window {{
   letter-spacing: 0;
 }}
 
-.read-summary-time-stack {{
-  min-width: 560px;
-  min-height: 104px;
-}}
-
-.read-summary-time-display {{
-  min-width: 560px;
-  min-height: 104px;
-}}
-
 entry.read-summary-time {{
-  color: rgba(0, 0, 0, 0);
-  caret-color: {accent};
+  color: {foreground};
+  caret-color: transparent;
   background: transparent;
   border: 1px solid transparent;
   border-radius: 18px;
   padding: 0 18px;
-  min-height: 104px;
+  min-height: 126px;
 }}
 
 entry.read-summary-time text {{
-  color: rgba(0, 0, 0, 0);
+  color: {foreground};
   background: transparent;
   padding: 0;
-  min-height: 104px;
 }}
 
-entry.read-summary-time:focus {{
+entry.read-summary-time:focus,
+entry.read-summary-time:focus-visible,
+entry.read-summary-time:focus-within {{
   background: transparent;
   border-color: transparent;
   box-shadow: none;
@@ -133,7 +124,9 @@ entry.read-summary-time:focus {{
   outline-width: 0;
 }}
 
-entry.read-summary-time:focus text {{
+entry.read-summary-time:focus text,
+entry.read-summary-time:focus-visible text,
+entry.read-summary-time:focus-within text {{
   background: transparent;
   outline-color: transparent;
   outline-offset: 0;
@@ -530,7 +523,7 @@ dropdown.popup-select > button {{
   min-height: 42px;
   padding: 10px 16px;
   font-size: 15px;
-  font-weight: 650;
+  font-weight: 600;
 }}
 
 dropdown.popup-select > button:hover {{
@@ -575,7 +568,7 @@ dropdown.popup-select popover.background row:selected {{
 dropdown.popup-select popover.background row label {{
   color: {foreground};
   font-size: 16px;
-  font-weight: 650;
+  font-weight: 600;
 }}
 
 dropdown.popup-select popover.background row:selected label {{

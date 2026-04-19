@@ -95,6 +95,8 @@ struct PopupState {
     cancel_button: gtk::Button,
     sort_mode_dropdown: gtk::DropDown,
     time_format_dropdown: gtk::DropDown,
+    read_summary_time_stack: gtk::Stack,
+    read_summary_time_display: gtk::DrawingArea,
     read_summary_time: gtk::Entry,
     read_summary_location: gtk::Label,
     read_summary_dirty: Rc<Cell<bool>>,
@@ -158,6 +160,8 @@ const READ_CARD_LIMIT: usize = 9;
 const READ_CARD_SPACING: i32 = 18;
 const READ_CARD_WIDTH: i32 =
     (READ_TIMELINE_WIDTH - (READ_CARD_SPACING * (READ_CARD_COLUMNS - 1))) / READ_CARD_COLUMNS;
+const READ_SUMMARY_TIME_WIDTH: i32 = 560;
+const READ_SUMMARY_TIME_HEIGHT: i32 = 144;
 const ADD_SEARCH_RESULT_LIMIT: usize = 8;
 const ADD_MAP_HEIGHT: i32 = READ_TIMELINE_WIDTH / 2;
 const ADD_MAP_ASPECT_RATIO: f32 = 2.0;
@@ -926,6 +930,25 @@ fn color_components(hex_value: &str, fallback: (f64, f64, f64)) -> (f64, f64, f6
         .unwrap_or(fallback)
 }
 
+fn draw_read_summary_time(context: &gtk::cairo::Context, width: i32, height: i32, text: &str) {
+    let palette = load_palette();
+    let foreground = color_components(&palette.foreground, (0.85, 0.88, 0.94));
+    let layout = pangocairo::functions::create_layout(context);
+    let font = gtk::pango::FontDescription::from_string("JetBrainsMono Nerd Font Mono Bold 72");
+    layout.set_font_description(Some(&font));
+    layout.set_text(text);
+
+    let (ink, _logical) = layout.pixel_extents();
+    let ink_width = ink.width().max(1) as f64;
+    let ink_height = ink.height().max(1) as f64;
+    let x = ((width as f64 - ink_width) / 2.0) - ink.x() as f64;
+    let y = ((height as f64 - ink_height) / 2.0) - ink.y() as f64;
+
+    context.set_source_rgba(foreground.0, foreground.1, foreground.2, 1.0);
+    context.move_to(x.round(), y.round());
+    pangocairo::functions::show_layout(context, &layout);
+}
+
 fn load_world_map_texture() -> Option<gdk::Texture> {
     match gdk::Texture::from_bytes(&glib::Bytes::from_static(WORLD_MAP_ASSET_BYTES)) {
         Ok(texture) => Some(texture),
@@ -1219,13 +1242,19 @@ fn update_read_cards(
 
 fn render_read_view(state: &mut PopupState) {
     let anchor = zoned_datetime(state.reference_utc, &state.local_timezone);
+    let display_time = format_display_time(&anchor, &state.time_format);
+    state.read_summary_time_display.queue_draw();
+
     configure_manual_time_entry(&state.read_summary_time, &state.time_format);
     if state.editing_timezone.as_deref() != Some(state.local_timezone.as_str()) {
+        state
+            .read_summary_time_stack
+            .set_visible_child_name("display");
         set_entry_error(&state.read_summary_time, false);
         set_time_entry_text(
             &state.read_summary_time,
             &state.read_summary_suppress_changes,
-            &format_display_time(&anchor, &state.time_format),
+            &display_time,
         );
         state.read_summary_dirty.set(false);
     }
@@ -2577,6 +2606,9 @@ fn reset_live_now(state_handle: &Rc<RefCell<PopupState>>) {
     }
     clear_status(&state);
     update_live_button(&state);
+    state
+        .read_summary_time_stack
+        .set_visible_child_name("display");
     update_row_widgets(&mut state);
 }
 
@@ -2803,13 +2835,35 @@ fn build_window(
     read_summary.set_halign(Align::Center);
     read_root.append(&read_summary);
 
+    let read_summary_time_stack = gtk::Stack::new();
+    read_summary_time_stack.set_halign(Align::Center);
+    read_summary_time_stack.set_hhomogeneous(false);
+    read_summary_time_stack.set_vhomogeneous(false);
+    read_summary_time_stack.set_size_request(READ_SUMMARY_TIME_WIDTH, READ_SUMMARY_TIME_HEIGHT);
+    read_summary_time_stack.add_css_class("read-summary-time-stack");
+    read_summary.append(&read_summary_time_stack);
+
+    let read_summary_time_display = gtk::DrawingArea::new();
+    read_summary_time_display.set_halign(Align::Center);
+    read_summary_time_display.set_valign(Align::Center);
+    read_summary_time_display.set_content_width(READ_SUMMARY_TIME_WIDTH);
+    read_summary_time_display.set_content_height(READ_SUMMARY_TIME_HEIGHT);
+    read_summary_time_display.set_size_request(READ_SUMMARY_TIME_WIDTH, READ_SUMMARY_TIME_HEIGHT);
+    read_summary_time_display.add_css_class("read-summary-time-display");
+    read_summary_time_display
+        .set_tooltip_text(Some("Click to enter a time in your current timezone."));
+    read_summary_time_stack.add_named(&read_summary_time_display, Some("display"));
+
     let read_summary_time = gtk::Entry::new();
     gtk::prelude::EditableExt::set_alignment(&read_summary_time, 0.5);
     configure_manual_time_entry(&read_summary_time, DEFAULT_TIME_FORMAT);
     read_summary_time.set_halign(Align::Center);
+    read_summary_time.set_valign(Align::Center);
+    read_summary_time.set_size_request(READ_SUMMARY_TIME_WIDTH, READ_SUMMARY_TIME_HEIGHT);
     read_summary_time.add_css_class("read-summary-time");
     read_summary_time.set_tooltip_text(Some("Enter a time in your current timezone."));
-    read_summary.append(&read_summary_time);
+    read_summary_time_stack.add_named(&read_summary_time, Some("edit"));
+    read_summary_time_stack.set_visible_child_name("display");
 
     let read_summary_location = gtk::Label::new(None);
     read_summary_location.set_xalign(0.5);
@@ -3087,6 +3141,8 @@ fn build_window(
         cancel_button: cancel_button.clone(),
         sort_mode_dropdown: sort_mode_dropdown.clone(),
         time_format_dropdown: time_format_dropdown.clone(),
+        read_summary_time_stack: read_summary_time_stack.clone(),
+        read_summary_time_display: read_summary_time_display.clone(),
         read_summary_time: read_summary_time.clone(),
         read_summary_location: read_summary_location.clone(),
         read_summary_dirty: read_summary_dirty.clone(),
@@ -3128,6 +3184,38 @@ fn build_window(
         read_summary_dirty,
         read_summary_suppress_changes,
     );
+
+    let summary_stack_for_click = read_summary_time_stack.clone();
+    let summary_entry_for_click = read_summary_time.clone();
+    let summary_click = gtk::GestureClick::new();
+    summary_click.connect_released(move |_, _, _, _| {
+        summary_stack_for_click.set_visible_child_name("edit");
+        summary_entry_for_click.grab_focus();
+        summary_entry_for_click.select_region(0, -1);
+    });
+    read_summary_time_display.add_controller(summary_click);
+
+    let summary_stack_for_focus = read_summary_time_stack.clone();
+    let summary_display_focus = gtk::EventControllerFocus::new();
+    summary_display_focus.connect_enter(move |_| {
+        summary_stack_for_focus.set_visible_child_name("edit");
+    });
+    read_summary_time.add_controller(summary_display_focus);
+
+    let summary_stack_for_blur = read_summary_time_stack.clone();
+    let summary_display_blur = gtk::EventControllerFocus::new();
+    summary_display_blur.connect_leave(move |_| {
+        summary_stack_for_blur.set_visible_child_name("display");
+    });
+    read_summary_time.add_controller(summary_display_blur);
+
+    let state_for_summary_time = state.clone();
+    read_summary_time_display.set_draw_func(move |_, context, width, height| {
+        let state = state_for_summary_time.borrow();
+        let anchor = zoned_datetime(state.reference_utc, &state.local_timezone);
+        let text = format_display_time(&anchor, &state.time_format);
+        draw_read_summary_time(context, width, height, &text);
+    });
 
     let state_for_timeline = state.clone();
     timeline_area.set_draw_func(move |_, context, width, height| {

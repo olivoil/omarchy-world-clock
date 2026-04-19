@@ -97,13 +97,23 @@ window {{
   letter-spacing: -0.04em;
 }}
 
+.read-summary-time-stack {{
+  min-width: 560px;
+  min-height: 144px;
+}}
+
+.read-summary-time-display {{
+  min-width: 560px;
+  min-height: 144px;
+}}
+
 entry.read-summary-time {{
   caret-color: {accent};
   background: transparent;
   border: 1px solid transparent;
   border-radius: 18px;
   padding: 0 18px;
-  min-height: 78px;
+  min-height: 144px;
 }}
 
 entry.read-summary-time:focus {{

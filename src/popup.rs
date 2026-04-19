@@ -1212,7 +1212,7 @@ fn update_screen_mode(state: &PopupState) {
 
     state.content_stack.set_visible_child_name(page_name);
     state.panel_title.set_text(if in_add {
-        "New Location"
+        "Add a Location"
     } else {
         "World Clock"
     });

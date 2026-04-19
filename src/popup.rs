@@ -2793,7 +2793,7 @@ fn build_window(
     read_root.add_css_class("read-mode");
     content_stack.add_named(&read_root, Some("read"));
 
-    let read_summary = gtk::Box::new(Orientation::Vertical, 8);
+    let read_summary = gtk::Box::new(Orientation::Vertical, 0);
     read_summary.set_halign(Align::Center);
     read_root.append(&read_summary);
 
@@ -2811,6 +2811,7 @@ fn build_window(
     read_summary_location.set_ellipsize(gtk::pango::EllipsizeMode::End);
     read_summary_location.set_single_line_mode(true);
     read_summary_location.set_max_width_chars(64);
+    read_summary_location.set_margin_bottom(12);
     read_summary_location.add_css_class("read-summary-location");
     read_summary.append(&read_summary_location);
 

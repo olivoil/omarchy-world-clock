@@ -103,7 +103,7 @@ entry.read-summary-time {{
   border: 1px solid transparent;
   border-radius: 18px;
   padding: 0 18px;
-  min-height: 92px;
+  min-height: 78px;
 }}
 
 entry.read-summary-time:focus {{

@@ -575,6 +575,20 @@ fn refresh_time_entry_focus_leave(state_handle: &Rc<RefCell<PopupState>>) {
     }
 }
 
+fn defer_time_entry_focus_leave<F>(callback: F)
+where
+    F: FnOnce() + 'static,
+{
+    let mut callback = Some(callback);
+    // Flush the old focused entry before later key/change events mark a new entry dirty.
+    glib::idle_add_local_full(glib::Priority::HIGH, move || {
+        if let Some(callback) = callback.take() {
+            callback();
+        }
+        ControlFlow::Break
+    });
+}
+
 fn clear_time_entry_focus_state(
     state_handle: &Rc<RefCell<PopupState>>,
     focus_controller: &gtk::EventControllerFocus,
@@ -585,7 +599,7 @@ fn clear_time_entry_focus_state(
         debug_popup_event("time_entry_focus_leave deferred busy_state");
         let state_for_idle = state_handle.clone();
         let focus_for_idle = focus_controller.clone();
-        glib::idle_add_local_once(move || {
+        defer_time_entry_focus_leave(move || {
             if focus_for_idle.is_focus() {
                 debug_popup_event("time_entry_focus_leave skipped stale_focus");
                 return;

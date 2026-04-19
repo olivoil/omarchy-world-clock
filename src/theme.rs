@@ -118,7 +118,7 @@ entry.read-summary-time.error {{
 
 .read-summary-location {{
   color: {read_location};
-  font-size: 20px;
+  font-size: 16px;
   font-weight: 600;
 }}
 

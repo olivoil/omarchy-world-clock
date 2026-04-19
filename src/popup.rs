@@ -685,13 +685,61 @@ fn anchor_label(state: &PopupState) -> String {
         .unwrap_or_else(|| friendly_timezone_name(&state.local_timezone))
 }
 
-fn location_with_zone_notation(label: &str, zoned: &DateTime<chrono_tz::Tz>) -> String {
-    let notation = format_timezone_notation(zoned);
-    if label == notation {
-        return label.to_string();
+fn first_location_segment(label: &str) -> String {
+    let trimmed = label.trim();
+    label
+        .split(',')
+        .map(str::trim)
+        .find(|part| !part.is_empty())
+        .unwrap_or(trimmed)
+        .to_string()
+}
+
+fn trailing_location_segments(label: &str) -> Option<String> {
+    let parts = label
+        .split(',')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>();
+    if parts.len() <= 1 {
+        None
+    } else {
+        Some(parts[1..].join(", "))
+    }
+}
+
+fn summary_search_result(
+    timezone_name: &str,
+    label: &str,
+    resolver_result: Option<TimezoneSearchResult>,
+) -> TimezoneSearchResult {
+    let mut result = resolver_result.unwrap_or_else(|| TimezoneSearchResult {
+        timezone: timezone_name.to_string(),
+        title: label.to_string(),
+        subtitle: timezone_name.to_string(),
+    });
+
+    if let Some(location_context) = trailing_location_segments(label) {
+        result.subtitle = format!("{}  ·  {}", result.timezone, location_context);
+    } else if result.subtitle.trim().is_empty() {
+        result.subtitle = result.timezone.clone();
     }
 
-    format!("{label}  ·  {notation}")
+    result
+}
+
+fn read_summary_title(state: &PopupState) -> String {
+    first_location_segment(&anchor_label(state))
+}
+
+fn read_summary_subtitle(state: &PopupState) -> String {
+    let label = anchor_label(state);
+    let result = summary_search_result(
+        &state.local_timezone,
+        &label,
+        state.resolver.describe_timezone(&state.local_timezone),
+    );
+    search_result_subtitle(&result, &state.reference_utc)
 }
 
 fn relative_time_label(
@@ -1177,7 +1225,7 @@ fn render_read_view(state: &mut PopupState) {
     }
     state
         .read_summary_location
-        .set_text(&location_with_zone_notation(&anchor_label(state), &anchor));
+        .set_text(&read_summary_subtitle(state));
 
     while let Some(child) = state.timeline_labels.first_child() {
         state.timeline_labels.remove(&child);
@@ -1358,11 +1406,12 @@ fn update_screen_mode(state: &PopupState) {
     let can_add_more = can_add_more_locations(state);
 
     state.content_stack.set_visible_child_name(page_name);
-    state.panel_title.set_text(if in_add {
-        "Add a Location"
+    let title = if in_add {
+        "Add a Location".to_string()
     } else {
-        "World Clock"
-    });
+        read_summary_title(state)
+    };
+    state.panel_title.set_text(&title);
 
     state.live_button.set_visible(!in_add);
     state.edit_button.set_visible(!in_add);
@@ -2702,6 +2751,9 @@ fn build_window(
 
     let title = gtk::Label::new(Some("World Clock"));
     title.set_xalign(0.5);
+    title.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    title.set_single_line_mode(true);
+    title.set_max_width_chars(32);
     title.add_css_class("panel-title");
     header.set_center_widget(Some(&title));
 
@@ -2755,6 +2807,10 @@ fn build_window(
 
     let read_summary_location = gtk::Label::new(None);
     read_summary_location.set_xalign(0.5);
+    read_summary_location.set_halign(Align::Center);
+    read_summary_location.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    read_summary_location.set_single_line_mode(true);
+    read_summary_location.set_max_width_chars(64);
     read_summary_location.add_css_class("read-summary-location");
     read_summary.append(&read_summary_location);
 
@@ -3471,9 +3527,10 @@ pub fn run_popup(pid_path: &Path, config_path: Option<PathBuf>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_timeline_items, format_timeline_zone_text, map_coordinates_to_lng_lat,
-        read_card_row_width, read_card_title, read_entry_count, screen_mode_for_read_entry_count,
-        search_result_subtitle, sort_read_entries_by_time, timeline_entries, timeline_side_hours,
+        build_timeline_items, first_location_segment, format_timeline_zone_text,
+        map_coordinates_to_lng_lat, read_card_row_width, read_card_title, read_entry_count,
+        screen_mode_for_read_entry_count, search_result_subtitle, sort_read_entries_by_time,
+        summary_search_result, timeline_entries, timeline_side_hours,
         timeline_tick_relative_minutes, visible_read_entries, PopupScreen, READ_CARD_COLUMNS,
         READ_CARD_LIMIT, READ_CARD_SPACING, READ_CARD_WIDTH,
     };
@@ -3705,6 +3762,34 @@ mod tests {
         let entry = entry("America/Argentina/Buenos_Aires");
 
         assert_eq!(read_card_title(&entry), "Buenos Aires");
+    }
+
+    #[test]
+    fn first_location_segment_uses_the_city_from_a_place_label() {
+        assert_eq!(
+            first_location_segment("Barcelona, Catalonia, Spain"),
+            "Barcelona"
+        );
+    }
+
+    #[test]
+    fn summary_search_result_uses_label_context_for_metadata() {
+        let result = summary_search_result(
+            "Europe/Madrid",
+            "Barcelona, Catalonia, Spain",
+            Some(TimezoneSearchResult {
+                timezone: "Europe/Madrid".to_string(),
+                title: "Madrid".to_string(),
+                subtitle: "Europe/Madrid  ·  CET / CEST".to_string(),
+            }),
+        );
+
+        let subtitle = search_result_subtitle(
+            &result,
+            &Utc.with_ymd_and_hms(2026, 4, 18, 12, 0, 0).unwrap(),
+        );
+
+        assert_eq!(subtitle, "Europe/Madrid  ·  CEST  ·  Catalonia, Spain");
     }
 
     #[test]

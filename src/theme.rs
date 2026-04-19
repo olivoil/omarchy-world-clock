@@ -104,6 +104,11 @@ entry.read-summary-time {{
   background: transparent;
   border: 1px solid transparent;
   border-radius: 18px;
+  box-shadow: none;
+  outline-color: transparent;
+  outline-offset: 0;
+  outline-style: none;
+  outline-width: 0;
   padding: 0 18px;
   min-height: 126px;
 }}
@@ -115,7 +120,13 @@ entry.read-summary-time text {{
   font-size: 96px;
   font-weight: 700;
   background: transparent;
+  border: none;
+  box-shadow: none;
   line-height: 0.82;
+  outline-color: transparent;
+  outline-offset: 0;
+  outline-style: none;
+  outline-width: 0;
   padding: 0;
 }}
 
@@ -127,15 +138,21 @@ entry.read-summary-time:focus-within {{
   box-shadow: none;
   outline-color: transparent;
   outline-offset: 0;
+  outline-style: none;
   outline-width: 0;
 }}
 
 entry.read-summary-time:focus text,
 entry.read-summary-time:focus-visible text,
-entry.read-summary-time:focus-within text {{
+entry.read-summary-time:focus-within text,
+entry.read-summary-time text:focus,
+entry.read-summary-time text:focus-visible {{
   background: transparent;
+  border: none;
+  box-shadow: none;
   outline-color: transparent;
   outline-offset: 0;
+  outline-style: none;
   outline-width: 0;
 }}
 
@@ -243,6 +260,11 @@ entry.timezone-card-time {{
   background: transparent;
   border: 1px solid transparent;
   border-radius: 14px;
+  box-shadow: none;
+  outline-color: transparent;
+  outline-offset: 0;
+  outline-style: none;
+  outline-width: 0;
   padding: 0;
   min-height: 48px;
 }}
@@ -252,7 +274,13 @@ entry.timezone-card-time text {{
   font-family: "JetBrainsMono Nerd Font Mono", "JetBrains Mono", monospace;
   font-size: 52px;
   font-weight: 700;
+  border: none;
+  box-shadow: none;
   line-height: 0.82;
+  outline-color: transparent;
+  outline-offset: 0;
+  outline-style: none;
+  outline-width: 0;
 }}
 
 .timezone-card-subtitle-row {{
@@ -267,16 +295,22 @@ entry.timezone-card-time:focus-within {{
   box-shadow: none;
   outline-color: transparent;
   outline-offset: 0;
+  outline-style: none;
   outline-width: 0;
 }}
 
 entry.timezone-card-time:focus text,
 entry.timezone-card-time:focus-visible text,
-entry.timezone-card-time:focus-within text {{
+entry.timezone-card-time:focus-within text,
+entry.timezone-card-time text:focus,
+entry.timezone-card-time text:focus-visible {{
   background: transparent;
+  border: none;
+  box-shadow: none;
   line-height: 0.82;
   outline-color: transparent;
   outline-offset: 0;
+  outline-style: none;
   outline-width: 0;
 }}
 

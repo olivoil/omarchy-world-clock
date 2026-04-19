@@ -1117,7 +1117,7 @@ fn draw_read_card_time_edit_cursor(
     let palette = load_palette();
     let foreground = color_components(&palette.foreground, (0.85, 0.88, 0.94));
     let accent = color_components(&palette.accent, foreground);
-    let font = gtk::pango::FontDescription::from_string("JetBrainsMono Nerd Font Mono Bold 52");
+    let font = gtk::pango::FontDescription::from_string("JetBrainsMono Nerd Font Mono Bold 39");
     let layout = pangocairo::functions::create_layout(context);
     layout.set_font_description(Some(&font));
     layout.set_text(text);

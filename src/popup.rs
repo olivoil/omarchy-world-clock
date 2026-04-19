@@ -524,6 +524,105 @@ fn clear_status(state: &PopupState) {
     set_status(state, "", false);
 }
 
+fn update_time_entry_focus_state(
+    state_handle: &Rc<RefCell<PopupState>>,
+    focus_controller: &gtk::EventControllerFocus,
+    timezone_name: String,
+) {
+    match state_handle.try_borrow_mut() {
+        Ok(mut state) => {
+            state.editing_timezone = Some(timezone_name);
+            clear_status(&state);
+        }
+        Err(_) => {
+            debug_popup_event("time_entry_focus_enter deferred busy_state");
+            let state_for_idle = state_handle.clone();
+            let focus_for_idle = focus_controller.clone();
+            glib::idle_add_local_once(move || {
+                if !focus_for_idle.is_focus() {
+                    debug_popup_event("time_entry_focus_enter skipped stale_focus");
+                    return;
+                }
+
+                let Ok(mut state) = state_for_idle.try_borrow_mut() else {
+                    debug_popup_event("time_entry_focus_enter skipped busy_state");
+                    return;
+                };
+                state.editing_timezone = Some(timezone_name);
+                clear_status(&state);
+            });
+        }
+    }
+}
+
+fn refresh_time_entry_focus_leave(state_handle: &Rc<RefCell<PopupState>>) {
+    match state_handle.try_borrow_mut() {
+        Ok(mut state) => update_row_widgets(&mut state),
+        Err(_) => {
+            debug_popup_event("time_entry_focus_leave_refresh deferred busy_state");
+            let state_for_idle = state_handle.clone();
+            glib::idle_add_local_once(move || {
+                let Ok(mut state) = state_for_idle.try_borrow_mut() else {
+                    debug_popup_event("time_entry_focus_leave_refresh skipped busy_state");
+                    return;
+                };
+                update_row_widgets(&mut state);
+            });
+        }
+    }
+}
+
+fn defer_time_entry_focus_leave<F>(callback: F)
+where
+    F: FnOnce() + 'static,
+{
+    let mut callback = Some(callback);
+    // Flush the old focused entry before later key/change events mark a new entry dirty.
+    glib::idle_add_local_full(glib::Priority::HIGH, move || {
+        if let Some(callback) = callback.take() {
+            callback();
+        }
+        ControlFlow::Break
+    });
+}
+
+fn clear_time_entry_focus_state(
+    state_handle: &Rc<RefCell<PopupState>>,
+    focus_controller: &gtk::EventControllerFocus,
+    timezone_name: String,
+    dirty: Rc<Cell<bool>>,
+) {
+    let Ok(mut state) = state_handle.try_borrow_mut() else {
+        debug_popup_event("time_entry_focus_leave deferred busy_state");
+        let state_for_idle = state_handle.clone();
+        let focus_for_idle = focus_controller.clone();
+        defer_time_entry_focus_leave(move || {
+            if focus_for_idle.is_focus() {
+                debug_popup_event("time_entry_focus_leave skipped stale_focus");
+                return;
+            }
+
+            clear_time_entry_focus_state(&state_for_idle, &focus_for_idle, timezone_name, dirty);
+        });
+        return;
+    };
+
+    if state.editing_timezone.as_deref() == Some(timezone_name.as_str()) {
+        state.editing_timezone = None;
+    }
+    drop(state);
+
+    if dirty.get() {
+        let applied = flush_live_apply(state_handle, &timezone_name, false);
+        if !applied {
+            dirty.set(false);
+            refresh_time_entry_focus_leave(state_handle);
+        }
+    } else {
+        refresh_time_entry_focus_leave(state_handle);
+    }
+}
+
 fn schedule_live_apply(state_handle: &Rc<RefCell<PopupState>>, timezone_name: &str) {
     let mut state = state_handle.borrow_mut();
     if let Some(source_id) = state.pending_apply_source.take() {
@@ -1596,37 +1695,27 @@ fn bind_time_entry_events(
     let dirty_for_enter = dirty.clone();
     let state_for_enter = state_handle.clone();
     let time_entry_for_enter = time_entry.clone();
-    focus_controller.connect_enter(move |_| {
+    focus_controller.connect_enter(move |focus_controller| {
         dirty_for_enter.set(false);
         set_entry_error(&time_entry_for_enter, false);
         time_entry_for_enter.select_region(0, -1);
-        let mut state = state_for_enter.borrow_mut();
-        state.editing_timezone = Some(timezone_name_for_enter.clone());
-        clear_status(&state);
+        update_time_entry_focus_state(
+            &state_for_enter,
+            focus_controller,
+            timezone_name_for_enter.clone(),
+        );
     });
 
     let timezone_name_for_leave = timezone_name.clone();
     let dirty_for_leave = dirty.clone();
     let state_for_leave = state_handle.clone();
-    focus_controller.connect_leave(move |_| {
-        {
-            let mut state = state_for_leave.borrow_mut();
-            if state.editing_timezone.as_deref() == Some(timezone_name_for_leave.as_str()) {
-                state.editing_timezone = None;
-            }
-        }
-
-        if dirty_for_leave.get() {
-            let applied = flush_live_apply(&state_for_leave, &timezone_name_for_leave, false);
-            if !applied {
-                dirty_for_leave.set(false);
-                let mut state = state_for_leave.borrow_mut();
-                update_row_widgets(&mut state);
-            }
-        } else {
-            let mut state = state_for_leave.borrow_mut();
-            update_row_widgets(&mut state);
-        }
+    focus_controller.connect_leave(move |focus_controller| {
+        clear_time_entry_focus_state(
+            &state_for_leave,
+            focus_controller,
+            timezone_name_for_leave.clone(),
+            dirty_for_leave.clone(),
+        );
     });
     time_entry.add_controller(focus_controller);
 

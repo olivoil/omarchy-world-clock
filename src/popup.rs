@@ -16,7 +16,7 @@ use chrono::{DateTime, Offset, Timelike, Utc};
 use gtk::gdk;
 use gtk::glib::{self, ControlFlow, MainLoop, Propagation};
 use gtk::prelude::*;
-use gtk::{Align, Orientation, SelectionMode};
+use gtk::{Align, Orientation};
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, HashSet};
@@ -101,7 +101,7 @@ struct PopupState {
     read_summary_suppress_changes: Rc<Cell<bool>>,
     timeline_area: gtk::DrawingArea,
     timeline_labels: gtk::Fixed,
-    cards_flow: gtk::FlowBox,
+    cards_grid: gtk::Box,
     read_cards: Vec<ReadCardWidgets>,
     add_entry: gtk::Entry,
     search_results_scroller: gtk::ScrolledWindow,
@@ -412,28 +412,19 @@ fn sync_dropdowns(state: &PopupState) {
 }
 
 fn read_entry_count(entries: &[TimezoneEntry], local_timezone: &str) -> usize {
-    let non_local_count = entries
+    entries
         .iter()
         .filter(|entry| entry.timezone != local_timezone)
-        .count();
-    if non_local_count == 0 {
-        entries.len()
-    } else {
-        non_local_count
-    }
+        .count()
 }
 
 fn visible_read_entries(entries: &[TimezoneEntry], local_timezone: &str) -> Vec<TimezoneEntry> {
-    let mut visible = entries
+    entries
         .iter()
         .filter(|entry| entry.timezone != local_timezone)
         .take(READ_CARD_LIMIT)
         .cloned()
-        .collect::<Vec<_>>();
-    if visible.is_empty() {
-        visible = entries.iter().take(READ_CARD_LIMIT).cloned().collect();
-    }
-    visible
+        .collect()
 }
 
 fn sort_read_entries_by_time(
@@ -455,6 +446,11 @@ fn read_entries(state: &PopupState) -> Vec<TimezoneEntry> {
     let mut entries = visible_read_entries(&state.config.timezones, &state.local_timezone);
     sort_read_entries_by_time(&mut entries, state.reference_utc, &state.local_timezone);
     entries
+}
+
+fn read_card_row_width(entry_count: usize) -> i32 {
+    let columns = (entry_count as i32).clamp(1, READ_CARD_COLUMNS);
+    (READ_CARD_WIDTH * columns) + (READ_CARD_SPACING * (columns - 1))
 }
 
 fn timeline_entries(
@@ -959,13 +955,23 @@ fn build_read_card(entry: &TimezoneEntry, time_format: &str) -> ReadCardWidgets 
 }
 
 fn rebuild_read_cards(state: &mut PopupState, entries: &[TimezoneEntry]) {
-    while let Some(child) = state.cards_flow.first_child() {
-        state.cards_flow.remove(&child);
-    }
+    clear_box(&state.cards_grid);
     state.read_cards.clear();
 
     let state_handle = state.self_handle.upgrade();
-    for entry in entries {
+    let columns = READ_CARD_COLUMNS as usize;
+    let mut row: Option<gtk::Box> = None;
+
+    for (index, entry) in entries.iter().enumerate() {
+        if index % columns == 0 {
+            let row_entry_count = entries.len().saturating_sub(index).min(columns);
+            let next_row = gtk::Box::new(Orientation::Horizontal, READ_CARD_SPACING);
+            next_row.set_halign(Align::Center);
+            next_row.set_width_request(read_card_row_width(row_entry_count));
+            state.cards_grid.append(&next_row);
+            row = Some(next_row);
+        }
+
         let widgets = build_read_card(entry, &state.time_format);
         if let Some(state_handle) = state_handle.as_ref() {
             bind_time_entry_events(
@@ -983,7 +989,9 @@ fn rebuild_read_cards(state: &mut PopupState, entries: &[TimezoneEntry]) {
             });
         }
 
-        state.cards_flow.append(&widgets.root);
+        if let Some(row) = row.as_ref() {
+            row.append(&widgets.root);
+        }
         state.read_cards.push(widgets);
     }
 }
@@ -1130,6 +1138,23 @@ fn can_add_more_locations(state: &PopupState) -> bool {
     read_entry_count(&state.config.timezones, &state.local_timezone) < READ_CARD_LIMIT
 }
 
+fn screen_mode_for_read_entry_count(
+    requested: PopupScreen,
+    read_entry_count: usize,
+) -> PopupScreen {
+    if read_entry_count == 0 {
+        PopupScreen::Add
+    } else {
+        requested
+    }
+}
+
+fn is_dismissible_screen(state: &PopupState) -> bool {
+    matches!(state.screen_mode, PopupScreen::Read)
+        || (matches!(state.screen_mode, PopupScreen::Add)
+            && read_entry_count(&state.config.timezones, &state.local_timezone) == 0)
+}
+
 fn update_row_separators(state: &PopupState) {
     let show_separators = !matches!(state.screen_mode, PopupScreen::Edit);
     for separator in &state.row_separators {
@@ -1221,11 +1246,12 @@ fn update_screen_mode(state: &PopupState) {
     };
     let in_add = matches!(state.screen_mode, PopupScreen::Add);
     let in_edit = matches!(state.screen_mode, PopupScreen::Edit);
+    let has_read_entries = read_entry_count(&state.config.timezones, &state.local_timezone) > 0;
     let can_add_more = can_add_more_locations(state);
 
     state.content_stack.set_visible_child_name(page_name);
     state.panel_title.set_text(if in_add {
-        "New Location"
+        "Add a Location"
     } else {
         "World Clock"
     });
@@ -1242,7 +1268,7 @@ fn update_screen_mode(state: &PopupState) {
         state.edit_button.set_tooltip_text(Some("Edit locations."));
     }
     state.add_button.set_visible(!in_add);
-    state.cancel_button.set_visible(in_add);
+    state.cancel_button.set_visible(in_add && has_read_entries);
 
     state
         .add_button
@@ -1374,6 +1400,10 @@ fn set_screen_mode(state_handle: &Rc<RefCell<PopupState>>, screen_mode: PopupScr
     debug_popup_event(&format!("set_screen_mode screen={screen_mode:?}"));
     let (focus_widget, entry_to_clear, queue_map_draw, rearm_dismiss_after_transition) = {
         let mut state = state_handle.borrow_mut();
+        let screen_mode = screen_mode_for_read_entry_count(
+            screen_mode,
+            read_entry_count(&state.config.timezones, &state.local_timezone),
+        );
         let leaving_add = matches!(state.screen_mode, PopupScreen::Add)
             && !matches!(screen_mode, PopupScreen::Add);
         let reentering_read_from_add = leaving_add && matches!(screen_mode, PopupScreen::Read);
@@ -1426,6 +1456,10 @@ fn refresh_config_state(state: &mut PopupState, config: AppConfig) {
     cancel_pending_apply(state);
     state.config = config;
     state.time_format = effective_time_format(&state.config.time_format);
+    state.screen_mode = screen_mode_for_read_entry_count(
+        state.screen_mode,
+        read_entry_count(&state.config.timezones, &state.local_timezone),
+    );
     sync_dropdowns(state);
     if state.editing_timezone.as_ref().is_some_and(|timezone| {
         !state
@@ -1744,20 +1778,7 @@ fn render_rows(state: &mut PopupState) {
 
     let entries = selected_entries(state);
     if entries.is_empty() {
-        let empty = gtk::Box::new(Orientation::Vertical, 4);
-        empty.set_halign(Align::Start);
-
-        let title = gtk::Label::new(Some("No timezones yet"));
-        title.set_xalign(0.0);
-        title.add_css_class("empty-state-title");
-        empty.append(&title);
-
-        let copy = gtk::Label::new(Some("Use the add screen to restore a timezone."));
-        copy.set_xalign(0.0);
-        copy.add_css_class("empty-state-copy");
-        empty.append(&copy);
-
-        state.rows_box.append(&empty);
+        state.screen_mode = PopupScreen::Add;
         update_screen_mode(state);
         return;
     }
@@ -2022,10 +2043,15 @@ fn add_timezone(state_handle: &Rc<RefCell<PopupState>>, timezone_name: &str, lab
             debug_popup_event(&format!(
                 "add_timezone success timezone={timezone_name} label={display_name}"
             ));
+            {
+                let mut state = state_handle.borrow_mut();
+                refresh_config_state(&mut state, config);
+            }
             set_screen_mode(state_handle, PopupScreen::Read);
-            let mut state = state_handle.borrow_mut();
-            refresh_config_state(&mut state, config);
-            set_status(&state, &format!("Added {display_name}."), false);
+            {
+                let state = state_handle.borrow();
+                set_status(&state, &format!("Added {display_name}."), false);
+            }
         }
         Err(error) => {
             let state = state_handle.borrow();
@@ -2654,15 +2680,11 @@ fn build_window(
     timeline_overlay.add_overlay(&timeline_labels);
     timeline_overlay.set_measure_overlay(&timeline_labels, false);
 
-    let cards_flow = gtk::FlowBox::new();
-    cards_flow.set_selection_mode(SelectionMode::None);
-    cards_flow.set_halign(Align::Center);
-    cards_flow.set_width_request(READ_TIMELINE_WIDTH);
-    cards_flow.set_max_children_per_line(READ_CARD_COLUMNS as u32);
-    cards_flow.set_row_spacing(READ_CARD_SPACING as u32);
-    cards_flow.set_column_spacing(READ_CARD_SPACING as u32);
-    cards_flow.add_css_class("timezone-card-grid");
-    read_root.append(&cards_flow);
+    let cards_grid = gtk::Box::new(Orientation::Vertical, READ_CARD_SPACING);
+    cards_grid.set_halign(Align::Center);
+    cards_grid.set_width_request(READ_TIMELINE_WIDTH);
+    cards_grid.add_css_class("timezone-card-grid");
+    read_root.append(&cards_grid);
 
     // Legacy list-based edit UI is intentionally detached while edit mode
     // moves onto the read/card layout.
@@ -2866,6 +2888,10 @@ fn build_window(
 
     let read_summary_dirty = Rc::new(Cell::new(false));
     let read_summary_suppress_changes = Rc::new(Cell::new(false));
+    let initial_screen_mode = screen_mode_for_read_entry_count(
+        PopupScreen::Read,
+        read_entry_count(&config.timezones, &local_timezone),
+    );
 
     let state = Rc::new(RefCell::new(PopupState {
         config_manager,
@@ -2888,7 +2914,7 @@ fn build_window(
         dismiss_armed: false,
         allow_close: false,
         live: true,
-        screen_mode: PopupScreen::Read,
+        screen_mode: initial_screen_mode,
         editing_timezone: None,
         pending_apply_source: None,
         pending_apply_timezone: None,
@@ -2906,7 +2932,7 @@ fn build_window(
         read_summary_suppress_changes: read_summary_suppress_changes.clone(),
         timeline_area: timeline_area.clone(),
         timeline_labels: timeline_labels.clone(),
-        cards_flow: cards_flow.clone(),
+        cards_grid: cards_grid.clone(),
         read_cards: Vec::new(),
         add_entry: add_entry.clone(),
         search_results_scroller: search_results_scroller.clone(),
@@ -3216,7 +3242,7 @@ fn build_window(
             "dismiss_click pressed x={x:.1} y={y:.1} dismiss_armed={} screen={:?}",
             state.dismiss_armed, state.screen_mode
         ));
-        if !state.dismiss_armed || !matches!(state.screen_mode, PopupScreen::Read) {
+        if !state.dismiss_armed || !is_dismissible_screen(&state) {
             return;
         }
         drop(state);
@@ -3267,11 +3293,11 @@ pub fn run_popup(pid_path: &Path, config_path: Option<PathBuf>) -> Result<()> {
     let window_for_escape = window.clone();
     key_controller.connect_key_pressed(move |_, key, _, _| {
         if key == gdk::Key::Escape {
-            let in_read_mode = {
+            let should_close = {
                 let state = state_for_escape.borrow();
-                matches!(state.screen_mode, PopupScreen::Read)
+                is_dismissible_screen(&state)
             };
-            if in_read_mode {
+            if should_close {
                 request_window_close(&state_for_escape, &window_for_escape, "escape");
             } else {
                 {
@@ -3295,10 +3321,7 @@ pub fn run_popup(pid_path: &Path, config_path: Option<PathBuf>) -> Result<()> {
             state.dismiss_armed,
             state.screen_mode
         ));
-        if state.dismiss_armed
-            && matches!(state.screen_mode, PopupScreen::Read)
-            && !window.is_active()
-        {
+        if state.dismiss_armed && is_dismissible_screen(&state) && !window.is_active() {
             drop(state);
             request_window_close(&state_for_focus, window, "focus_lost_read_mode");
         }
@@ -3351,9 +3374,10 @@ pub fn run_popup(pid_path: &Path, config_path: Option<PathBuf>) -> Result<()> {
 mod tests {
     use super::{
         build_timeline_items, format_timeline_zone_text, map_coordinates_to_lng_lat,
-        read_card_title, read_entry_count, search_result_subtitle, sort_read_entries_by_time,
-        timeline_entries, timeline_side_hours, timeline_tick_relative_minutes,
-        visible_read_entries, READ_CARD_LIMIT,
+        read_card_row_width, read_card_title, read_entry_count, screen_mode_for_read_entry_count,
+        search_result_subtitle, sort_read_entries_by_time, timeline_entries, timeline_side_hours,
+        timeline_tick_relative_minutes, visible_read_entries, PopupScreen, READ_CARD_COLUMNS,
+        READ_CARD_LIMIT, READ_CARD_SPACING, READ_CARD_WIDTH,
     };
     use crate::config::{TimezoneEntry, TimezoneSearchResult};
     use crate::time::zoned_datetime;
@@ -3400,12 +3424,12 @@ mod tests {
     }
 
     #[test]
-    fn visible_read_entries_falls_back_to_local_when_it_is_the_only_entry() {
+    fn visible_read_entries_does_not_fall_back_to_local_only_entry() {
         let entries = vec![entry("America/Cancun")];
 
         let visible = visible_read_entries(&entries, "America/Cancun");
 
-        assert_eq!(visible, entries);
+        assert!(visible.is_empty());
     }
 
     #[test]
@@ -3420,10 +3444,51 @@ mod tests {
     }
 
     #[test]
-    fn read_entry_count_uses_local_when_it_is_the_only_entry() {
+    fn read_entry_count_ignores_local_when_it_is_the_only_entry() {
         let entries = vec![entry("America/Cancun")];
 
-        assert_eq!(read_entry_count(&entries, "America/Cancun"), 1);
+        assert_eq!(read_entry_count(&entries, "America/Cancun"), 0);
+    }
+
+    #[test]
+    fn screen_mode_for_read_entry_count_uses_add_when_empty() {
+        assert_eq!(
+            screen_mode_for_read_entry_count(PopupScreen::Read, 0),
+            PopupScreen::Add
+        );
+        assert_eq!(
+            screen_mode_for_read_entry_count(PopupScreen::Edit, 0),
+            PopupScreen::Add
+        );
+    }
+
+    #[test]
+    fn screen_mode_for_read_entry_count_preserves_requested_mode_with_locations() {
+        assert_eq!(
+            screen_mode_for_read_entry_count(PopupScreen::Read, 1),
+            PopupScreen::Read
+        );
+        assert_eq!(
+            screen_mode_for_read_entry_count(PopupScreen::Edit, 1),
+            PopupScreen::Edit
+        );
+    }
+
+    #[test]
+    fn read_card_row_width_centers_incomplete_rows() {
+        assert_eq!(read_card_row_width(1), READ_CARD_WIDTH);
+        assert_eq!(
+            read_card_row_width(2),
+            READ_CARD_WIDTH * 2 + READ_CARD_SPACING
+        );
+        assert_eq!(
+            read_card_row_width(READ_CARD_COLUMNS as usize),
+            READ_CARD_WIDTH * READ_CARD_COLUMNS + READ_CARD_SPACING * (READ_CARD_COLUMNS - 1)
+        );
+        assert_eq!(
+            read_card_row_width((READ_CARD_COLUMNS + 1) as usize),
+            read_card_row_width(READ_CARD_COLUMNS as usize)
+        );
     }
 
     #[test]

@@ -154,7 +154,7 @@ scrolledwindow.search-results-overlay > viewport {{
   font-weight: 600;
 }}
 
-flowbox.timezone-card-grid {{
+.timezone-card-grid {{
   margin-top: 0;
 }}
 
@@ -588,17 +588,6 @@ button.add-toggle {{
 .search-result-meta {{
   color: {muted_foreground};
   font-size: 12px;
-}}
-
-.empty-state-title {{
-  color: {foreground};
-  font-size: 15px;
-  font-weight: 700;
-}}
-
-.empty-state-copy {{
-  color: {muted_foreground};
-  font-size: 13px;
 }}
 
 separator {{

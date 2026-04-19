@@ -2592,7 +2592,6 @@ fn bind_time_entry_events(
     focus_controller.connect_enter(move |focus_controller| {
         dirty_for_enter.set(false);
         set_entry_error(&time_entry_for_enter, false);
-        time_entry_for_enter.select_region(0, -1);
         update_time_entry_focus_state(
             &state_for_enter,
             focus_controller,
@@ -3705,6 +3704,7 @@ fn build_window(
     read_summary_time_display.set_content_height(READ_SUMMARY_TIME_HEIGHT);
     read_summary_time_display.set_size_request(READ_SUMMARY_TIME_WIDTH, READ_SUMMARY_TIME_HEIGHT);
     read_summary_time_display.add_css_class("read-summary-time-display");
+    read_summary_time_display.set_cursor_from_name(Some("text"));
     read_summary_time_display
         .set_tooltip_text(Some("Click to enter a time in your current timezone."));
     read_summary_time_overlay.set_child(Some(&read_summary_time_display));
@@ -3717,6 +3717,7 @@ fn build_window(
     read_summary_time.set_size_request(READ_SUMMARY_TIME_WIDTH, READ_SUMMARY_TIME_HEIGHT);
     read_summary_time.set_opacity(0.0);
     read_summary_time.set_can_target(false);
+    read_summary_time.set_cursor_from_name(Some("text"));
     read_summary_time.add_css_class("read-summary-time");
     read_summary_time.set_tooltip_text(Some("Enter a time in your current timezone."));
     read_summary_time_overlay.add_overlay(&read_summary_time);
@@ -4072,7 +4073,7 @@ fn build_window(
         }
         summary_entry_for_click.set_can_target(true);
         summary_entry_for_click.grab_focus();
-        summary_entry_for_click.select_region(0, -1);
+        summary_entry_for_click.set_position(-1);
         summary_display_for_click.queue_draw();
         summary_edit_overlay_for_click.queue_draw();
     });

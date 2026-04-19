@@ -59,7 +59,7 @@ struct ReadCardWidgets {
     time_entry: gtk::Entry,
     timezone_label: gtk::Label,
     delta_label: gtk::Label,
-    controls: gtk::Fixed,
+    controls: gtk::Box,
     remove_button: gtk::Button,
     dirty: Rc<Cell<bool>>,
     suppress_changes: Rc<Cell<bool>>,
@@ -923,13 +923,22 @@ fn build_read_card(entry: &TimezoneEntry, time_format: &str) -> ReadCardWidgets 
 
     card.append(&footer);
 
-    let controls = gtk::Fixed::new();
+    let controls = gtk::Box::new(Orientation::Horizontal, 0);
     controls.set_halign(Align::Start);
     controls.set_valign(Align::Start);
-    controls.set_size_request(READ_CARD_WIDTH + 18, 36);
+    controls.set_size_request(36, 36);
     controls.set_overflow(gtk::Overflow::Visible);
+    card_shell.connect_get_child_position(|overlay, _| {
+        Some(gdk::Rectangle::new(
+            (overlay.allocated_width() - 18).max(0),
+            0,
+            36,
+            36,
+        ))
+    });
     card_shell.add_overlay(&controls);
     card_shell.set_measure_overlay(&controls, false);
+    card_shell.set_clip_overlay(&controls, false);
 
     let remove_button = gtk::Button::from_icon_name("edit-delete-symbolic");
     remove_button.add_css_class("icon-button");
@@ -938,7 +947,7 @@ fn build_read_card(entry: &TimezoneEntry, time_format: &str) -> ReadCardWidgets 
     remove_button.add_css_class("destructive");
     remove_button.set_size_request(36, 36);
     remove_button.set_tooltip_text(Some("Remove timezone."));
-    controls.put(&remove_button, f64::from(READ_CARD_WIDTH - 18), 0.0);
+    controls.append(&remove_button);
 
     ReadCardWidgets {
         entry: entry.clone(),

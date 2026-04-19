@@ -162,6 +162,7 @@ const READ_CARD_WIDTH: i32 =
     (READ_TIMELINE_WIDTH - (READ_CARD_SPACING * (READ_CARD_COLUMNS - 1))) / READ_CARD_COLUMNS;
 const READ_SUMMARY_TIME_WIDTH: i32 = 560;
 const READ_SUMMARY_TIME_HEIGHT: i32 = 144;
+const READ_SUMMARY_TIME_Y_OFFSET: f64 = 14.0;
 const ADD_SEARCH_RESULT_LIMIT: usize = 8;
 const ADD_MAP_HEIGHT: i32 = READ_TIMELINE_WIDTH / 2;
 const ADD_MAP_ASPECT_RATIO: f32 = 2.0;
@@ -942,7 +943,7 @@ fn draw_read_summary_time(context: &gtk::cairo::Context, width: i32, height: i32
     let ink_width = ink.width().max(1) as f64;
     let ink_height = ink.height().max(1) as f64;
     let x = ((width as f64 - ink_width) / 2.0) - ink.x() as f64;
-    let y = ((height as f64 - ink_height) / 2.0) - ink.y() as f64;
+    let y = ((height as f64 - ink_height) / 2.0) - ink.y() as f64 + READ_SUMMARY_TIME_Y_OFFSET;
 
     context.set_source_rgba(foreground.0, foreground.1, foreground.2, 1.0);
     context.move_to(x.round(), y.round());
@@ -2871,7 +2872,7 @@ fn build_window(
     read_summary_location.set_ellipsize(gtk::pango::EllipsizeMode::End);
     read_summary_location.set_single_line_mode(true);
     read_summary_location.set_max_width_chars(64);
-    read_summary_location.set_margin_bottom(12);
+    read_summary_location.set_margin_bottom(30);
     read_summary_location.add_css_class("read-summary-location");
     read_summary.append(&read_summary_location);
 

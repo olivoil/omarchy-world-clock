@@ -92,7 +92,7 @@ window {{
 .read-summary-time {{
   color: {foreground};
   font-family: "JetBrainsMono Nerd Font Mono", "JetBrains Mono", monospace;
-  font-size: 72px;
+  font-size: 96px;
   font-weight: 700;
   letter-spacing: -0.04em;
 }}
@@ -114,6 +114,11 @@ entry.read-summary-time {{
   border-radius: 18px;
   padding: 0 18px;
   min-height: 144px;
+}}
+
+entry.read-summary-time text {{
+  padding: 8px 0 10px 0;
+  min-height: 128px;
 }}
 
 entry.read-summary-time:focus {{

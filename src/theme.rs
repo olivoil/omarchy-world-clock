@@ -94,37 +94,50 @@ window {{
   font-family: "JetBrainsMono Nerd Font Mono", "JetBrains Mono", monospace;
   font-size: 96px;
   font-weight: 700;
-  letter-spacing: -0.04em;
+  letter-spacing: 0;
 }}
 
 .read-summary-time-stack {{
   min-width: 560px;
-  min-height: 144px;
+  min-height: 104px;
 }}
 
 .read-summary-time-display {{
   min-width: 560px;
-  min-height: 144px;
+  min-height: 104px;
 }}
 
 entry.read-summary-time {{
+  color: rgba(0, 0, 0, 0);
   caret-color: {accent};
   background: transparent;
   border: 1px solid transparent;
   border-radius: 18px;
   padding: 0 18px;
-  min-height: 144px;
+  min-height: 104px;
 }}
 
 entry.read-summary-time text {{
-  padding: 8px 0 10px 0;
-  min-height: 128px;
+  color: rgba(0, 0, 0, 0);
+  background: transparent;
+  padding: 0;
+  min-height: 104px;
 }}
 
 entry.read-summary-time:focus {{
-  background: {time_chip_background};
-  border-color: {accent_focus_border};
-  box-shadow: 0 0 0 3px {accent_focus_shadow};
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  outline-color: transparent;
+  outline-offset: 0;
+  outline-width: 0;
+}}
+
+entry.read-summary-time:focus text {{
+  background: transparent;
+  outline-color: transparent;
+  outline-offset: 0;
+  outline-width: 0;
 }}
 
 entry.read-summary-time.error {{
@@ -222,7 +235,7 @@ button.card-hover-delete image {{
   font-family: "JetBrainsMono Nerd Font Mono", "JetBrains Mono", monospace;
   font-size: 52px;
   font-weight: 700;
-  letter-spacing: -0.04em;
+  letter-spacing: 0;
 }}
 
 entry.timezone-card-time {{
@@ -238,10 +251,24 @@ entry.timezone-card-time {{
   margin-top: -8px;
 }}
 
-entry.timezone-card-time:focus {{
+entry.timezone-card-time:focus,
+entry.timezone-card-time:focus-visible,
+entry.timezone-card-time:focus-within {{
   background: transparent;
   border-color: transparent;
   box-shadow: none;
+  outline-color: transparent;
+  outline-offset: 0;
+  outline-width: 0;
+}}
+
+entry.timezone-card-time:focus text,
+entry.timezone-card-time:focus-visible text,
+entry.timezone-card-time:focus-within text {{
+  background: transparent;
+  outline-color: transparent;
+  outline-offset: 0;
+  outline-width: 0;
 }}
 
 entry.timezone-card-time.error {{

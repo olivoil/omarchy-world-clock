@@ -286,6 +286,14 @@ fn clear_box(container: &gtk::Box) {
     }
 }
 
+fn point_is_inside_widget(source: &gtk::Widget, target: &gtk::Widget, x: f64, y: f64) -> bool {
+    let Some((target_x, target_y)) = source.translate_coordinates(target, x, y) else {
+        return false;
+    };
+
+    target.contains(target_x, target_y)
+}
+
 fn debug_popup_event(message: &str) {
     if std::env::var_os("OMARCHY_WORLD_CLOCK_DEBUG").is_none() {
         return;
@@ -1257,7 +1265,7 @@ fn screen_mode_for_read_entry_count(
     }
 }
 
-fn is_dismissible_screen(state: &PopupState) -> bool {
+fn is_keyboard_or_focus_dismissible_screen(state: &PopupState) -> bool {
     matches!(state.screen_mode, PopupScreen::Read)
         || (matches!(state.screen_mode, PopupScreen::Add)
             && read_entry_count(&state.config.timezones, &state.local_timezone) == 0)
@@ -3330,7 +3338,7 @@ fn build_window(
 
     let state_for_click = state.clone();
     let window_for_click = window.clone();
-    let overlay_for_click = overlay.clone();
+    let overlay_for_click = overlay.clone().upcast::<gtk::Widget>();
     let panel_for_click = panel.clone().upcast::<gtk::Widget>();
     let dismiss_click = gtk::GestureClick::new();
     dismiss_click.set_button(0);
@@ -3340,16 +3348,14 @@ fn build_window(
             "dismiss_click pressed x={x:.1} y={y:.1} dismiss_armed={} screen={:?}",
             state.dismiss_armed, state.screen_mode
         ));
-        if !state.dismiss_armed || !is_dismissible_screen(&state) {
+        if !state.dismiss_armed {
             return;
         }
         drop(state);
 
-        if let Some(picked) = overlay_for_click.pick(x, y, gtk::PickFlags::DEFAULT) {
-            if picked == panel_for_click || picked.is_ancestor(&panel_for_click) {
-                debug_popup_event("dismiss_click inside_panel");
-                return;
-            }
+        if point_is_inside_widget(&overlay_for_click, &panel_for_click, x, y) {
+            debug_popup_event("dismiss_click inside_panel");
+            return;
         }
 
         request_window_close(&state_for_click, &window_for_click, "dismiss_click");
@@ -3393,7 +3399,7 @@ pub fn run_popup(pid_path: &Path, config_path: Option<PathBuf>) -> Result<()> {
         if key == gdk::Key::Escape {
             let should_close = {
                 let state = state_for_escape.borrow();
-                is_dismissible_screen(&state)
+                is_keyboard_or_focus_dismissible_screen(&state)
             };
             if should_close {
                 request_window_close(&state_for_escape, &window_for_escape, "escape");
@@ -3419,7 +3425,10 @@ pub fn run_popup(pid_path: &Path, config_path: Option<PathBuf>) -> Result<()> {
             state.dismiss_armed,
             state.screen_mode
         ));
-        if state.dismiss_armed && is_dismissible_screen(&state) && !window.is_active() {
+        if state.dismiss_armed
+            && is_keyboard_or_focus_dismissible_screen(&state)
+            && !window.is_active()
+        {
             drop(state);
             request_window_close(&state_for_focus, window, "focus_lost_read_mode");
         }

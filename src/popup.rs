@@ -1080,14 +1080,14 @@ fn draw_read_summary_time_edit_cursor(
     cursor_layout.set_text(&cursor_text);
     let (_, cursor_logical) = cursor_layout.pixel_extents();
 
-    let cursor_x = (text_x + cursor_logical.width() as f64 + 2.0)
+    let cursor_x = (text_x + cursor_logical.width() as f64 - 2.0)
         .round()
-        .clamp(0.0, width.saturating_sub(3) as f64);
+        .clamp(0.0, width.saturating_sub(2) as f64);
     let cursor_top = (text_y + ink.y() as f64 + 1.0).round();
     let cursor_height = (ink_height - 2.0).max(1.0);
 
     context.set_source_rgba(accent.0, accent.1, accent.2, 0.95);
-    context.rectangle(cursor_x, cursor_top, 3.0, cursor_height);
+    context.rectangle(cursor_x, cursor_top, 2.0, cursor_height);
     let _ = context.fill();
 }
 

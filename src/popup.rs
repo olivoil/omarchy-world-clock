@@ -527,7 +527,11 @@ fn clear_status(state: &PopupState) {
     set_status(state, "", false);
 }
 
-fn update_time_entry_focus_state(state_handle: &Rc<RefCell<PopupState>>, timezone_name: String) {
+fn update_time_entry_focus_state(
+    state_handle: &Rc<RefCell<PopupState>>,
+    focus_controller: &gtk::EventControllerFocus,
+    timezone_name: String,
+) {
     match state_handle.try_borrow_mut() {
         Ok(mut state) => {
             state.editing_timezone = Some(timezone_name);
@@ -536,7 +540,13 @@ fn update_time_entry_focus_state(state_handle: &Rc<RefCell<PopupState>>, timezon
         Err(_) => {
             debug_popup_event("time_entry_focus_enter deferred busy_state");
             let state_for_idle = state_handle.clone();
+            let focus_for_idle = focus_controller.clone();
             glib::idle_add_local_once(move || {
+                if !focus_for_idle.is_focus() {
+                    debug_popup_event("time_entry_focus_enter skipped stale_focus");
+                    return;
+                }
+
                 let Ok(mut state) = state_for_idle.try_borrow_mut() else {
                     debug_popup_event("time_entry_focus_enter skipped busy_state");
                     return;
@@ -1608,11 +1618,15 @@ fn bind_time_entry_events(
     let dirty_for_enter = dirty.clone();
     let state_for_enter = state_handle.clone();
     let time_entry_for_enter = time_entry.clone();
-    focus_controller.connect_enter(move |_| {
+    focus_controller.connect_enter(move |focus_controller| {
         dirty_for_enter.set(false);
         set_entry_error(&time_entry_for_enter, false);
         time_entry_for_enter.select_region(0, -1);
-        update_time_entry_focus_state(&state_for_enter, timezone_name_for_enter.clone());
+        update_time_entry_focus_state(
+            &state_for_enter,
+            focus_controller,
+            timezone_name_for_enter.clone(),
+        );
     });
 
     let timezone_name_for_leave = timezone_name.clone();

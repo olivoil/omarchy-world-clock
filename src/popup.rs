@@ -1090,8 +1090,8 @@ fn map_location_markers(state: &PopupState) -> Vec<MapLocationMarker> {
                         .get(&map_marker_key(entry))
                         .copied()
                 })
-                .or_else(|| resolver_coordinate_for_entry(&state.resolver, entry))
                 .or_else(|| coordinates.get(&entry.timezone).copied())
+                .or_else(|| resolver_coordinate_for_entry(&state.resolver, entry))
                 .map(|coordinate| MapLocationMarker {
                     label: read_card_title(entry),
                     coordinate,

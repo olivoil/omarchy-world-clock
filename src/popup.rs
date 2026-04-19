@@ -36,6 +36,13 @@ enum PopupScreen {
     Add,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum ActiveTimeEntry {
+    Summary,
+    ReadCard(String),
+    Row(String),
+}
+
 #[derive(Clone)]
 struct RowWidgets {
     entry: TimezoneEntry,
@@ -89,6 +96,8 @@ struct PopupState {
     editing_timezone: Option<String>,
     pending_apply_source: Option<glib::SourceId>,
     pending_apply_timezone: Option<String>,
+    pending_apply_entry: Option<ActiveTimeEntry>,
+    active_time_entry: Option<ActiveTimeEntry>,
     content_stack: gtk::Stack,
     panel_title: gtk::Label,
     live_button: gtk::Button,
@@ -398,6 +407,7 @@ fn cancel_pending_apply(state: &mut PopupState) {
         source_id.remove();
     }
     state.pending_apply_timezone = None;
+    state.pending_apply_entry = None;
 }
 
 fn apply_css() -> Result<()> {
@@ -606,6 +616,34 @@ fn queue_read_time_edit_overlays(state: &PopupState) {
     }
 }
 
+fn active_entry_is_summary(active_entry: Option<&ActiveTimeEntry>) -> bool {
+    matches!(active_entry, Some(ActiveTimeEntry::Summary))
+}
+
+fn active_entry_is_read_card(active_entry: Option<&ActiveTimeEntry>, timezone: &str) -> bool {
+    matches!(active_entry, Some(ActiveTimeEntry::ReadCard(active_timezone)) if active_timezone == timezone)
+}
+
+fn active_entry_is_row(active_entry: Option<&ActiveTimeEntry>, timezone: &str) -> bool {
+    matches!(active_entry, Some(ActiveTimeEntry::Row(active_timezone)) if active_timezone == timezone)
+}
+
+fn read_card_editing(state: &PopupState, timezone: &str) -> bool {
+    active_entry_is_read_card(state.active_time_entry.as_ref(), timezone)
+}
+
+fn row_editing(state: &PopupState, timezone: &str) -> bool {
+    active_entry_is_row(state.active_time_entry.as_ref(), timezone)
+}
+
+fn read_time_cursor_editing(state: &PopupState) -> bool {
+    match state.active_time_entry.as_ref() {
+        Some(ActiveTimeEntry::Summary) => true,
+        Some(ActiveTimeEntry::ReadCard(_)) => true,
+        _ => false,
+    }
+}
+
 fn reset_read_time_cursor_blink(state: &PopupState) {
     state.read_time_cursor_visible.set(true);
     queue_read_time_edit_overlays(state);
@@ -629,10 +667,12 @@ fn update_time_entry_focus_state(
     state_handle: &Rc<RefCell<PopupState>>,
     focus_controller: &gtk::EventControllerFocus,
     timezone_name: String,
+    active_entry: ActiveTimeEntry,
 ) {
     match state_handle.try_borrow_mut() {
         Ok(mut state) => {
             state.editing_timezone = Some(timezone_name);
+            state.active_time_entry = Some(active_entry);
             clear_status(&state);
             reset_read_time_cursor_blink(&state);
         }
@@ -651,6 +691,7 @@ fn update_time_entry_focus_state(
                     return;
                 };
                 state.editing_timezone = Some(timezone_name);
+                state.active_time_entry = Some(active_entry);
                 clear_status(&state);
                 reset_read_time_cursor_blink(&state);
             });
@@ -693,6 +734,7 @@ fn clear_time_entry_focus_state(
     state_handle: &Rc<RefCell<PopupState>>,
     focus_controller: &gtk::EventControllerFocus,
     timezone_name: String,
+    active_entry: ActiveTimeEntry,
     dirty: Rc<Cell<bool>>,
 ) {
     let Ok(mut state) = state_handle.try_borrow_mut() else {
@@ -705,19 +747,26 @@ fn clear_time_entry_focus_state(
                 return;
             }
 
-            clear_time_entry_focus_state(&state_for_idle, &focus_for_idle, timezone_name, dirty);
+            clear_time_entry_focus_state(
+                &state_for_idle,
+                &focus_for_idle,
+                timezone_name,
+                active_entry,
+                dirty,
+            );
         });
         return;
     };
 
-    if state.editing_timezone.as_deref() == Some(timezone_name.as_str()) {
+    if state.active_time_entry.as_ref() == Some(&active_entry) {
         state.editing_timezone = None;
+        state.active_time_entry = None;
         queue_read_time_edit_overlays(&state);
     }
     drop(state);
 
     if dirty.get() {
-        let applied = flush_live_apply(state_handle, &timezone_name, false);
+        let applied = flush_live_apply(state_handle, &timezone_name, active_entry, false);
         if !applied {
             dirty.set(false);
             refresh_time_entry_focus_leave(state_handle);
@@ -727,12 +776,17 @@ fn clear_time_entry_focus_state(
     }
 }
 
-fn schedule_live_apply(state_handle: &Rc<RefCell<PopupState>>, timezone_name: &str) {
+fn schedule_live_apply(
+    state_handle: &Rc<RefCell<PopupState>>,
+    timezone_name: &str,
+    active_entry: ActiveTimeEntry,
+) {
     let mut state = state_handle.borrow_mut();
     if let Some(source_id) = state.pending_apply_source.take() {
         source_id.remove();
     }
     state.pending_apply_timezone = Some(timezone_name.to_string());
+    state.pending_apply_entry = Some(active_entry.clone());
 
     let state_for_timeout = state_handle.clone();
     let timezone_name = timezone_name.to_string();
@@ -741,8 +795,14 @@ fn schedule_live_apply(state_handle: &Rc<RefCell<PopupState>>, timezone_name: &s
             let mut state = state_for_timeout.borrow_mut();
             state.pending_apply_source = None;
             state.pending_apply_timezone = None;
+            state.pending_apply_entry = None;
         }
-        let _ = apply_manual_entry(&state_for_timeout, &timezone_name, false);
+        let _ = apply_manual_entry(
+            &state_for_timeout,
+            &timezone_name,
+            Some(&active_entry),
+            false,
+        );
         ControlFlow::Break
     });
     state.pending_apply_source = Some(source_id);
@@ -751,18 +811,27 @@ fn schedule_live_apply(state_handle: &Rc<RefCell<PopupState>>, timezone_name: &s
 fn flush_live_apply(
     state_handle: &Rc<RefCell<PopupState>>,
     timezone_name: &str,
+    active_entry: ActiveTimeEntry,
     show_errors: bool,
 ) -> bool {
     {
         let mut state = state_handle.borrow_mut();
-        if state.pending_apply_timezone.as_deref() == Some(timezone_name) {
+        if state.pending_apply_timezone.as_deref() == Some(timezone_name)
+            && state.pending_apply_entry.as_ref() == Some(&active_entry)
+        {
             if let Some(source_id) = state.pending_apply_source.take() {
                 source_id.remove();
             }
             state.pending_apply_timezone = None;
+            state.pending_apply_entry = None;
         }
     }
-    apply_manual_entry(state_handle, timezone_name, show_errors)
+    apply_manual_entry(
+        state_handle,
+        timezone_name,
+        Some(&active_entry),
+        show_errors,
+    )
 }
 
 fn update_live_button(state: &PopupState) {
@@ -1097,7 +1166,7 @@ fn draw_read_time_cursor(
 }
 
 fn read_summary_editing(state: &PopupState) -> bool {
-    state.editing_timezone.as_deref() == Some(state.local_timezone.as_str())
+    active_entry_is_summary(state.active_time_entry.as_ref())
 }
 
 fn parse_iso6709_component(component: &str, degree_digits: usize) -> Option<f64> {
@@ -1874,6 +1943,7 @@ fn rebuild_read_cards(state: &mut PopupState, entries: &[TimezoneEntry]) {
                 state_handle,
                 &widgets.time_entry,
                 entry.timezone.clone(),
+                ActiveTimeEntry::ReadCard(entry.timezone.clone()),
                 widgets.dirty.clone(),
                 widgets.suppress_changes.clone(),
             );
@@ -1887,7 +1957,7 @@ fn rebuild_read_cards(state: &mut PopupState, entries: &[TimezoneEntry]) {
                     let Ok(state) = state_for_cursor.try_borrow() else {
                         return;
                     };
-                    if state.editing_timezone.as_deref() == Some(timezone_for_cursor.as_str()) {
+                    if read_card_editing(&state, &timezone_for_cursor) {
                         draw_read_time_cursor(
                             area,
                             context,
@@ -1941,7 +2011,7 @@ fn update_read_cards(
         .map(|entry| entry.timezone.clone())
         .collect::<Vec<_>>();
 
-    if current_order != desired_order && state.editing_timezone.is_none() {
+    if current_order != desired_order && state.active_time_entry.is_none() {
         rebuild_read_cards(state, entries);
     }
 
@@ -1957,7 +2027,7 @@ fn update_read_cards(
 
     let reference_utc = state.reference_utc;
     let time_format = state.time_format.clone();
-    let editing_timezone = state.editing_timezone.clone();
+    let active_time_entry = state.active_time_entry.clone();
 
     for (card, entry) in state.read_cards.iter_mut().zip(update_entries.iter()) {
         card.entry = entry.clone();
@@ -1969,7 +2039,7 @@ fn update_read_cards(
             .set_text(&relative_time_label(anchor, &zoned));
         configure_manual_time_entry(&card.time_entry, &time_format);
 
-        if editing_timezone.as_deref() == Some(entry.timezone.as_str()) {
+        if active_entry_is_read_card(active_time_entry.as_ref(), &entry.timezone) {
             continue;
         }
 
@@ -2406,14 +2476,20 @@ fn refresh_config_state(state: &mut PopupState, config: AppConfig) {
         read_entry_count(&state.config.timezones, &state.local_timezone),
     );
     sync_dropdowns(state);
-    if state.editing_timezone.as_ref().is_some_and(|timezone| {
-        !state
-            .config
-            .timezones
-            .iter()
-            .any(|entry| entry.timezone == *timezone)
-    }) {
+    if state
+        .active_time_entry
+        .as_ref()
+        .is_some_and(|active_entry| match active_entry {
+            ActiveTimeEntry::Summary => false,
+            ActiveTimeEntry::ReadCard(timezone) | ActiveTimeEntry::Row(timezone) => !state
+                .config
+                .timezones
+                .iter()
+                .any(|entry| entry.timezone == *timezone),
+        })
+    {
         state.editing_timezone = None;
+        state.active_time_entry = None;
     }
     clear_status(state);
     render_rows(state);
@@ -2507,11 +2583,13 @@ fn bind_time_entry_events(
     state_handle: &Rc<RefCell<PopupState>>,
     time_entry: &gtk::Entry,
     timezone_name: String,
+    active_entry: ActiveTimeEntry,
     dirty: Rc<Cell<bool>>,
     suppress_changes: Rc<Cell<bool>>,
 ) {
     let state_for_change = state_handle.clone();
     let timezone_name_for_change = timezone_name.clone();
+    let active_entry_for_change = active_entry.clone();
     let dirty_for_change = dirty.clone();
     let suppress_changes_for_change = suppress_changes.clone();
     time_entry.connect_changed(move |time_entry| {
@@ -2524,11 +2602,16 @@ fn bind_time_entry_events(
         if let Ok(state) = state_for_change.try_borrow() {
             clear_status(&state);
         }
-        schedule_live_apply(&state_for_change, &timezone_name_for_change);
+        schedule_live_apply(
+            &state_for_change,
+            &timezone_name_for_change,
+            active_entry_for_change.clone(),
+        );
     });
 
     let focus_controller = gtk::EventControllerFocus::new();
     let timezone_name_for_enter = timezone_name.clone();
+    let active_entry_for_enter = active_entry.clone();
     let dirty_for_enter = dirty.clone();
     let state_for_enter = state_handle.clone();
     let time_entry_for_enter = time_entry.clone();
@@ -2539,10 +2622,12 @@ fn bind_time_entry_events(
             &state_for_enter,
             focus_controller,
             timezone_name_for_enter.clone(),
+            active_entry_for_enter.clone(),
         );
     });
 
     let timezone_name_for_leave = timezone_name.clone();
+    let active_entry_for_leave = active_entry.clone();
     let dirty_for_leave = dirty.clone();
     let state_for_leave = state_handle.clone();
     focus_controller.connect_leave(move |focus_controller| {
@@ -2550,14 +2635,21 @@ fn bind_time_entry_events(
             &state_for_leave,
             focus_controller,
             timezone_name_for_leave.clone(),
+            active_entry_for_leave.clone(),
             dirty_for_leave.clone(),
         );
     });
     time_entry.add_controller(focus_controller);
 
     let state_for_activate = state_handle.clone();
+    let active_entry_for_activate = active_entry;
     time_entry.connect_activate(move |_| {
-        let _ = flush_live_apply(&state_for_activate, &timezone_name, true);
+        let _ = flush_live_apply(
+            &state_for_activate,
+            &timezone_name,
+            active_entry_for_activate.clone(),
+            true,
+        );
     });
 }
 
@@ -2567,6 +2659,7 @@ fn bind_row_events(state_handle: &Rc<RefCell<PopupState>>, row: &RowWidgets) {
         state_handle,
         &row.time_entry,
         timezone_name.clone(),
+        ActiveTimeEntry::Row(timezone_name.clone()),
         row.dirty.clone(),
         row.suppress_changes.clone(),
     );
@@ -2664,6 +2757,7 @@ fn update_row_widgets(state: &mut PopupState) {
         return;
     }
 
+    let active_time_entry = state.active_time_entry.clone();
     for (row, entry) in state.rows.iter_mut().zip(ordered.iter()) {
         row.entry = entry.clone();
         let zoned = zoned_datetime(state.reference_utc, &entry.timezone);
@@ -2689,7 +2783,7 @@ fn update_row_widgets(state: &mut PopupState) {
         row.remove_button
             .set_sensitive(state.config.timezones.len() > 1);
 
-        if state.editing_timezone.as_deref() == Some(row.entry.timezone.as_str()) {
+        if active_entry_is_row(active_time_entry.as_ref(), &row.entry.timezone) {
             continue;
         }
 
@@ -3414,14 +3508,73 @@ enum ManualEntryTarget {
     Row(usize),
 }
 
+fn manual_entry_for_source(
+    state: &PopupState,
+    timezone_name: &str,
+    active_entry: &ActiveTimeEntry,
+) -> Option<(String, bool, ManualEntryTarget)> {
+    match active_entry {
+        ActiveTimeEntry::Summary if timezone_name == state.local_timezone => Some((
+            state.read_summary_time.text().to_string(),
+            state.read_summary_dirty.get(),
+            ManualEntryTarget::Summary,
+        )),
+        ActiveTimeEntry::ReadCard(active_timezone) if active_timezone == timezone_name => state
+            .read_cards
+            .iter()
+            .enumerate()
+            .find(|(_, card)| card.entry.timezone == timezone_name)
+            .map(|(index, card)| {
+                (
+                    card.time_entry.text().to_string(),
+                    card.dirty.get(),
+                    ManualEntryTarget::Card(index),
+                )
+            }),
+        ActiveTimeEntry::Row(active_timezone) if active_timezone == timezone_name => state
+            .rows
+            .iter()
+            .enumerate()
+            .find(|(_, row)| row.entry.timezone == timezone_name)
+            .map(|(index, row)| {
+                (
+                    row.time_entry.text().to_string(),
+                    row.dirty.get(),
+                    ManualEntryTarget::Row(index),
+                )
+            }),
+        _ => None,
+    }
+}
+
+fn active_entry_matches_manual_target(state: &PopupState, target: ManualEntryTarget) -> bool {
+    match target {
+        ManualEntryTarget::Summary => read_summary_editing(state),
+        ManualEntryTarget::Card(index) => state
+            .read_cards
+            .get(index)
+            .is_some_and(|card| read_card_editing(state, &card.entry.timezone)),
+        ManualEntryTarget::Row(index) => state
+            .rows
+            .get(index)
+            .is_some_and(|row| row_editing(state, &row.entry.timezone)),
+    }
+}
+
 fn apply_manual_entry(
     state_handle: &Rc<RefCell<PopupState>>,
     timezone_name: &str,
+    active_entry: Option<&ActiveTimeEntry>,
     show_errors: bool,
 ) -> bool {
     let (raw_value, dirty, target) = {
         let state = state_handle.borrow();
-        if timezone_name == state.local_timezone && state.read_summary_dirty.get() {
+        if let Some(source_entry) = active_entry
+            .or(state.active_time_entry.as_ref())
+            .and_then(|source_entry| manual_entry_for_source(&state, timezone_name, source_entry))
+        {
+            source_entry
+        } else if timezone_name == state.local_timezone && state.read_summary_dirty.get() {
             (
                 state.read_summary_time.text().to_string(),
                 state.read_summary_dirty.get(),
@@ -3528,8 +3681,7 @@ fn apply_manual_entry(
         }
     }
 
-    let preserve_target_dirty =
-        !show_errors && state.editing_timezone.as_deref() == Some(timezone_name);
+    let preserve_target_dirty = !show_errors && active_entry_matches_manual_target(&state, target);
     state
         .read_summary_dirty
         .set(preserve_target_dirty && matches!(target, ManualEntryTarget::Summary));
@@ -3935,6 +4087,8 @@ fn build_window(
         editing_timezone: None,
         pending_apply_source: None,
         pending_apply_timezone: None,
+        pending_apply_entry: None,
+        active_time_entry: None,
         content_stack: content_stack.clone(),
         panel_title: title.clone(),
         live_button: live_button.clone(),
@@ -3985,6 +4139,7 @@ fn build_window(
         &state,
         &read_summary_time,
         state.borrow().local_timezone.clone(),
+        ActiveTimeEntry::Summary,
         read_summary_dirty,
         read_summary_suppress_changes,
     );
@@ -4104,7 +4259,7 @@ fn build_window(
             let Ok(state) = state_for_cursor_blink.try_borrow() else {
                 return ControlFlow::Continue;
             };
-            if state.editing_timezone.is_none() {
+            if !read_time_cursor_editing(&state) {
                 if !state.read_time_cursor_visible.get() {
                     state.read_time_cursor_visible.set(true);
                     queue_read_time_edit_overlays(&state);

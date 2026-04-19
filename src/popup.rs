@@ -1,7 +1,7 @@
 use crate::config::{
-    all_timezones, detect_local_timezone, effective_time_format, ordered_timezones, AppConfig,
-    ConfigManager, RemotePlaceSearch, TimezoneEntry, TimezoneResolver, TimezoneSearchResult,
-    DEFAULT_SORT_MODE, DEFAULT_TIME_FORMAT,
+    all_timezones, detect_local_timezone, effective_time_format, first_location_segment,
+    ordered_timezones, AppConfig, ConfigManager, RemotePlaceSearch, TimezoneEntry,
+    TimezoneResolver, TimezoneSearchResult, DEFAULT_SORT_MODE, DEFAULT_TIME_FORMAT,
 };
 use crate::layout::{
     load_window_border_size, load_window_gap, popup_top_margin, POPUP_TOP_CONTENT_MARGIN,
@@ -739,16 +739,6 @@ fn anchor_label(state: &PopupState) -> String {
         .find(|entry| entry.timezone == state.local_timezone)
         .map(TimezoneEntry::display_label)
         .unwrap_or_else(|| friendly_timezone_name(&state.local_timezone))
-}
-
-fn first_location_segment(label: &str) -> String {
-    let trimmed = label.trim();
-    label
-        .split(',')
-        .map(str::trim)
-        .find(|part| !part.is_empty())
-        .unwrap_or(trimmed)
-        .to_string()
 }
 
 fn trailing_location_segments(label: &str) -> Option<String> {
@@ -2470,13 +2460,7 @@ fn format_title(entry: &TimezoneEntry, local_timezone: &str) -> String {
 }
 
 fn read_card_title(entry: &TimezoneEntry) -> String {
-    let label = entry.display_label();
-    label
-        .split(',')
-        .map(str::trim)
-        .find(|part| !part.is_empty())
-        .unwrap_or(&label)
-        .to_string()
+    entry.read_card_title()
 }
 
 fn update_row_widgets(state: &mut PopupState) {

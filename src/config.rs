@@ -128,6 +128,20 @@ impl TimezoneEntry {
         }
         trimmed.to_string()
     }
+
+    pub fn read_card_title(&self) -> String {
+        first_location_segment(&self.display_label())
+    }
+}
+
+pub fn first_location_segment(label: &str) -> String {
+    let trimmed = label.trim();
+    label
+        .split(',')
+        .map(str::trim)
+        .find(|part| !part.is_empty())
+        .unwrap_or(trimmed)
+        .to_string()
 }
 
 #[derive(Debug, Clone, PartialEq)]

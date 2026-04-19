@@ -423,7 +423,7 @@ fn module_payload_from_config_with_time_format(
     let rows: Vec<(String, String)> = entries
         .into_iter()
         .map(|entry| {
-            let label = entry.display_label();
+            let label = entry.read_card_title();
             let time = format_display_time(&zoned_datetime(now, &entry.timezone), &time_format);
             (label, time)
         })
@@ -605,6 +605,42 @@ mod tests {
         assert!(lines[2].contains("Paris"));
         assert!(lines[3].contains("Kolkata"));
         assert!(!payload.tooltip.contains("Home"));
+    }
+
+    #[test]
+    fn module_payload_uses_read_card_titles_in_tooltip() {
+        let config = AppConfig {
+            timezones: vec![
+                TimezoneEntry {
+                    timezone: "America/Cancun".to_string(),
+                    label: "Home".to_string(),
+                    locked: false,
+                    latitude: None,
+                    longitude: None,
+                },
+                TimezoneEntry {
+                    timezone: "Europe/Paris".to_string(),
+                    label: "Rennes, Brittany, France".to_string(),
+                    locked: false,
+                    latitude: None,
+                    longitude: None,
+                },
+            ],
+            sort_mode: "manual".to_string(),
+            time_format: "24h".to_string(),
+        };
+        let now = Utc.with_ymd_and_hms(2026, 4, 18, 5, 5, 0).unwrap();
+
+        let payload = module_payload_from_config_with_time_format(
+            &config,
+            now,
+            "America/Cancun",
+            false,
+            "24h",
+        );
+
+        assert_eq!(payload.tooltip, "Rennes  07:05");
+        assert!(!payload.tooltip.contains("Brittany"));
     }
 
     #[test]

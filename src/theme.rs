@@ -239,7 +239,7 @@ button.card-hover-delete image {{
 }}
 
 entry.timezone-card-time {{
-  caret-color: {accent};
+  caret-color: transparent;
   background: transparent;
   border: 1px solid transparent;
   border-radius: 14px;

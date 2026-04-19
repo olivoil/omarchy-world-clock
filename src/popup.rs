@@ -57,6 +57,7 @@ struct ReadCardWidgets {
     root: gtk::Overlay,
     title: gtk::Label,
     time_entry: gtk::Entry,
+    time_edit_overlay: gtk::DrawingArea,
     timezone_label: gtk::Label,
     delta_label: gtk::Label,
     controls: gtk::Box,
@@ -154,8 +155,8 @@ const READ_PANEL_WIDTH: i32 = (READ_PANEL_TARGET_HEIGHT * 16) / 9;
 const READ_TIMELINE_WIDTH: i32 = READ_PANEL_WIDTH - 60;
 const READ_SECTION_SPACING: i32 = 18;
 const READ_SUMMARY_LOCATION_BOTTOM_MARGIN: i32 = 18;
-const READ_TIMELINE_TOP_MARGIN: i32 = 30;
-const READ_TIMELINE_BOTTOM_MARGIN: i32 = 12;
+const READ_TIMELINE_TOP_MARGIN: i32 = 24;
+const READ_TIMELINE_BOTTOM_MARGIN: i32 = 18;
 const READ_TIMELINE_HEIGHT: i32 = 128;
 const TIMELINE_LINE_Y: f64 = 64.0;
 const TIMELINE_PADDING: f64 = 28.0;
@@ -587,6 +588,13 @@ fn clear_status(state: &PopupState) {
     set_status(state, "", false);
 }
 
+fn queue_read_time_edit_overlays(state: &PopupState) {
+    state.read_summary_edit_overlay.queue_draw();
+    for card in &state.read_cards {
+        card.time_edit_overlay.queue_draw();
+    }
+}
+
 fn update_time_entry_focus_state(
     state_handle: &Rc<RefCell<PopupState>>,
     focus_controller: &gtk::EventControllerFocus,
@@ -596,6 +604,7 @@ fn update_time_entry_focus_state(
         Ok(mut state) => {
             state.editing_timezone = Some(timezone_name);
             clear_status(&state);
+            queue_read_time_edit_overlays(&state);
         }
         Err(_) => {
             debug_popup_event("time_entry_focus_enter deferred busy_state");
@@ -613,6 +622,7 @@ fn update_time_entry_focus_state(
                 };
                 state.editing_timezone = Some(timezone_name);
                 clear_status(&state);
+                queue_read_time_edit_overlays(&state);
             });
         }
     }
@@ -672,6 +682,7 @@ fn clear_time_entry_focus_state(
 
     if state.editing_timezone.as_deref() == Some(timezone_name.as_str()) {
         state.editing_timezone = None;
+        queue_read_time_edit_overlays(&state);
     }
     drop(state);
 
@@ -1078,13 +1089,61 @@ fn draw_read_summary_time_edit_indicators(
         cursor_layout.set_text(&cursor_text);
         let (_cursor_ink, cursor_logical) = cursor_layout.pixel_extents();
         let cursor_x = (x + cursor_logical.width() as f64 + 4.0).round();
-        let cursor_top = (y + ink.y() as f64 + 4.0).round();
-        let cursor_height = (ink_height - 8.0).max(1.0);
+        let cursor_top = (y + ink.y() as f64 + 1.0).round();
+        let cursor_height = (ink_height - 2.0).max(1.0);
 
         context.set_source_rgba(accent.0, accent.1, accent.2, 0.95);
         context.rectangle(cursor_x, cursor_top, 3.0, cursor_height);
         let _ = context.fill();
     }
+}
+
+fn draw_read_card_time_edit_cursor(
+    context: &gtk::cairo::Context,
+    width: i32,
+    height: i32,
+    text: &str,
+    cursor_position: Option<usize>,
+    selection_bounds: Option<(usize, usize)>,
+) {
+    if selection_bounds.is_some_and(|(start, end)| start != end) {
+        return;
+    }
+
+    let Some(cursor_position) = cursor_position else {
+        return;
+    };
+
+    let palette = load_palette();
+    let foreground = color_components(&palette.foreground, (0.85, 0.88, 0.94));
+    let accent = color_components(&palette.accent, foreground);
+    let font = gtk::pango::FontDescription::from_string("JetBrainsMono Nerd Font Mono Bold 52");
+    let layout = pangocairo::functions::create_layout(context);
+    layout.set_font_description(Some(&font));
+    layout.set_text(text);
+
+    let (ink, _logical) = layout.pixel_extents();
+    let ink_height = ink.height().max(1) as f64;
+    let y = ((height as f64 - ink_height) / 2.0) - ink.y() as f64;
+
+    let cursor_text = text
+        .chars()
+        .take(cursor_position.min(text.chars().count()))
+        .collect::<String>();
+    let cursor_layout = pangocairo::functions::create_layout(context);
+    cursor_layout.set_font_description(Some(&font));
+    cursor_layout.set_text(&cursor_text);
+    let (_, cursor_logical) = cursor_layout.pixel_extents();
+
+    let cursor_x = (cursor_logical.width() as f64 + 2.0)
+        .round()
+        .clamp(0.0, width.saturating_sub(3) as f64);
+    let cursor_top = (y + ink.y() as f64 + 1.0).round();
+    let cursor_height = (ink_height - 2.0).max(1.0);
+
+    context.set_source_rgba(accent.0, accent.1, accent.2, 0.95);
+    context.rectangle(cursor_x, cursor_top, 3.0, cursor_height);
+    let _ = context.fill();
 }
 
 fn read_summary_editing(state: &PopupState) -> bool {
@@ -1761,9 +1820,21 @@ fn build_read_card(entry: &TimezoneEntry, time_format: &str) -> ReadCardWidgets 
     time_entry.add_css_class("timezone-card-time");
     time_entry.set_tooltip_text(Some("Enter a time in this timezone."));
 
+    let time_entry_overlay = gtk::Overlay::new();
+    time_entry_overlay.set_halign(Align::Start);
+    time_entry_overlay.set_overflow(gtk::Overflow::Visible);
+    time_entry_overlay.set_child(Some(&time_entry));
+
+    let time_edit_overlay = gtk::DrawingArea::new();
+    time_edit_overlay.set_halign(Align::Fill);
+    time_edit_overlay.set_valign(Align::Fill);
+    time_edit_overlay.set_can_target(false);
+    time_entry_overlay.add_overlay(&time_edit_overlay);
+    time_entry_overlay.set_measure_overlay(&time_edit_overlay, false);
+
     let time_group = gtk::Box::new(Orientation::Vertical, 0);
     time_group.set_halign(Align::Fill);
-    time_group.append(&time_entry);
+    time_group.append(&time_entry_overlay);
 
     let footer = gtk::Box::new(Orientation::Horizontal, 0);
     footer.set_halign(Align::Fill);
@@ -1814,6 +1885,7 @@ fn build_read_card(entry: &TimezoneEntry, time_format: &str) -> ReadCardWidgets 
         root: card_shell,
         title,
         time_entry,
+        time_edit_overlay,
         timezone_label,
         delta_label,
         controls,
@@ -1850,6 +1922,50 @@ fn rebuild_read_cards(state: &mut PopupState, entries: &[TimezoneEntry]) {
                 widgets.dirty.clone(),
                 widgets.suppress_changes.clone(),
             );
+
+            let state_for_cursor = state_handle.clone();
+            let timezone_for_cursor = entry.timezone.clone();
+            let time_entry_for_cursor = widgets.time_entry.clone();
+            widgets
+                .time_edit_overlay
+                .set_draw_func(move |_, context, width, height| {
+                    let Ok(state) = state_for_cursor.try_borrow() else {
+                        return;
+                    };
+                    if state.editing_timezone.as_deref() != Some(timezone_for_cursor.as_str()) {
+                        return;
+                    }
+                    drop(state);
+
+                    let text = time_entry_for_cursor.text().to_string();
+                    let cursor_position = Some(time_entry_for_cursor.position().max(0) as usize);
+                    let selection_bounds = time_entry_for_cursor
+                        .selection_bounds()
+                        .map(|(start, end)| (start.max(0) as usize, end.max(0) as usize));
+                    draw_read_card_time_edit_cursor(
+                        context,
+                        width,
+                        height,
+                        &text,
+                        cursor_position,
+                        selection_bounds,
+                    );
+                });
+
+            let card_edit_overlay_for_change = widgets.time_edit_overlay.clone();
+            widgets
+                .time_entry
+                .connect_changed(move |_| card_edit_overlay_for_change.queue_draw());
+
+            let card_edit_overlay_for_cursor = widgets.time_edit_overlay.clone();
+            widgets
+                .time_entry
+                .connect_cursor_position_notify(move |_| card_edit_overlay_for_cursor.queue_draw());
+
+            let card_edit_overlay_for_selection = widgets.time_edit_overlay.clone();
+            widgets.time_entry.connect_selection_bound_notify(move |_| {
+                card_edit_overlay_for_selection.queue_draw()
+            });
 
             let state_for_remove = state_handle.clone();
             let timezone_name_for_remove = entry.timezone.clone();
@@ -1907,6 +2023,7 @@ fn update_read_cards(
         card.delta_label
             .set_text(&relative_time_label(anchor, &zoned));
         configure_manual_time_entry(&card.time_entry, &time_format);
+        card.time_edit_overlay.queue_draw();
 
         if editing_timezone.as_deref() == Some(entry.timezone.as_str()) {
             continue;
@@ -3337,6 +3454,7 @@ fn reset_live_now(state_handle: &Rc<RefCell<PopupState>>) {
     for card in &state.read_cards {
         card.dirty.set(false);
         set_entry_error(&card.time_entry, false);
+        card.time_edit_overlay.queue_draw();
     }
     for row in &state.rows {
         row.dirty.set(false);

@@ -112,6 +112,7 @@ struct PopupState {
     read_summary_dirty: Rc<Cell<bool>>,
     read_summary_suppress_changes: Rc<Cell<bool>>,
     read_time_cursor_visible: Rc<Cell<bool>>,
+    read_time_cursor_color: (f64, f64, f64),
     timeline_area: gtk::DrawingArea,
     timeline_labels: gtk::Fixed,
     cards_grid: gtk::Box,
@@ -649,14 +650,32 @@ fn reset_read_time_cursor_blink(state: &PopupState) {
     queue_read_time_edit_overlays(state);
 }
 
-fn reset_read_time_cursor_blink_deferred(state_handle: &Rc<RefCell<PopupState>>) {
+fn reset_read_time_cursor_blink_for_entry(
+    state_handle: &Rc<RefCell<PopupState>>,
+    active_entry: ActiveTimeEntry,
+    suppress_changes: Rc<Cell<bool>>,
+) {
+    if suppress_changes.get() {
+        return;
+    }
+
     match state_handle.try_borrow() {
-        Ok(state) => reset_read_time_cursor_blink(&state),
+        Ok(state) => {
+            if state.active_time_entry.as_ref() == Some(&active_entry) {
+                reset_read_time_cursor_blink(&state);
+            }
+        }
         Err(_) => {
             let state_for_idle = state_handle.clone();
+            let suppress_changes_for_idle = suppress_changes.clone();
             glib::idle_add_local_once(move || {
+                if suppress_changes_for_idle.get() {
+                    return;
+                }
                 if let Ok(state) = state_for_idle.try_borrow() {
-                    reset_read_time_cursor_blink(&state);
+                    if state.active_time_entry.as_ref() == Some(&active_entry) {
+                        reset_read_time_cursor_blink(&state);
+                    }
                 }
             });
         }
@@ -1124,6 +1143,7 @@ fn draw_read_time_cursor(
     context: &gtk::cairo::Context,
     entry: &gtk::Entry,
     cursor_visible: bool,
+    cursor_color: (f64, f64, f64),
 ) {
     if !cursor_visible
         || entry
@@ -1158,9 +1178,7 @@ fn draw_read_time_cursor(
         .round()
         .clamp(0.0, (area_height - cursor_height).max(0.0));
 
-    let palette = load_palette();
-    let accent = color_components(&palette.accent, (0.95, 0.66, 0.41));
-    context.set_source_rgba(accent.0, accent.1, accent.2, 0.95);
+    context.set_source_rgba(cursor_color.0, cursor_color.1, cursor_color.2, 0.95);
     context.rectangle(x, y, READ_TIME_CURSOR_WIDTH, cursor_height);
     let _ = context.fill();
 }
@@ -1963,23 +1981,44 @@ fn rebuild_read_cards(state: &mut PopupState, entries: &[TimezoneEntry]) {
                             context,
                             &time_entry_for_cursor,
                             state.read_time_cursor_visible.get(),
+                            state.read_time_cursor_color,
                         );
                     }
                 });
 
             let state_for_cursor_change = state_handle.clone();
+            let active_entry_for_cursor_change = ActiveTimeEntry::ReadCard(entry.timezone.clone());
+            let suppress_changes_for_cursor_change = widgets.suppress_changes.clone();
             widgets.time_entry.connect_changed(move |_| {
-                reset_read_time_cursor_blink_deferred(&state_for_cursor_change);
+                reset_read_time_cursor_blink_for_entry(
+                    &state_for_cursor_change,
+                    active_entry_for_cursor_change.clone(),
+                    suppress_changes_for_cursor_change.clone(),
+                );
             });
 
             let state_for_cursor_position = state_handle.clone();
+            let active_entry_for_cursor_position =
+                ActiveTimeEntry::ReadCard(entry.timezone.clone());
+            let suppress_changes_for_cursor_position = widgets.suppress_changes.clone();
             widgets.time_entry.connect_cursor_position_notify(move |_| {
-                reset_read_time_cursor_blink_deferred(&state_for_cursor_position);
+                reset_read_time_cursor_blink_for_entry(
+                    &state_for_cursor_position,
+                    active_entry_for_cursor_position.clone(),
+                    suppress_changes_for_cursor_position.clone(),
+                );
             });
 
             let state_for_cursor_selection = state_handle.clone();
+            let active_entry_for_cursor_selection =
+                ActiveTimeEntry::ReadCard(entry.timezone.clone());
+            let suppress_changes_for_cursor_selection = widgets.suppress_changes.clone();
             widgets.time_entry.connect_selection_bound_notify(move |_| {
-                reset_read_time_cursor_blink_deferred(&state_for_cursor_selection);
+                reset_read_time_cursor_blink_for_entry(
+                    &state_for_cursor_selection,
+                    active_entry_for_cursor_selection.clone(),
+                    suppress_changes_for_cursor_selection.clone(),
+                );
             });
 
             let state_for_remove = state_handle.clone();
@@ -4056,6 +4095,7 @@ fn build_window(
     let read_summary_dirty = Rc::new(Cell::new(false));
     let read_summary_suppress_changes = Rc::new(Cell::new(false));
     let read_time_cursor_visible = Rc::new(Cell::new(true));
+    let read_time_cursor_color = color_components(&load_palette().accent, (0.95, 0.66, 0.41));
     let initial_screen_mode = screen_mode_for_read_entry_count(
         PopupScreen::Read,
         read_entry_count(&config.timezones, &local_timezone),
@@ -4103,6 +4143,7 @@ fn build_window(
         read_summary_dirty: read_summary_dirty.clone(),
         read_summary_suppress_changes: read_summary_suppress_changes.clone(),
         read_time_cursor_visible,
+        read_time_cursor_color,
         timeline_area: timeline_area.clone(),
         timeline_labels: timeline_labels.clone(),
         cards_grid: cards_grid.clone(),
@@ -4141,7 +4182,7 @@ fn build_window(
         state.borrow().local_timezone.clone(),
         ActiveTimeEntry::Summary,
         read_summary_dirty,
-        read_summary_suppress_changes,
+        read_summary_suppress_changes.clone(),
     );
 
     let state_for_summary_cursor = state.clone();
@@ -4154,23 +4195,39 @@ fn build_window(
                 context,
                 &read_summary_time_for_cursor,
                 state.read_time_cursor_visible.get(),
+                state.read_time_cursor_color,
             );
         }
     });
 
     let state_for_summary_cursor_change = state.clone();
+    let suppress_changes_for_summary_cursor_change = read_summary_suppress_changes.clone();
     read_summary_time.connect_changed(move |_| {
-        reset_read_time_cursor_blink_deferred(&state_for_summary_cursor_change);
+        reset_read_time_cursor_blink_for_entry(
+            &state_for_summary_cursor_change,
+            ActiveTimeEntry::Summary,
+            suppress_changes_for_summary_cursor_change.clone(),
+        );
     });
 
     let state_for_summary_cursor_position = state.clone();
+    let suppress_changes_for_summary_cursor_position = read_summary_suppress_changes.clone();
     read_summary_time.connect_cursor_position_notify(move |_| {
-        reset_read_time_cursor_blink_deferred(&state_for_summary_cursor_position);
+        reset_read_time_cursor_blink_for_entry(
+            &state_for_summary_cursor_position,
+            ActiveTimeEntry::Summary,
+            suppress_changes_for_summary_cursor_position.clone(),
+        );
     });
 
     let state_for_summary_cursor_selection = state.clone();
+    let suppress_changes_for_summary_cursor_selection = read_summary_suppress_changes.clone();
     read_summary_time.connect_selection_bound_notify(move |_| {
-        reset_read_time_cursor_blink_deferred(&state_for_summary_cursor_selection);
+        reset_read_time_cursor_blink_for_entry(
+            &state_for_summary_cursor_selection,
+            ActiveTimeEntry::Summary,
+            suppress_changes_for_summary_cursor_selection.clone(),
+        );
     });
 
     let state_for_timeline = state.clone();

@@ -9,19 +9,31 @@ GTK3 app has been removed.
 
 ## Screenshots
 
-<img src="docs/screenshots/white-popup.png" alt="Omarchy World Clock on the white theme" width="900">
+<p>
+  <strong>Rose Pine</strong><br>
+  <img src="docs/screenshots/rose-pine-popup.png" alt="Omarchy World Clock popup on the Rose Pine theme" width="900">
+</p>
 
-<img src="docs/screenshots/nord-popup.png" alt="Omarchy World Clock on the nord theme" width="900">
+<p>
+  <strong>Matte Black</strong><br>
+  <img src="docs/screenshots/matte-black-popup.png" alt="Omarchy World Clock popup on the Matte Black theme" width="900">
+</p>
 
-<img src="docs/screenshots/rose-pine-popup.png" alt="Omarchy World Clock on the rose-pine theme" width="900">
+<p>
+  <strong>Kanagawa</strong><br>
+  <img src="docs/screenshots/kanagawa-popup.png" alt="Omarchy World Clock popup on the Kanagawa theme" width="900">
+</p>
 
 ## What It Does
 
 - Adds a compact world icon next to Omarchy's center Waybar clock.
+- Toggles the popup on left click and opens `omarchy-tz-select` on right click.
 - Opens a popup with live clocks for a user-managed timezone list.
 - Supports manual reference-time conversion across rows.
+- Supports city/timezone search, with remote place lookup as a fallback.
 - Lets you add, remove, pin, and reorder timezones.
 - Supports `System`, forced `24h`, and forced `AM/PM` display modes.
+- Adapts popup colors to the active Omarchy theme palette.
 - Stores state in `~/.config/omarchy-world-clock/config.json`.
 
 ## Install

@@ -4,9 +4,6 @@ Omarchy World Clock adds a small world-clock entry point next to Omarchy's
 center Waybar clock and opens a multi-timezone popup for planning across
 places.
 
-The implementation is now Rust + GTK4 + `gtk4-layer-shell`. The old Python +
-GTK3 app has been removed.
-
 ## Screenshots
 
 <p>
@@ -215,9 +212,6 @@ Optional privacy setting:
 When this is true, search uses only local timezone names, aliases, and bundled
 timezone data. Existing coordinates already saved in the config still work.
 
-Legacy `locked`, `sort_mode`, and `time_format` keys are ignored when old config
-files are loaded and are not written back.
-
 ## Third-Party Services
 
 Omarchy World Clock calls Open-Meteo's Geocoding API only for unresolved
@@ -239,57 +233,3 @@ and [Licence](https://open-meteo.com/en/licence).
 
 - Product behavior spec: [docs/specs.md](docs/specs.md)
 - Maintainer release process: [docs/release.md](docs/release.md)
-
-## Maintainer Release
-
-Releases are published from a local machine, not GitHub Actions. See
-[docs/release.md](docs/release.md) for the full checklist.
-
-```bash
-scripts/release.sh --description "Adds prebuilt release installs and local release publishing."
-```
-
-If you omit the tag, the script uses `v<package.version>` from `Cargo.toml`:
-
-```bash
-scripts/release.sh
-```
-
-The release script:
-
-- requires a clean git worktree
-- releases from the remote default branch, `master`, by default
-- uses `Cargo.toml` as the version source of truth
-- rejects explicit tags that do not match `v<package.version>`
-- writes release notes from `--description` plus the commits since the previous tag
-- accepts `--notes-file path/to/notes.md` when you want full manual release notes
-- runs `scripts/ci.sh` before release builds unless `--skip-tests` is passed
-- builds `target/release/omarchy-world-clock`
-- packages `omarchy-world-clock-<rust-host-target>.tar.gz`
-- creates and pushes the git tag if it does not already exist
-- creates or updates the GitHub release with the archive and `.sha256`
-
-To check the release before publishing:
-
-```bash
-scripts/release.sh --dry-run --description "Short summary of what changed."
-```
-
-Dry runs build the package, generate the notes, check tag/release state, and
-print the publish actions without creating tags or touching the GitHub release.
-
-Normal release flow:
-
-```bash
-git checkout master
-git pull --ff-only
-# update Cargo.toml version, commit, and push
-scripts/release.sh --description "Short summary of what changed."
-```
-
-Prerequisites for maintainers:
-
-- Rust/Cargo
-- Rustfmt and Clippy
-- `gh` authenticated for `olivoil/omarchy-world-clock`
-- `git`, `tar`, and `sha256sum`

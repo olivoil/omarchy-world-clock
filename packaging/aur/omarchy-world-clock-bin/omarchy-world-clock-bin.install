@@ -1,6 +1,3 @@
-# SPDX-FileCopyrightText: 2026 Olivier Melcher <olivier.melcher@gmail.com>
-# SPDX-License-Identifier: 0BSD
-
 post_install() {
   cat <<'EOF'
 Omarchy World Clock was installed to /usr/bin/omarchy-world-clock.

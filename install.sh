@@ -37,6 +37,8 @@ Environment:
   OMARCHY_WORLD_CLOCK_RELEASE_REPO  GitHub repo that owns releases (default: $RELEASE_REPO).
   OMARCHY_WORLD_CLOCK_DOWNLOAD_URL  Exact archive URL override.
   OMARCHY_WORLD_CLOCK_TARGET        Target asset override.
+  OMARCHY_WORLD_CLOCK_SKIP_RUNTIME_DEPS
+                                      Set to 1 to skip Arch runtime package install.
 EOF
 }
 
@@ -146,6 +148,38 @@ install_from_source() {
   cargo install --path "$REPO_ROOT" --root "$PREFIX" --force
 }
 
+install_arch_runtime_dependencies() {
+  if [[ "${OMARCHY_WORLD_CLOCK_SKIP_RUNTIME_DEPS:-0}" == "1" ]]; then
+    return
+  fi
+  if ! command -v pacman >/dev/null 2>&1; then
+    return
+  fi
+
+  local -a packages missing
+  local missing_output
+  packages=(gtk4 gtk4-layer-shell)
+
+  missing_output=$(pacman -T "${packages[@]}" || true)
+
+  if [[ -z "$missing_output" ]]; then
+    return
+  fi
+
+  mapfile -t missing <<<"$missing_output"
+
+  printf 'Installing missing runtime dependencies with pacman: %s\n' "${missing[*]}"
+  if [[ ${EUID:-$(id -u)} -eq 0 ]]; then
+    pacman -S --needed --noconfirm "${missing[@]}"
+  elif command -v sudo >/dev/null 2>&1; then
+    sudo pacman -S --needed --noconfirm "${missing[@]}"
+  else
+    printf '\nError: missing runtime dependencies: %s\n' "${missing[*]}" >&2
+    printf 'Install them with:\n  sudo pacman -S --needed %s\n\n' "${missing[*]}" >&2
+    exit 1
+  fi
+}
+
 check_runtime_libraries() {
   if ! command -v ldd >/dev/null 2>&1; then
     return
@@ -159,12 +193,13 @@ check_runtime_libraries() {
 
   printf '\nError: the installed binary is missing runtime libraries:\n%s\n' "$missing" >&2
   if command -v pacman >/dev/null 2>&1; then
-    printf 'On Arch/Omarchy, install runtime dependencies with:\n  sudo pacman -S gtk4 gtk4-layer-shell\n\n' >&2
+    printf 'On Arch/Omarchy, install runtime dependencies with:\n  sudo pacman -S --needed gtk4 gtk4-layer-shell\n\n' >&2
   fi
   exit 1
 }
 
 mkdir -p "$PREFIX/bin" "$BIN_DIR"
+install_arch_runtime_dependencies
 
 case "$INSTALL_MODE" in
   release)

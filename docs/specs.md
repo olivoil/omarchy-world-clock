@@ -19,9 +19,6 @@ The popup supports:
 - removing configured places
 - displaying times with the system time format
 
-The popup does not include row locking, row sorting controls, drag reordering,
-or user-selectable time format controls.
-
 ## Waybar Module
 
 - A small world icon appears next to the center Waybar clock.
@@ -99,9 +96,8 @@ Persistence rules:
 
 - On first load, the detected local timezone is inserted unless it already
   exists.
-- Older configs are migrated forward transparently.
-- If the user later removes the local timezone entry, it is not automatically
-  re-added after migration has already run.
+- If the user removes the local timezone entry, it is not automatically
+  re-added.
 - If there are no configured non-local entries, the popup opens directly to the
   add screen.
 
@@ -110,8 +106,6 @@ Persistence rules:
 - Visible clock cards are ordered by wall-clock time at the current reference
   instant.
 - Equal-time cards fall back to display label ordering.
-- No sort, manual reorder, lock, pin, or pinned-section ordering controls are
-  exposed.
 
 ## Time Display and Manual Reference Mode
 
@@ -263,7 +257,6 @@ A correct implementation satisfies these behaviors:
 - The tooltip reflects current configured non-local entries.
 - Time conversion works from the summary clock and every visible clock card.
 - Display format follows the system format only.
-- Lock, sort, drag, and time-format settings are absent from the UI.
 - Local timezone search works without network access.
 - Open-Meteo geocoding can be disabled with
   `disable_open_meteo_geolocation`.

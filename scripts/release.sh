@@ -171,6 +171,13 @@ ARCHIVE="$DIST_DIR/$ASSET"
 CHECKSUM="$ARCHIVE.sha256"
 STAGING="$DIST_DIR/staging"
 GENERATED_NOTES="$DIST_DIR/release-notes.md"
+BINARY_PATH="$REPO_ROOT/target/release/omarchy-world-clock"
+BUILD_ARGS=(build --release --locked)
+
+if [[ -n "${OMARCHY_WORLD_CLOCK_TARGET:-}" ]]; then
+  BUILD_ARGS+=(--target "$TARGET")
+  BINARY_PATH="$REPO_ROOT/target/$TARGET/release/omarchy-world-clock"
+fi
 
 if [[ "$SKIP_TESTS" != true ]]; then
   cargo test --locked
@@ -178,11 +185,11 @@ if [[ "$SKIP_TESTS" != true ]]; then
   bash tests/uninstall.sh
 fi
 
-cargo build --release --locked
+cargo "${BUILD_ARGS[@]}"
 
 rm -rf "$DIST_DIR"
 mkdir -p "$STAGING"
-install -m 755 "$REPO_ROOT/target/release/omarchy-world-clock" "$STAGING/omarchy-world-clock"
+install -m 755 "$BINARY_PATH" "$STAGING/omarchy-world-clock"
 tar -C "$STAGING" -czf "$ARCHIVE" omarchy-world-clock
 sha256sum "$ARCHIVE" >"$CHECKSUM"
 

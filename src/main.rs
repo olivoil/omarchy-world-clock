@@ -19,14 +19,30 @@ fn usage() -> &'static str {
     "Usage: omarchy-world-clock <module|toggle|popup|install-waybar|uninstall-waybar|restart-waybar>"
 }
 
-fn required_flag(args: &[String], flag: &str) -> Result<String> {
+fn optional_flag(args: &[String], flag: &str) -> Result<Option<String>> {
     let Some(index) = args.iter().position(|arg| arg == flag) else {
-        bail!("missing required flag {flag}");
+        return Ok(None);
     };
     let Some(value) = args.get(index + 1) else {
         bail!("missing value for flag {flag}");
     };
-    Ok(value.clone())
+    Ok(Some(value.clone()))
+}
+
+fn optional_path(args: &[String], flag: &str, default: &str) -> Result<PathBuf> {
+    Ok(
+        PathBuf::from(optional_flag(args, flag)?.unwrap_or_else(|| default.to_string()))
+            .expanduser(),
+    )
+}
+
+fn default_command_path(args: &[String]) -> Result<String> {
+    if let Some(command_path) = optional_flag(args, "--command-path")? {
+        return Ok(command_path);
+    }
+
+    let current_exe = env::current_exe().context("failed to resolve current executable path")?;
+    Ok(current_exe.to_string_lossy().into_owned())
 }
 
 fn write_text(path: &Path, contents: &str) -> Result<()> {
@@ -68,10 +84,14 @@ fn backup_if_needed(path: &Path, marker: &str) -> Result<()> {
 }
 
 fn install_waybar(args: &[String]) -> Result<()> {
-    let waybar_config = PathBuf::from(required_flag(args, "--waybar-config")?).expanduser();
-    let waybar_style = PathBuf::from(required_flag(args, "--waybar-style")?).expanduser();
-    let command_path = required_flag(args, "--command-path")?;
-    let user_config = PathBuf::from(required_flag(args, "--user-config")?).expanduser();
+    let waybar_config = optional_path(args, "--waybar-config", "~/.config/waybar/config.jsonc")?;
+    let waybar_style = optional_path(args, "--waybar-style", "~/.config/waybar/style.css")?;
+    let command_path = default_command_path(args)?;
+    let user_config = optional_path(
+        args,
+        "--user-config",
+        "~/.config/omarchy-world-clock/config.json",
+    )?;
 
     backup_if_needed(&waybar_config, MODULE_MARKER_START)?;
     backup_if_needed(&waybar_style, STYLE_MARKER_START)?;
@@ -91,8 +111,8 @@ fn install_waybar(args: &[String]) -> Result<()> {
 }
 
 fn uninstall_waybar(args: &[String]) -> Result<()> {
-    let waybar_config = PathBuf::from(required_flag(args, "--waybar-config")?).expanduser();
-    let waybar_style = PathBuf::from(required_flag(args, "--waybar-style")?).expanduser();
+    let waybar_config = optional_path(args, "--waybar-config", "~/.config/waybar/config.jsonc")?;
+    let waybar_style = optional_path(args, "--waybar-style", "~/.config/waybar/style.css")?;
 
     if waybar_config.exists() {
         let config_text = fs::read_to_string(&waybar_config)

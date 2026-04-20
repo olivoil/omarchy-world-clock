@@ -202,7 +202,8 @@ cargo "${BUILD_ARGS[@]}"
 rm -rf "$DIST_DIR"
 mkdir -p "$STAGING"
 install -m 755 "$BINARY_PATH" "$STAGING/omarchy-world-clock"
-tar -C "$STAGING" -czf "$ARCHIVE" omarchy-world-clock
+install -m 644 "$REPO_ROOT/LICENSE" "$STAGING/LICENSE"
+tar -C "$STAGING" -czf "$ARCHIVE" omarchy-world-clock LICENSE
 sha256sum "$ARCHIVE" >"$CHECKSUM"
 
 if [[ -z "$NOTES_FILE" ]]; then

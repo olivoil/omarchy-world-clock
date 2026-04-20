@@ -31,6 +31,29 @@ Releases are published from a local machine with `scripts/release.sh`.
    scripts/release.sh --description "Short summary of what changed."
    ```
 
+5. Update the AUR package after the GitHub release exists.
+
+   The AUR package points at the GitHub release archive, so update it only after
+   `scripts/release.sh` has uploaded the new asset.
+
+   ```bash
+   cd ~/Code/aur.archlinux.org/omarchy-world-clock-bin
+   git pull --ff-only
+   ```
+
+   Update `pkgver` in `PKGBUILD`, reset `pkgrel=1`, and refresh the checksums
+   and generated metadata:
+
+   ```bash
+   updpkgsums
+   makepkg --printsrcinfo > .SRCINFO
+   makepkg -f
+   git diff
+   git add PKGBUILD .SRCINFO
+   git commit -m "Update to v0.1.1"
+   git push
+   ```
+
 The script reads `Cargo.toml` and releases `v<package.version>`. For example,
 `version = "0.1.1"` publishes tag `v0.1.1`.
 
@@ -86,6 +109,9 @@ Each release uploads:
 
 - `omarchy-world-clock-<target>.tar.gz`
 - `omarchy-world-clock-<target>.tar.gz.sha256`
+
+The archive contains the `omarchy-world-clock` binary and the project
+`LICENSE` file.
 
 Users install the latest release without Rust:
 

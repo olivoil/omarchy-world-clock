@@ -1,6 +1,6 @@
-use crate::time::{friendly_timezone_name, zoned_datetime};
+use crate::time::friendly_timezone_name;
 use anyhow::Context;
-use chrono::{DateTime, Datelike, TimeZone, Utc};
+use chrono::{Datelike, TimeZone, Utc};
 use chrono_tz::{Tz, TZ_VARIANTS};
 use regex::Regex;
 use reqwest::blocking::Client;
@@ -17,11 +17,8 @@ use std::time::Duration;
 use unicode_normalization::{char::is_combining_mark, UnicodeNormalization};
 
 pub const CONFIG_VERSION: u64 = 3;
-pub const LOCAL_TIMEZONE_MIGRATION_VERSION: u64 = 2;
-pub const DEFAULT_SORT_MODE: &str = "manual";
 pub const DEFAULT_TIME_FORMAT: &str = "system";
 
-const VALID_SORT_MODES: [&str; 3] = ["manual", "alpha", "time"];
 const VALID_TIME_FORMATS: [&str; 3] = ["system", "24h", "ampm"];
 const STANDARD_TZ_REGIONS: [&str; 10] = [
     "Africa",
@@ -103,7 +100,6 @@ const MANUAL_CITY_ALIASES: [ManualCityAlias; 9] = [
 #[derive(Debug, Clone, PartialEq)]
 pub struct AppConfig {
     pub timezones: Vec<TimezoneEntry>,
-    pub sort_mode: String,
     pub time_format: String,
 }
 
@@ -112,8 +108,6 @@ pub struct TimezoneEntry {
     pub timezone: String,
     #[serde(default)]
     pub label: String,
-    #[serde(default)]
-    pub locked: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub latitude: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -209,28 +203,11 @@ struct RemotePlaceResult {
     longitude: Option<f64>,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(untagged)]
-enum RawTimezoneEntry {
-    Legacy(String),
-    Structured {
-        timezone: String,
-        #[serde(default)]
-        label: String,
-        #[serde(default)]
-        locked: bool,
-        #[serde(default)]
-        latitude: Option<f64>,
-        #[serde(default)]
-        longitude: Option<f64>,
-    },
-}
-
 #[derive(Debug, Default, Deserialize)]
 struct RawConfig {
+    #[allow(dead_code)]
     version: Option<u64>,
-    timezones: Option<Vec<RawTimezoneEntry>>,
-    sort_mode: Option<String>,
+    timezones: Option<Vec<TimezoneEntry>>,
     time_format: Option<String>,
 }
 
@@ -238,7 +215,6 @@ struct RawConfig {
 struct StoredConfig<'a> {
     version: u64,
     timezones: &'a [TimezoneEntry],
-    sort_mode: &'a str,
     time_format: &'a str,
 }
 
@@ -293,7 +269,6 @@ impl ConfigManager {
         let payload = StoredConfig {
             version: CONFIG_VERSION,
             timezones: &normalized.timezones,
-            sort_mode: &normalized.sort_mode,
             time_format: &normalized.time_format,
         };
         let text = serde_json::to_string_pretty(&payload)?;
@@ -328,7 +303,6 @@ impl ConfigManager {
             config.timezones.push(TimezoneEntry {
                 timezone: timezone_name,
                 label: label.trim().to_string(),
-                locked: false,
                 latitude,
                 longitude,
             });
@@ -349,80 +323,6 @@ impl ConfigManager {
         Ok(config)
     }
 
-    pub fn reorder_timezone(
-        &self,
-        timezone_name: &str,
-        target_timezone_name: &str,
-        place_after: bool,
-    ) -> anyhow::Result<AppConfig> {
-        let mut config = self.load()?;
-        let timezone_name = canonical_timezone_name(timezone_name);
-        let target_timezone_name = canonical_timezone_name(target_timezone_name);
-        if timezone_name == target_timezone_name {
-            return Ok(config);
-        }
-
-        let source_index = config
-            .timezones
-            .iter()
-            .position(|entry| entry.timezone == timezone_name);
-        let target_index = config
-            .timezones
-            .iter()
-            .position(|entry| entry.timezone == target_timezone_name);
-        let (Some(source_index), Some(target_index)) = (source_index, target_index) else {
-            return Ok(config);
-        };
-
-        let source_entry = &config.timezones[source_index];
-        let target_entry = &config.timezones[target_index];
-        if source_entry.locked || target_entry.locked {
-            return Ok(config);
-        }
-
-        let entry = config.timezones.remove(source_index);
-        let mut target_index = target_index;
-        if source_index < target_index {
-            target_index -= 1;
-        }
-        let insert_index = target_index + usize::from(place_after);
-        config.timezones.insert(insert_index, entry);
-        config = self.normalize_config(config);
-        self.save(&config)?;
-        Ok(config)
-    }
-
-    pub fn set_sort_mode(&self, sort_mode: &str) -> anyhow::Result<AppConfig> {
-        let mut config = self.load()?;
-        config.sort_mode = if valid_sort_mode(sort_mode) {
-            sort_mode.to_string()
-        } else {
-            DEFAULT_SORT_MODE.to_string()
-        };
-        config = self.normalize_config(config);
-        self.save(&config)?;
-        Ok(config)
-    }
-
-    pub fn set_timezone_locked(
-        &self,
-        timezone_name: &str,
-        locked: bool,
-    ) -> anyhow::Result<AppConfig> {
-        let mut config = self.load()?;
-        let timezone_name = canonical_timezone_name(timezone_name);
-        if let Some(entry) = config
-            .timezones
-            .iter_mut()
-            .find(|entry| entry.timezone == timezone_name)
-        {
-            entry.locked = locked;
-        }
-        config = self.normalize_config(config);
-        self.save(&config)?;
-        Ok(config)
-    }
-
     pub fn set_time_format(&self, time_format: &str) -> anyhow::Result<AppConfig> {
         let mut config = self.load()?;
         config.time_format = if valid_time_format(time_format) {
@@ -435,89 +335,25 @@ impl ConfigManager {
         Ok(config)
     }
 
-    fn config_from_raw(&self, raw: RawConfig, local_timezone: &str) -> AppConfig {
+    fn config_from_raw(&self, raw: RawConfig, _local_timezone: &str) -> AppConfig {
         let RawConfig {
-            version,
             timezones,
-            sort_mode,
             time_format,
+            ..
         } = raw;
-        let config_version = version.unwrap_or(1);
-        let mut seen = HashSet::new();
-        let mut entries = Vec::new();
 
-        for raw_entry in timezones.unwrap_or_default() {
-            let Some(entry) = self.parse_entry(raw_entry) else {
-                continue;
-            };
-            if seen.insert(entry.timezone.clone()) {
-                entries.push(entry);
-            }
-        }
-
-        if config_version < LOCAL_TIMEZONE_MIGRATION_VERSION {
-            let local_timezone = canonical_timezone_name(local_timezone);
-            if !local_timezone.is_empty()
-                && is_valid_timezone(&local_timezone)
-                && seen.insert(local_timezone.clone())
-            {
-                entries.insert(
-                    0,
-                    TimezoneEntry {
-                        timezone: local_timezone,
-                        label: String::new(),
-                        locked: false,
-                        latitude: None,
-                        longitude: None,
-                    },
-                );
-            }
-        }
-
-        let sort_mode = sort_mode
-            .filter(|value| valid_sort_mode(value))
-            .unwrap_or_else(|| DEFAULT_SORT_MODE.to_string());
         let time_format = time_format
             .filter(|value| valid_time_format(value))
             .unwrap_or_else(|| DEFAULT_TIME_FORMAT.to_string());
         self.normalize_config(AppConfig {
-            timezones: entries,
-            sort_mode,
+            timezones: timezones.unwrap_or_default(),
             time_format,
-        })
-    }
-
-    fn parse_entry(&self, raw_entry: RawTimezoneEntry) -> Option<TimezoneEntry> {
-        let (timezone, label, locked, latitude, longitude) = match raw_entry {
-            RawTimezoneEntry::Legacy(timezone) => (timezone, String::new(), false, None, None),
-            RawTimezoneEntry::Structured {
-                timezone,
-                label,
-                locked,
-                latitude,
-                longitude,
-            } => (timezone, label, locked, latitude, longitude),
-        };
-
-        let timezone = canonical_timezone_name(&timezone);
-        if timezone.is_empty() || !is_valid_timezone(&timezone) {
-            return None;
-        }
-        let (latitude, longitude) = sanitize_place_coordinate(latitude, longitude);
-
-        Some(TimezoneEntry {
-            timezone,
-            label: label.trim().to_string(),
-            locked,
-            latitude,
-            longitude,
         })
     }
 
     fn normalize_config(&self, config: AppConfig) -> AppConfig {
         let mut seen = HashSet::new();
-        let mut locked = Vec::new();
-        let mut unlocked = Vec::new();
+        let mut timezones = Vec::new();
 
         for entry in config.timezones {
             let timezone = canonical_timezone_name(&entry.timezone);
@@ -529,28 +365,16 @@ impl ConfigManager {
             }
 
             let (latitude, longitude) = sanitize_place_coordinate(entry.latitude, entry.longitude);
-            let normalized = TimezoneEntry {
+            timezones.push(TimezoneEntry {
                 timezone,
                 label: entry.label.trim().to_string(),
-                locked: entry.locked,
                 latitude,
                 longitude,
-            };
-
-            if normalized.locked {
-                locked.push(normalized);
-            } else {
-                unlocked.push(normalized);
-            }
+            });
         }
 
         AppConfig {
-            timezones: locked.into_iter().chain(unlocked).collect(),
-            sort_mode: if valid_sort_mode(&config.sort_mode) {
-                config.sort_mode
-            } else {
-                DEFAULT_SORT_MODE.to_string()
-            },
+            timezones,
             time_format: if valid_time_format(&config.time_format) {
                 config.time_format
             } else {
@@ -567,7 +391,6 @@ impl ConfigManager {
             vec![TimezoneEntry {
                 timezone: local_timezone,
                 label: String::new(),
-                locked: false,
                 latitude: None,
                 longitude: None,
             }]
@@ -575,14 +398,9 @@ impl ConfigManager {
 
         AppConfig {
             timezones,
-            sort_mode: DEFAULT_SORT_MODE.to_string(),
             time_format: DEFAULT_TIME_FORMAT.to_string(),
         }
     }
-}
-
-fn valid_sort_mode(value: &str) -> bool {
-    VALID_SORT_MODES.contains(&value)
 }
 
 fn valid_time_format(value: &str) -> bool {
@@ -748,59 +566,6 @@ pub fn detect_local_timezone() -> String {
     }
 
     "UTC".to_string()
-}
-
-pub fn ordered_timezones(
-    entries: &[TimezoneEntry],
-    sort_mode: &str,
-    reference_utc: DateTime<Utc>,
-) -> Vec<TimezoneEntry> {
-    let mut locked = Vec::new();
-    let mut unlocked = Vec::new();
-
-    for entry in entries {
-        if entry.locked {
-            locked.push(entry.clone());
-        } else {
-            unlocked.push(entry.clone());
-        }
-    }
-
-    match sort_mode {
-        "alpha" => {
-            unlocked.sort_by(|left, right| {
-                left.display_label()
-                    .to_lowercase()
-                    .cmp(&right.display_label().to_lowercase())
-                    .then_with(|| {
-                        left.timezone
-                            .to_lowercase()
-                            .cmp(&right.timezone.to_lowercase())
-                    })
-            });
-        }
-        "time" => {
-            unlocked.sort_by(|left, right| {
-                zoned_datetime(reference_utc, &left.timezone)
-                    .naive_local()
-                    .cmp(&zoned_datetime(reference_utc, &right.timezone).naive_local())
-                    .then_with(|| {
-                        left.display_label()
-                            .to_lowercase()
-                            .cmp(&right.display_label().to_lowercase())
-                    })
-                    .then_with(|| {
-                        left.timezone
-                            .to_lowercase()
-                            .cmp(&right.timezone.to_lowercase())
-                    })
-            });
-        }
-        _ => {}
-    }
-
-    locked.extend(unlocked);
-    locked
 }
 
 pub fn waybar_clock_config_paths() -> Vec<PathBuf> {
@@ -1535,10 +1300,9 @@ fn unique_words(value: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        canonical_timezone_name, detect_system_time_format_with_paths, ordered_timezones,
-        AppConfig, ConfigManager, TimezoneEntry, TimezoneResolver,
+        canonical_timezone_name, detect_system_time_format_with_paths, AppConfig, ConfigManager,
+        TimezoneEntry, TimezoneResolver,
     };
-    use chrono::{TimeZone, Utc};
     use std::fs;
     use tempfile::TempDir;
 
@@ -1558,48 +1322,16 @@ mod tests {
                 timezones: vec![TimezoneEntry {
                     timezone: "UTC".to_string(),
                     label: String::new(),
-                    locked: false,
                     latitude: None,
                     longitude: None,
                 }],
-                sort_mode: "manual".to_string(),
                 time_format: "system".to_string(),
             }
         );
     }
 
     #[test]
-    fn config_loads_legacy_timezone_list() {
-        let temp_dir = TempDir::new().unwrap();
-        let path = temp_dir.path().join("config.json");
-        fs::write(&path, "{\"timezones\": [\"UTC\", \"Asia/Tokyo\"]}\n").unwrap();
-
-        let manager = ConfigManager::new(Some(path));
-        let loaded = manager.load_with_local_timezone("UTC").unwrap();
-
-        assert_eq!(
-            loaded.timezones,
-            vec![
-                TimezoneEntry {
-                    timezone: "UTC".to_string(),
-                    label: String::new(),
-                    locked: false,
-                    latitude: None,
-                    longitude: None,
-                },
-                TimezoneEntry {
-                    timezone: "Asia/Tokyo".to_string(),
-                    label: String::new(),
-                    locked: false,
-                    latitude: None,
-                    longitude: None,
-                },
-            ]
-        );
-    }
-
-    #[test]
-    fn config_normalizes_locked_entries_to_front() {
+    fn config_normalizes_entries_preserving_order() {
         let temp_dir = TempDir::new().unwrap();
         let manager = manager_in(&temp_dir);
         let config = AppConfig {
@@ -1607,59 +1339,23 @@ mod tests {
                 TimezoneEntry {
                     timezone: "UTC".to_string(),
                     label: "Home".to_string(),
-                    locked: false,
                     latitude: None,
                     longitude: None,
                 },
                 TimezoneEntry {
                     timezone: "Asia/Tokyo".to_string(),
                     label: "Tokyo".to_string(),
-                    locked: true,
                     latitude: None,
                     longitude: None,
                 },
             ],
-            sort_mode: "manual".to_string(),
             time_format: "system".to_string(),
         };
 
         manager.save(&config).unwrap();
         let loaded = manager.load_with_local_timezone("UTC").unwrap();
-        assert_eq!(loaded.timezones[0].timezone, "Asia/Tokyo");
-        assert_eq!(loaded.timezones[1].timezone, "UTC");
-    }
-
-    #[test]
-    fn ordered_timezones_keeps_locked_entries_first() {
-        let reference = Utc.with_ymd_and_hms(2026, 4, 17, 12, 0, 0).unwrap();
-        let entries = vec![
-            TimezoneEntry {
-                timezone: "UTC".to_string(),
-                label: "Home".to_string(),
-                locked: false,
-                latitude: None,
-                longitude: None,
-            },
-            TimezoneEntry {
-                timezone: "Asia/Tokyo".to_string(),
-                label: "Tokyo".to_string(),
-                locked: true,
-                latitude: None,
-                longitude: None,
-            },
-            TimezoneEntry {
-                timezone: "America/New_York".to_string(),
-                label: "New York".to_string(),
-                locked: false,
-                latitude: None,
-                longitude: None,
-            },
-        ];
-
-        let ordered = ordered_timezones(&entries, "time", reference);
-        assert_eq!(ordered[0].timezone, "Asia/Tokyo");
-        assert_eq!(ordered[1].timezone, "America/New_York");
-        assert_eq!(ordered[2].timezone, "UTC");
+        assert_eq!(loaded.timezones[0].timezone, "UTC");
+        assert_eq!(loaded.timezones[1].timezone, "Asia/Tokyo");
     }
 
     #[test]
@@ -1745,31 +1441,13 @@ mod tests {
     }
 
     #[test]
-    fn set_timezone_locked_moves_entry_ahead_of_unlocked_rows() {
+    fn set_time_format_validates_values() {
         let temp_dir = TempDir::new().unwrap();
         let manager = manager_in(&temp_dir);
         manager.load_with_local_timezone("UTC").unwrap();
-        manager.add_timezone("Asia/Tokyo", "Tokyo").unwrap();
-
-        let updated = manager.set_timezone_locked("Asia/Tokyo", true).unwrap();
-        assert_eq!(updated.timezones[0].timezone, "Asia/Tokyo");
-        assert!(updated.timezones[0].locked);
-    }
-
-    #[test]
-    fn set_sort_mode_and_time_format_validate_values() {
-        let temp_dir = TempDir::new().unwrap();
-        let manager = manager_in(&temp_dir);
-        manager.load_with_local_timezone("UTC").unwrap();
-
-        let sort_updated = manager.set_sort_mode("alpha").unwrap();
-        assert_eq!(sort_updated.sort_mode, "alpha");
 
         let format_updated = manager.set_time_format("ampm").unwrap();
         assert_eq!(format_updated.time_format, "ampm");
-
-        let fallback = manager.set_sort_mode("bogus").unwrap();
-        assert_eq!(fallback.sort_mode, "manual");
 
         let fallback_format = manager.set_time_format("bogus").unwrap();
         assert_eq!(fallback_format.time_format, "system");

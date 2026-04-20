@@ -15,8 +15,8 @@ GTK3 app has been removed.
 </p>
 
 <p>
-  <strong>Gruvbox</strong><br>
-  <img src="docs/screenshots/gruvbox-popup.png" alt="Omarchy World Clock popup on the Gruvbox theme" width="900">
+  <strong>Matte Black</strong><br>
+  <img src="docs/screenshots/matte-black-popup.png" alt="Omarchy World Clock popup on the Matte Black theme" width="900">
 </p>
 
 <p>

@@ -19,9 +19,6 @@ The popup supports:
 - removing configured places
 - displaying times with the system time format
 
-The old row-list UX, row locking, row sorting controls, drag reordering, and
-user-selectable time format controls are not product features.
-
 ## Waybar Module
 
 - A small world icon appears next to the center Waybar clock.
@@ -94,16 +91,13 @@ Persistence rules:
 - invalid coordinates are dropped
 - `disable_open_meteo_geolocation` defaults to `false`
 - `disable_open_meteo_geolocation` is only persisted when true
-- legacy `locked`, `sort_mode`, and `time_format` keys are ignored and are not
-  written back
 
 ## Default Behavior
 
 - On first load, the detected local timezone is inserted unless it already
   exists.
-- Older configs are migrated forward transparently.
-- If the user later removes the local timezone entry, it is not automatically
-  re-added after migration has already run.
+- If the user removes the local timezone entry, it is not automatically
+  re-added.
 - If there are no configured non-local entries, the popup opens directly to the
   add screen.
 
@@ -112,8 +106,6 @@ Persistence rules:
 - Visible clock cards are ordered by wall-clock time at the current reference
   instant.
 - Equal-time cards fall back to display label ordering.
-- No sort, manual reorder, lock, pin, or pinned-section ordering controls are
-  exposed.
 
 ## Time Display and Manual Reference Mode
 
@@ -265,9 +257,6 @@ A correct implementation satisfies these behaviors:
 - The tooltip reflects current configured non-local entries.
 - Time conversion works from the summary clock and every visible clock card.
 - Display format follows the system format only.
-- The old row-list, lock, sort, drag, and time-format settings are absent from
-  the UI.
-- Old `locked`, `sort_mode`, and `time_format` config keys are not persisted.
 - Local timezone search works without network access.
 - Open-Meteo geocoding can be disabled with
   `disable_open_meteo_geolocation`.

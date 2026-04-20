@@ -71,7 +71,10 @@ The release script:
 - requires local `master` to match `origin/master`
 - rejects tags that do not match `v<package.version>`
 - rejects existing tags that do not point at `HEAD`
-- runs Rust tests and shell installer tests unless `--skip-tests` is passed
+- runs `scripts/ci.sh` unless `--skip-tests` is passed
+
+`scripts/ci.sh` runs formatting, Clippy, Rust tests, and the shell installer
+tests.
 
 `--dry-run` keeps the publish steps read-only. If the working tree is dirty, the
 dry run still builds and reports the planned actions, but marks the real publish

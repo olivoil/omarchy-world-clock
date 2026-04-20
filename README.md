@@ -118,6 +118,37 @@ Run tests:
 cargo test
 ```
 
+Run the local PR checks:
+
+```bash
+scripts/ci.sh
+```
+
+This mirrors the checks this project would normally put in a GitHub Action:
+formatting, Clippy, Rust tests, and the shell installer tests.
+
+Sign off the current commit after the local checks pass:
+
+```bash
+scripts/signoff.sh
+```
+
+This requires GitHub CLI auth and Basecamp's signoff extension:
+
+```bash
+gh auth login
+gh extension install basecamp/gh-signoff
+```
+
+To make signoff a required merge check on GitHub, run `gh signoff install`
+from the default branch.
+
+If branch protection requires partial signoffs, pass the names through:
+
+```bash
+scripts/signoff.sh tests lint security
+```
+
 ## Runtime Notes
 
 This repo assumes an Omarchy-like environment with:
@@ -232,7 +263,7 @@ The release script:
 - rejects explicit tags that do not match `v<package.version>`
 - writes release notes from `--description` plus the commits since the previous tag
 - accepts `--notes-file path/to/notes.md` when you want full manual release notes
-- runs `cargo test --locked` and the shell installer tests
+- runs `scripts/ci.sh` before release builds unless `--skip-tests` is passed
 - builds `target/release/omarchy-world-clock`
 - packages `omarchy-world-clock-<rust-host-target>.tar.gz`
 - creates and pushes the git tag if it does not already exist
@@ -259,5 +290,6 @@ scripts/release.sh --description "Short summary of what changed."
 Prerequisites for maintainers:
 
 - Rust/Cargo
+- Rustfmt and Clippy
 - `gh` authenticated for `olivoil/omarchy-world-clock`
 - `git`, `tar`, and `sha256sum`

@@ -10,18 +10,18 @@ GTK3 app has been removed.
 ## Screenshots
 
 <p>
-  <strong>Rose Pine</strong><br>
-  <img src="docs/screenshots/rose-pine-popup.png" alt="Omarchy World Clock popup on the Rose Pine theme" width="900">
+  <strong>Rose Pine - Read View</strong><br>
+  <img src="docs/screenshots/rose-pine-read.png" alt="Omarchy World Clock read view on the Rose Pine theme" width="900">
 </p>
 
 <p>
-  <strong>Matte Black</strong><br>
-  <img src="docs/screenshots/matte-black-popup.png" alt="Omarchy World Clock popup on the Matte Black theme" width="900">
+  <strong>Matte Black - Add Location</strong><br>
+  <img src="docs/screenshots/matte-black-add.png" alt="Omarchy World Clock add location screen on the Matte Black theme" width="900">
 </p>
 
 <p>
-  <strong>Kanagawa</strong><br>
-  <img src="docs/screenshots/kanagawa-popup.png" alt="Omarchy World Clock popup on the Kanagawa theme" width="900">
+  <strong>Kanagawa - Edit Mode</strong><br>
+  <img src="docs/screenshots/kanagawa-edit.png" alt="Omarchy World Clock edit mode on the Kanagawa theme" width="900">
 </p>
 
 ## What It Does
@@ -31,7 +31,7 @@ GTK3 app has been removed.
 - Opens a popup with live clocks for a user-managed timezone list.
 - Supports manual reference-time conversion across rows.
 - Supports city/timezone search, with remote place lookup as a fallback.
-- Lets you add, remove, pin, and reorder timezones.
+- Lets you add and remove timezones.
 - Supports `System`, forced `24h`, and forced `AM/PM` display modes.
 - Adapts popup colors to the active Omarchy theme palette.
 - Stores state in `~/.config/omarchy-world-clock/config.json`.
@@ -129,16 +129,13 @@ Example:
   "timezones": [
     {
       "timezone": "America/Cancun",
-      "label": "Home",
-      "locked": true
+      "label": "Home"
     },
     {
       "timezone": "Europe/Paris",
-      "label": "Rennes",
-      "locked": false
+      "label": "Rennes"
     }
   ],
-  "sort_mode": "manual",
   "time_format": "system"
 }
 ```

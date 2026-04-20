@@ -6,6 +6,7 @@ cd "$REPO_ROOT"
 
 TAG=
 DRAFT=false
+DRY_RUN=false
 SKIP_TESTS=false
 ALLOW_NON_DEFAULT_BRANCH=false
 DESCRIPTION=${OMARCHY_WORLD_CLOCK_RELEASE_DESCRIPTION:-}
@@ -15,21 +16,25 @@ DIST_DIR=${OMARCHY_WORLD_CLOCK_DIST_DIR:-"$REPO_ROOT/target/release-dist"}
 
 usage() {
   cat <<EOF
-Usage: scripts/release.sh [tag] [--draft] [--skip-tests]
+Usage: scripts/release.sh [tag] [--dry-run] [--draft] [--skip-tests]
 
 Builds a local release binary, packages it as a GitHub release asset, creates
 and pushes the tag if needed, then creates or updates the GitHub release.
 If no tag is provided, the script uses v<package.version> from Cargo.toml.
+With --dry-run, the script runs preflight checks, builds the asset, prepares
+release notes, and prints the tag/release actions without changing GitHub.
 
 Options:
   --description TEXT          First paragraph for generated release notes.
   --notes-file PATH           Use an exact Markdown release notes file.
   --allow-non-default-branch  Release from the current branch instead of origin/HEAD.
+  --dry-run                   Build and report planned release actions without publishing.
   --draft                     Create a draft release.
   --skip-tests                Skip release preflight tests.
 
 Examples:
   scripts/release.sh
+  scripts/release.sh --dry-run
   scripts/release.sh --description "Adds prebuilt release installs."
   scripts/release.sh v0.1.0
   scripts/release.sh v0.1.0 --draft
@@ -40,6 +45,10 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --draft)
       DRAFT=true
+      shift
+      ;;
+    --dry-run)
+      DRY_RUN=true
       shift
       ;;
     --skip-tests)
@@ -124,9 +133,14 @@ elif [[ "$TAG" != "$EXPECTED_TAG" ]]; then
   exit 1
 fi
 
-if [[ -n "$(git status --porcelain)" ]]; then
-  printf 'Working tree is dirty. Commit or stash changes before releasing.\n' >&2
-  exit 1
+GIT_STATUS=$(git status --porcelain)
+if [[ -n "$GIT_STATUS" ]]; then
+  if [[ "$DRY_RUN" == true ]]; then
+    printf 'Dry run continuing with a dirty working tree. A real release would fail until these changes are committed or stashed.\n' >&2
+  else
+    printf 'Working tree is dirty. Commit or stash changes before releasing.\n' >&2
+    exit 1
+  fi
 fi
 
 git fetch --tags origin
@@ -215,15 +229,68 @@ if [[ -z "$NOTES_FILE" ]]; then
   NOTES_FILE=$GENERATED_NOTES
 fi
 
-if ! git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+LOCAL_TAG_EXISTS=false
+if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+  LOCAL_TAG_EXISTS=true
+fi
+
+REMOTE_TAG_EXISTS=false
+if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+  REMOTE_TAG_EXISTS=true
+fi
+
+GITHUB_RELEASE_EXISTS=false
+if gh release view "$TAG" >/dev/null 2>&1; then
+  GITHUB_RELEASE_EXISTS=true
+fi
+
+if [[ "$DRY_RUN" == true ]]; then
+  printf '\nDry run complete. No tag, push, or GitHub release was created.\n'
+  printf 'Tag: %s\n' "$TAG"
+  printf 'Target: %s\n' "$TARGET"
+  printf 'Asset: %s\n' "$ARCHIVE"
+  printf 'Checksum: %s\n' "$CHECKSUM"
+  printf 'Release notes: %s\n' "$NOTES_FILE"
+
+  if [[ "$LOCAL_TAG_EXISTS" == true ]]; then
+    printf 'Tag action: reuse existing local tag %s.\n' "$TAG"
+  else
+    printf 'Tag action: create annotated local tag %s at HEAD.\n' "$TAG"
+  fi
+
+  if [[ "$REMOTE_TAG_EXISTS" == true ]]; then
+    printf 'Push action: remote tag %s already exists on origin.\n' "$TAG"
+  else
+    printf 'Push action: push tag %s to origin.\n' "$TAG"
+  fi
+
+  if [[ "$GITHUB_RELEASE_EXISTS" == true ]]; then
+    printf 'Release action: update existing GitHub release %s and upload assets with --clobber.\n' "$TAG"
+  else
+    if [[ "$DRAFT" == true ]]; then
+      printf 'Release action: create draft GitHub release %s with packaged assets.\n' "$TAG"
+    else
+      printf 'Release action: create published GitHub release %s with packaged assets.\n' "$TAG"
+    fi
+  fi
+
+  if [[ -n "$GIT_STATUS" ]]; then
+    printf 'Readiness: blocked for real publish because the working tree is dirty.\n'
+  else
+    printf 'Readiness: release publish path is clear from this checkout.\n'
+  fi
+  exit 0
+fi
+
+if [[ "$LOCAL_TAG_EXISTS" != true ]]; then
   git tag -a "$TAG" -m "$TAG"
 fi
 
-if ! git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+if [[ "$REMOTE_TAG_EXISTS" != true ]]; then
   git push origin "$TAG"
 fi
 
-if gh release view "$TAG" >/dev/null 2>&1; then
+if [[ "$GITHUB_RELEASE_EXISTS" == true ]]; then
   gh release edit "$TAG" --notes-file "$NOTES_FILE"
   gh release upload "$TAG" "$ARCHIVE" "$CHECKSUM" --clobber
 else

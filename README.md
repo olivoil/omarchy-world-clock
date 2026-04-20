@@ -194,6 +194,15 @@ The release script:
 - creates and pushes the git tag if it does not already exist
 - creates or updates the GitHub release with the archive and `.sha256`
 
+To check the release before publishing:
+
+```bash
+scripts/release.sh --dry-run --description "Short summary of what changed."
+```
+
+Dry runs build the package, generate the notes, check tag/release state, and
+print the publish actions without creating tags or touching the GitHub release.
+
 Normal release flow:
 
 ```bash

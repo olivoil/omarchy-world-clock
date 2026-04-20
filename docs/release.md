@@ -34,6 +34,17 @@ Releases are published from a local machine with `scripts/release.sh`.
 The script reads `Cargo.toml` and releases `v<package.version>`. For example,
 `version = "0.1.1"` publishes tag `v0.1.1`.
 
+To verify the release before publishing anything:
+
+```bash
+scripts/release.sh --dry-run --description "Short summary of what changed."
+```
+
+Dry runs build the release binary, package the archive and checksum, prepare
+release notes, check whether the tag and GitHub release already exist, and print
+the tag/push/release actions that a real publish would take. They do not create
+tags, push tags, or create/update GitHub releases.
+
 ## Release Notes
 
 By default, pass a succinct description:
@@ -61,6 +72,10 @@ The release script:
 - rejects tags that do not match `v<package.version>`
 - rejects existing tags that do not point at `HEAD`
 - runs Rust tests and shell installer tests unless `--skip-tests` is passed
+
+`--dry-run` keeps the publish steps read-only. If the working tree is dirty, the
+dry run still builds and reports the planned actions, but marks the real publish
+as blocked until the changes are committed or stashed.
 
 ## Output
 

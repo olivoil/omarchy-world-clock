@@ -41,9 +41,10 @@ places.
 Recommended on Arch/Omarchy via AUR, no Rust toolchain required:
 
 ```bash
-paru -S omarchy-world-clock-bin
+yay -S omarchy-world-clock-bin
 ```
 
+If you use another AUR helper, install the same package name with that helper.
 Then add the module to your current user's Waybar config:
 
 ```bash

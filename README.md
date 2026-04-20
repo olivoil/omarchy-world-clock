@@ -163,10 +163,12 @@ Example:
 ## Docs
 
 - Product behavior spec: [docs/specs.md](docs/specs.md)
+- Maintainer release process: [docs/release.md](docs/release.md)
 
 ## Maintainer Release
 
-Releases are published from a local machine, not GitHub Actions:
+Releases are published from a local machine, not GitHub Actions. See
+[docs/release.md](docs/release.md) for the full checklist.
 
 ```bash
 scripts/release.sh --description "Adds prebuilt release installs and local release publishing."

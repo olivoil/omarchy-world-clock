@@ -4,9 +4,6 @@ Omarchy World Clock adds a small world-clock entry point next to Omarchy's
 center Waybar clock and opens a multi-timezone popup for planning across
 places.
 
-The implementation is now Rust + GTK4 + `gtk4-layer-shell`. The old Python +
-GTK3 app has been removed.
-
 ## Screenshots
 
 <p>
@@ -183,9 +180,6 @@ Optional privacy setting:
 
 When this is true, search uses only local timezone names, aliases, and bundled
 timezone data. Existing coordinates already saved in the config still work.
-
-Legacy `locked`, `sort_mode`, and `time_format` keys are ignored when old config
-files are loaded and are not written back.
 
 ## Third-Party Services
 

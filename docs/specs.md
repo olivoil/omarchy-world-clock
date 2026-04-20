@@ -19,8 +19,8 @@ The popup supports:
 - removing configured places
 - displaying times with the system time format
 
-The old row-list UX, row locking, row sorting controls, drag reordering, and
-user-selectable time format controls are not product features.
+The popup does not include row locking, row sorting controls, drag reordering,
+or user-selectable time format controls.
 
 ## Waybar Module
 
@@ -94,8 +94,6 @@ Persistence rules:
 - invalid coordinates are dropped
 - `disable_open_meteo_geolocation` defaults to `false`
 - `disable_open_meteo_geolocation` is only persisted when true
-- legacy `locked`, `sort_mode`, and `time_format` keys are ignored and are not
-  written back
 
 ## Default Behavior
 
@@ -265,9 +263,7 @@ A correct implementation satisfies these behaviors:
 - The tooltip reflects current configured non-local entries.
 - Time conversion works from the summary clock and every visible clock card.
 - Display format follows the system format only.
-- The old row-list, lock, sort, drag, and time-format settings are absent from
-  the UI.
-- Old `locked`, `sort_mode`, and `time_format` config keys are not persisted.
+- Lock, sort, drag, and time-format settings are absent from the UI.
 - Local timezone search works without network access.
 - Open-Meteo geocoding can be disabled with
   `disable_open_meteo_geolocation`.

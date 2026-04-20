@@ -115,6 +115,37 @@ Run tests:
 cargo test
 ```
 
+Run the local PR checks:
+
+```bash
+scripts/ci.sh
+```
+
+This mirrors the checks this project would normally put in a GitHub Action:
+formatting, Clippy, Rust tests, and the shell installer tests.
+
+Sign off the current commit after the local checks pass:
+
+```bash
+scripts/signoff.sh
+```
+
+This requires GitHub CLI auth and Basecamp's signoff extension:
+
+```bash
+gh auth login
+gh extension install basecamp/gh-signoff
+```
+
+To make signoff a required merge check on GitHub, run `gh signoff install`
+from the default branch.
+
+If branch protection requires partial signoffs, pass the names through:
+
+```bash
+scripts/signoff.sh tests lint security
+```
+
 ## Runtime Notes
 
 This repo assumes an Omarchy-like environment with:

@@ -337,7 +337,7 @@ fn keep_popup_open_for_inspection() -> bool {
     std::env::var_os("OMARCHY_WORLD_CLOCK_KEEP_OPEN").is_some()
         || std::env::var("GTK_DEBUG").ok().is_some_and(|value| {
             value
-                .split(|separator: char| matches!(separator, ',' | ';' | ':' | ' '))
+                .split([',', ';', ':', ' '])
                 .any(|flag| flag.trim() == "interactive")
         })
 }
@@ -530,11 +530,10 @@ fn read_card_editing(state: &PopupState, timezone: &str) -> bool {
 }
 
 fn read_time_cursor_editing(state: &PopupState) -> bool {
-    match state.active_time_entry.as_ref() {
-        Some(ActiveTimeEntry::Summary) => true,
-        Some(ActiveTimeEntry::ReadCard(_)) => true,
-        _ => false,
-    }
+    matches!(
+        state.active_time_entry.as_ref(),
+        Some(ActiveTimeEntry::Summary) | Some(ActiveTimeEntry::ReadCard(_))
+    )
 }
 
 fn reset_read_time_cursor_blink(state: &PopupState) {
@@ -1423,7 +1422,7 @@ fn map_label_position_candidates(
         for label_x in side_positions {
             let label_y = point_y - MAP_MARKER_LABEL_HEIGHT / 2.0 + offset;
             let rect = clamped_map_label_rect(label_x, label_y, label_width, map_width, map_height);
-            if !candidates.iter().any(|candidate| *candidate == rect) {
+            if !candidates.contains(&rect) {
                 candidates.push(rect);
             }
         }

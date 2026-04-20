@@ -424,7 +424,7 @@ fn module_payload_from_config_with_time_format(
         .into_iter()
         .map(|entry| {
             let label = entry.read_card_title();
-            let time = format_display_time(&zoned_datetime(now, &entry.timezone), &time_format);
+            let time = format_display_time(&zoned_datetime(now, &entry.timezone), time_format);
             (label, time)
         })
         .collect();

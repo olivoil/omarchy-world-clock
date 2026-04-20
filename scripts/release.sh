@@ -194,9 +194,7 @@ if [[ -n "${OMARCHY_WORLD_CLOCK_TARGET:-}" ]]; then
 fi
 
 if [[ "$SKIP_TESTS" != true ]]; then
-  cargo test --locked
-  bash tests/install.sh
-  bash tests/uninstall.sh
+  scripts/ci.sh
 fi
 
 cargo "${BUILD_ARGS[@]}"

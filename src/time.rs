@@ -29,7 +29,7 @@ pub fn friendly_timezone_name(timezone_name: &str) -> String {
 
     timezone_name
         .split('/')
-        .last()
+        .next_back()
         .unwrap_or(timezone_name)
         .replace('_', " ")
 }

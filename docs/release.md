@@ -87,5 +87,5 @@ Each release uploads:
 Users install the latest release without Rust:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/olivoil/omarchy-world-clock/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/olivoil/omarchy-world-clock/master/install.sh | bash
 ```

@@ -29,7 +29,7 @@ GTK3 app has been removed.
 Recommended install, no Rust toolchain required:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/olivoil/omarchy-world-clock/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/olivoil/omarchy-world-clock/master/install.sh | bash
 ```
 
 From a local checkout:

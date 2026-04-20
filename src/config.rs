@@ -16,10 +16,9 @@ use std::sync::OnceLock;
 use std::time::Duration;
 use unicode_normalization::{char::is_combining_mark, UnicodeNormalization};
 
-pub const CONFIG_VERSION: u64 = 3;
-pub const DEFAULT_TIME_FORMAT: &str = "system";
+pub const CONFIG_VERSION: u64 = 4;
+pub const LOCAL_TIMEZONE_MIGRATION_VERSION: u64 = 2;
 
-const VALID_TIME_FORMATS: [&str; 3] = ["system", "24h", "ampm"];
 const STANDARD_TZ_REGIONS: [&str; 10] = [
     "Africa",
     "America",
@@ -32,75 +31,11 @@ const STANDARD_TZ_REGIONS: [&str; 10] = [
     "Indian",
     "Pacific",
 ];
-#[derive(Debug, Clone, Copy)]
-struct ManualCityAlias {
-    alias: &'static str,
-    timezone: &'static str,
-    latitude: f64,
-    longitude: f64,
-}
-
-const MANUAL_CITY_ALIASES: [ManualCityAlias; 9] = [
-    ManualCityAlias {
-        alias: "Austin",
-        timezone: "America/Chicago",
-        latitude: 30.2672,
-        longitude: -97.7431,
-    },
-    ManualCityAlias {
-        alias: "Bangalore",
-        timezone: "Asia/Kolkata",
-        latitude: 12.9716,
-        longitude: 77.5946,
-    },
-    ManualCityAlias {
-        alias: "Bengaluru",
-        timezone: "Asia/Kolkata",
-        latitude: 12.9716,
-        longitude: 77.5946,
-    },
-    ManualCityAlias {
-        alias: "Delhi",
-        timezone: "Asia/Kolkata",
-        latitude: 28.6139,
-        longitude: 77.2090,
-    },
-    ManualCityAlias {
-        alias: "Faridabad",
-        timezone: "Asia/Kolkata",
-        latitude: 28.4089,
-        longitude: 77.3178,
-    },
-    ManualCityAlias {
-        alias: "Gurgaon",
-        timezone: "Asia/Kolkata",
-        latitude: 28.4595,
-        longitude: 77.0266,
-    },
-    ManualCityAlias {
-        alias: "Gurugram",
-        timezone: "Asia/Kolkata",
-        latitude: 28.4595,
-        longitude: 77.0266,
-    },
-    ManualCityAlias {
-        alias: "New Delhi",
-        timezone: "Asia/Kolkata",
-        latitude: 28.6139,
-        longitude: 77.2090,
-    },
-    ManualCityAlias {
-        alias: "Noida",
-        timezone: "Asia/Kolkata",
-        latitude: 28.5355,
-        longitude: 77.3910,
-    },
-];
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AppConfig {
     pub timezones: Vec<TimezoneEntry>,
-    pub time_format: String,
+    pub disable_open_meteo_geolocation: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -145,6 +80,7 @@ pub struct TimezoneSearchResult {
     pub subtitle: String,
     pub latitude: Option<f64>,
     pub longitude: Option<f64>,
+    pub open_meteo_attribution: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -203,19 +139,35 @@ struct RemotePlaceResult {
     longitude: Option<f64>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum RawTimezoneEntry {
+    Legacy(String),
+    Structured {
+        timezone: String,
+        #[serde(default)]
+        label: String,
+        #[serde(default)]
+        latitude: Option<f64>,
+        #[serde(default)]
+        longitude: Option<f64>,
+    },
+}
+
 #[derive(Debug, Default, Deserialize)]
 struct RawConfig {
     #[allow(dead_code)]
     version: Option<u64>,
-    timezones: Option<Vec<TimezoneEntry>>,
-    time_format: Option<String>,
+    timezones: Option<Vec<RawTimezoneEntry>>,
+    disable_open_meteo_geolocation: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]
 struct StoredConfig<'a> {
     version: u64,
     timezones: &'a [TimezoneEntry],
-    time_format: &'a str,
+    #[serde(skip_serializing_if = "is_false")]
+    disable_open_meteo_geolocation: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -269,7 +221,7 @@ impl ConfigManager {
         let payload = StoredConfig {
             version: CONFIG_VERSION,
             timezones: &normalized.timezones,
-            time_format: &normalized.time_format,
+            disable_open_meteo_geolocation: normalized.disable_open_meteo_geolocation,
         };
         let text = serde_json::to_string_pretty(&payload)?;
         fs::write(&self.path, format!("{text}\n"))
@@ -323,31 +275,71 @@ impl ConfigManager {
         Ok(config)
     }
 
-    pub fn set_time_format(&self, time_format: &str) -> anyhow::Result<AppConfig> {
-        let mut config = self.load()?;
-        config.time_format = if valid_time_format(time_format) {
-            time_format.to_string()
-        } else {
-            DEFAULT_TIME_FORMAT.to_string()
-        };
-        config = self.normalize_config(config);
-        self.save(&config)?;
-        Ok(config)
+    fn config_from_raw(&self, raw: RawConfig, local_timezone: &str) -> AppConfig {
+        let RawConfig {
+            version,
+            timezones,
+            disable_open_meteo_geolocation,
+        } = raw;
+        let config_version = version.unwrap_or(1);
+        let mut seen = HashSet::new();
+        let mut entries = Vec::new();
+
+        for raw_entry in timezones.unwrap_or_default() {
+            let Some(entry) = self.parse_entry(raw_entry) else {
+                continue;
+            };
+            if seen.insert(entry.timezone.clone()) {
+                entries.push(entry);
+            }
+        }
+
+        if config_version < LOCAL_TIMEZONE_MIGRATION_VERSION {
+            let local_timezone = canonical_timezone_name(local_timezone);
+            if !local_timezone.is_empty()
+                && is_valid_timezone(&local_timezone)
+                && seen.insert(local_timezone.clone())
+            {
+                entries.insert(
+                    0,
+                    TimezoneEntry {
+                        timezone: local_timezone,
+                        label: String::new(),
+                        latitude: None,
+                        longitude: None,
+                    },
+                );
+            }
+        }
+
+        self.normalize_config(AppConfig {
+            timezones: entries,
+            disable_open_meteo_geolocation: disable_open_meteo_geolocation.unwrap_or(false),
+        })
     }
 
-    fn config_from_raw(&self, raw: RawConfig, _local_timezone: &str) -> AppConfig {
-        let RawConfig {
-            timezones,
-            time_format,
-            ..
-        } = raw;
+    fn parse_entry(&self, raw_entry: RawTimezoneEntry) -> Option<TimezoneEntry> {
+        let (timezone, label, latitude, longitude) = match raw_entry {
+            RawTimezoneEntry::Legacy(timezone) => (timezone, String::new(), None, None),
+            RawTimezoneEntry::Structured {
+                timezone,
+                label,
+                latitude,
+                longitude,
+            } => (timezone, label, latitude, longitude),
+        };
 
-        let time_format = time_format
-            .filter(|value| valid_time_format(value))
-            .unwrap_or_else(|| DEFAULT_TIME_FORMAT.to_string());
-        self.normalize_config(AppConfig {
-            timezones: timezones.unwrap_or_default(),
-            time_format,
+        let timezone = canonical_timezone_name(&timezone);
+        if timezone.is_empty() || !is_valid_timezone(&timezone) {
+            return None;
+        }
+        let (latitude, longitude) = sanitize_place_coordinate(latitude, longitude);
+
+        Some(TimezoneEntry {
+            timezone,
+            label: label.trim().to_string(),
+            latitude,
+            longitude,
         })
     }
 
@@ -365,21 +357,19 @@ impl ConfigManager {
             }
 
             let (latitude, longitude) = sanitize_place_coordinate(entry.latitude, entry.longitude);
-            timezones.push(TimezoneEntry {
+            let normalized = TimezoneEntry {
                 timezone,
                 label: entry.label.trim().to_string(),
                 latitude,
                 longitude,
-            });
+            };
+
+            timezones.push(normalized);
         }
 
         AppConfig {
             timezones,
-            time_format: if valid_time_format(&config.time_format) {
-                config.time_format
-            } else {
-                DEFAULT_TIME_FORMAT.to_string()
-            },
+            disable_open_meteo_geolocation: config.disable_open_meteo_geolocation,
         }
     }
 
@@ -398,13 +388,9 @@ impl ConfigManager {
 
         AppConfig {
             timezones,
-            time_format: DEFAULT_TIME_FORMAT.to_string(),
+            disable_open_meteo_geolocation: false,
         }
     }
-}
-
-fn valid_time_format(value: &str) -> bool {
-    VALID_TIME_FORMATS.contains(&value)
 }
 
 fn valid_place_coordinate(latitude: f64, longitude: f64) -> bool {
@@ -424,6 +410,10 @@ fn sanitize_place_coordinate(
         }
         _ => (None, None),
     }
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 fn home_dir() -> PathBuf {
@@ -655,12 +645,8 @@ pub fn detect_system_time_format_with_paths(paths: Option<&[PathBuf]>) -> String
     "24h".to_string()
 }
 
-pub fn effective_time_format(time_format: &str) -> String {
-    match time_format {
-        "ampm" => "ampm".to_string(),
-        "24h" => "24h".to_string(),
-        _ => detect_system_time_format_with_paths(None),
-    }
+pub fn system_time_format() -> String {
+    detect_system_time_format_with_paths(None)
 }
 
 pub fn all_timezones() -> Vec<String> {
@@ -862,6 +848,7 @@ impl TimezoneResolver {
                 subtitle: format!("{}  ·  {}", alias.timezone, abbreviation_text),
                 latitude: alias.latitude,
                 longitude: alias.longitude,
+                open_meteo_attribution: false,
             });
             if results.len() >= limit {
                 return results;
@@ -883,6 +870,7 @@ impl TimezoneResolver {
                 subtitle: format!("{}  ·  {}", record.timezone, abbreviation_text),
                 latitude: None,
                 longitude: None,
+                open_meteo_attribution: false,
             });
             if results.len() >= limit {
                 break;
@@ -910,6 +898,7 @@ impl TimezoneResolver {
                 subtitle: format!("{}  ·  {}", record.timezone, abbreviation_text),
                 latitude: None,
                 longitude: None,
+                open_meteo_attribution: false,
             });
         }
 
@@ -923,6 +912,7 @@ impl TimezoneResolver {
             timezone: canonical_timezone,
             latitude: None,
             longitude: None,
+            open_meteo_attribution: false,
         })
     }
 
@@ -947,14 +937,6 @@ impl TimezoneResolver {
 
     fn build_alias_records(&self) -> Vec<AliasRecord> {
         let mut aliases = HashMap::new();
-        for alias in MANUAL_CITY_ALIASES {
-            self.add_alias_record(
-                &mut aliases,
-                alias.alias,
-                alias.timezone,
-                Some((alias.latitude, alias.longitude)),
-            );
-        }
 
         for (alias, timezone_name) in timezone_link_aliases() {
             self.add_alias_record(&mut aliases, alias, timezone_name, None);
@@ -1235,6 +1217,7 @@ impl RemotePlaceSearch {
                 subtitle: subtitle_parts.join("  ·  "),
                 latitude,
                 longitude,
+                open_meteo_attribution: true,
             });
         }
 
@@ -1301,7 +1284,7 @@ fn unique_words(value: &str) -> Vec<String> {
 mod tests {
     use super::{
         canonical_timezone_name, detect_system_time_format_with_paths, AppConfig, ConfigManager,
-        TimezoneEntry, TimezoneResolver,
+        TimezoneEntry,
     };
     use std::fs;
     use tempfile::TempDir;
@@ -1325,37 +1308,91 @@ mod tests {
                     latitude: None,
                     longitude: None,
                 }],
-                time_format: "system".to_string(),
+                disable_open_meteo_geolocation: false,
             }
         );
     }
 
     #[test]
-    fn config_normalizes_entries_preserving_order() {
+    fn config_loads_legacy_timezone_list() {
         let temp_dir = TempDir::new().unwrap();
-        let manager = manager_in(&temp_dir);
-        let config = AppConfig {
-            timezones: vec![
+        let path = temp_dir.path().join("config.json");
+        fs::write(&path, "{\"timezones\": [\"UTC\", \"Asia/Tokyo\"]}\n").unwrap();
+
+        let manager = ConfigManager::new(Some(path));
+        let loaded = manager.load_with_local_timezone("UTC").unwrap();
+
+        assert_eq!(
+            loaded.timezones,
+            vec![
                 TimezoneEntry {
                     timezone: "UTC".to_string(),
-                    label: "Home".to_string(),
+                    label: String::new(),
                     latitude: None,
                     longitude: None,
                 },
                 TimezoneEntry {
                     timezone: "Asia/Tokyo".to_string(),
-                    label: "Tokyo".to_string(),
+                    label: String::new(),
                     latitude: None,
                     longitude: None,
                 },
-            ],
-            time_format: "system".to_string(),
-        };
+            ]
+        );
+    }
 
-        manager.save(&config).unwrap();
+    #[test]
+    fn config_loads_open_meteo_geolocation_opt_out() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("config.json");
+        fs::write(
+            &path,
+            "{\"timezones\": [\"UTC\"], \"disable_open_meteo_geolocation\": true}\n",
+        )
+        .unwrap();
+
+        let manager = ConfigManager::new(Some(path));
         let loaded = manager.load_with_local_timezone("UTC").unwrap();
-        assert_eq!(loaded.timezones[0].timezone, "UTC");
-        assert_eq!(loaded.timezones[1].timezone, "Asia/Tokyo");
+
+        assert!(loaded.disable_open_meteo_geolocation);
+    }
+
+    #[test]
+    fn config_rewrites_legacy_row_and_time_format_settings() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("config.json");
+        fs::write(
+            &path,
+            r#"{
+  "version": 3,
+  "timezones": [
+    {
+      "timezone": "UTC",
+      "label": "Home",
+      "locked": true
+    },
+    {
+      "timezone": "Asia/Tokyo",
+      "label": "Tokyo",
+      "locked": false
+    }
+  ],
+  "sort_mode": "time",
+  "time_format": "ampm"
+}
+"#,
+        )
+        .unwrap();
+
+        let manager = ConfigManager::new(Some(path.clone()));
+        let loaded = manager.load_with_local_timezone("UTC").unwrap();
+        let rewritten = fs::read_to_string(path).unwrap();
+
+        assert_eq!(loaded.timezones.len(), 2);
+        assert!(!rewritten.contains("\"locked\""));
+        assert!(!rewritten.contains("\"sort_mode\""));
+        assert!(!rewritten.contains("\"time_format\""));
+        assert!(rewritten.contains("\"version\": 4"));
     }
 
     #[test]
@@ -1419,16 +1456,6 @@ mod tests {
     }
 
     #[test]
-    fn manual_city_alias_results_include_place_coordinates() {
-        let resolver = TimezoneResolver::new(Some(vec!["America/Chicago".to_string()]));
-        let result = resolver.search("Austin", 1).pop().unwrap();
-
-        assert_eq!(result.timezone, "America/Chicago");
-        assert_eq!(result.latitude, Some(30.2672));
-        assert_eq!(result.longitude, Some(-97.7431));
-    }
-
-    #[test]
     fn remove_timezone_persists_change() {
         let temp_dir = TempDir::new().unwrap();
         let manager = manager_in(&temp_dir);
@@ -1438,18 +1465,5 @@ mod tests {
         let updated = manager.remove_timezone("Asia/Tokyo").unwrap();
         assert_eq!(updated.timezones.len(), 1);
         assert_eq!(updated.timezones[0].timezone, "UTC");
-    }
-
-    #[test]
-    fn set_time_format_validates_values() {
-        let temp_dir = TempDir::new().unwrap();
-        let manager = manager_in(&temp_dir);
-        manager.load_with_local_timezone("UTC").unwrap();
-
-        let format_updated = manager.set_time_format("ampm").unwrap();
-        assert_eq!(format_updated.time_format, "ampm");
-
-        let fallback_format = manager.set_time_format("bogus").unwrap();
-        assert_eq!(fallback_format.time_format, "system");
     }
 }

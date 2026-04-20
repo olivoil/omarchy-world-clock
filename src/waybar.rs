@@ -1,4 +1,4 @@
-use crate::config::{detect_local_timezone, effective_time_format, AppConfig, ConfigManager};
+use crate::config::{detect_local_timezone, system_time_format, AppConfig, ConfigManager};
 use crate::runtime::popup_running;
 use crate::time::{format_display_time, zoned_datetime};
 use anyhow::{anyhow, bail, Result};
@@ -381,7 +381,7 @@ pub fn module_payload_from_config(
     local_timezone: &str,
     popup_active: bool,
 ) -> ModulePayload {
-    let time_format = effective_time_format(&config.time_format);
+    let time_format = system_time_format();
     module_payload_from_config_with_time_format(
         config,
         now,
@@ -527,7 +527,7 @@ mod tests {
                     longitude: None,
                 },
             ],
-            time_format: "ampm".to_string(),
+            disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 4, 16, 20, 26, 0).unwrap();
 
@@ -577,7 +577,7 @@ mod tests {
                     longitude: None,
                 },
             ],
-            time_format: "24h".to_string(),
+            disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 4, 18, 5, 5, 0).unwrap();
 
@@ -615,7 +615,7 @@ mod tests {
                     longitude: None,
                 },
             ],
-            time_format: "24h".to_string(),
+            disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 4, 18, 5, 5, 0).unwrap();
 
@@ -635,7 +635,7 @@ mod tests {
     fn module_payload_shows_empty_state() {
         let config = AppConfig {
             timezones: Vec::new(),
-            time_format: "system".to_string(),
+            disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 4, 17, 12, 0, 0).unwrap();
 

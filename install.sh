@@ -156,20 +156,17 @@ install_arch_runtime_dependencies() {
     return
   fi
 
-  local package
   local -a packages missing
+  local missing_output
   packages=(gtk4 gtk4-layer-shell)
-  missing=()
 
-  for package in "${packages[@]}"; do
-    if ! pacman -Q "$package" >/dev/null 2>&1; then
-      missing+=("$package")
-    fi
-  done
+  missing_output=$(pacman -T "${packages[@]}" || true)
 
-  if [[ ${#missing[@]} -eq 0 ]]; then
+  if [[ -z "$missing_output" ]]; then
     return
   fi
+
+  mapfile -t missing <<<"$missing_output"
 
   printf 'Installing missing runtime dependencies with pacman: %s\n' "${missing[*]}"
   if [[ ${EUID:-$(id -u)} -eq 0 ]]; then

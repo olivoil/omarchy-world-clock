@@ -76,8 +76,9 @@ write_pacman_stub() {
 set -euo pipefail
 printf 'pacman %s\n' "$*" >> "$TEST_LOG"
 case "$1" in
-  -Q)
-    exit 1
+  -T)
+    printf '%s\n' gtk4 gtk4-layer-shell
+    exit 127
     ;;
   -S)
     exit 0
@@ -192,8 +193,7 @@ test_installs_arch_runtime_dependencies() {
     OMARCHY_WORLD_CLOCK_DOWNLOAD_URL="file://$archive" \
     run_install "$sandbox"
 
-  assert_contains "$sandbox/log" "pacman -Q gtk4"
-  assert_contains "$sandbox/log" "pacman -Q gtk4-layer-shell"
+  assert_contains "$sandbox/log" "pacman -T gtk4 gtk4-layer-shell"
   assert_contains "$sandbox/log" "pacman -S --needed --noconfirm gtk4 gtk4-layer-shell"
   assert_contains "$sandbox/log" "release-binary install-waybar"
 }

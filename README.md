@@ -54,6 +54,7 @@ From a local checkout:
 This:
 
 - downloads the latest prebuilt release binary
+- installs missing Arch/Omarchy runtime packages (`gtk4`, `gtk4-layer-shell`)
 - installs it under `~/.local/share/omarchy-world-clock`
 - writes `~/.local/bin/omarchy-world-clock`
 - patches `~/.config/waybar/config.jsonc`
@@ -127,11 +128,13 @@ This repo assumes an Omarchy-like environment with:
 - GTK4
 - `gtk4-layer-shell`
 
-Release installs do not require Rust or Cargo on the user's machine. They still
-need the GTK runtime libraries. On Arch/Omarchy:
+Release installs do not require Rust or Cargo on the user's machine. On
+Arch/Omarchy, `install.sh` checks for the GTK runtime packages and installs
+missing packages with `sudo pacman` unless
+`OMARCHY_WORLD_CLOCK_SKIP_RUNTIME_DEPS=1` is set. To install them manually:
 
 ```bash
-sudo pacman -S gtk4 gtk4-layer-shell
+sudo pacman -S --needed gtk4 gtk4-layer-shell
 ```
 
 The supported CLI surface is:

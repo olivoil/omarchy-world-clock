@@ -87,6 +87,9 @@ Each release uploads:
 - `omarchy-world-clock-<target>.tar.gz`
 - `omarchy-world-clock-<target>.tar.gz.sha256`
 
+The archive contains the `omarchy-world-clock` binary and the project
+`LICENSE` file.
+
 Users install the latest release without Rust:
 
 ```bash

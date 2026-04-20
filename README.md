@@ -36,7 +36,84 @@ places.
 
 ## Install
 
-Recommended install, no Rust toolchain required:
+### AUR
+
+Recommended on Arch/Omarchy via AUR, no Rust toolchain required:
+
+```bash
+paru -S omarchy-world-clock-bin
+```
+
+Then add the module to your current user's Waybar config:
+
+```bash
+omarchy-world-clock install-waybar
+omarchy-world-clock restart-waybar
+```
+
+The AUR package installs only the system binary. `install-waybar` patches the
+current user's Waybar config and creates the user config file.
+
+To patch non-default paths:
+
+```bash
+omarchy-world-clock install-waybar \
+  --waybar-config "$HOME/.config/waybar/config.jsonc" \
+  --waybar-style "$HOME/.config/waybar/style.css" \
+  --command-path "$(command -v omarchy-world-clock)" \
+  --user-config "$HOME/.config/omarchy-world-clock/config.json"
+```
+
+### Manual Waybar Setup
+
+If you prefer to edit Waybar yourself, add the module to `modules-center` in
+`~/.config/waybar/config.jsonc`:
+
+```jsonc
+"modules-center": ["clock", "custom/world-clock"]
+```
+
+Then add this top-level module block. If you did not install from AUR, replace
+`/usr/bin/omarchy-world-clock` with your installed binary path. Keep normal
+JSON comma placement for where you insert the block.
+
+```jsonc
+"custom/world-clock": {
+  "exec": "/usr/bin/omarchy-world-clock module",
+  "return-type": "json",
+  "interval": 2,
+  "format": "{}",
+  "tooltip": true,
+  "on-click": "/usr/bin/omarchy-world-clock toggle",
+  "on-click-right": "omarchy-launch-floating-terminal-with-presentation omarchy-tz-select"
+}
+```
+
+Add the matching styles to `~/.config/waybar/style.css`:
+
+```css
+#custom-world-clock {
+  min-width: 12px;
+  margin-left: 6px;
+  margin-right: 0;
+  font-size: 12px;
+  opacity: 0.72;
+}
+
+#custom-world-clock.active {
+  opacity: 1;
+}
+```
+
+Restart Waybar after editing:
+
+```bash
+omarchy-world-clock restart-waybar
+```
+
+### Script Install
+
+Alternative install, no Rust toolchain required:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/olivoil/omarchy-world-clock/master/install.sh | bash
@@ -233,3 +310,8 @@ and [Licence](https://open-meteo.com/en/licence).
 
 - Product behavior spec: [docs/specs.md](docs/specs.md)
 - Maintainer release process: [docs/release.md](docs/release.md)
+
+## Disclaimer
+
+Omarchy World Clock is an unofficial project and is not affiliated with
+Basecamp or the Omarchy project.

@@ -26,17 +26,38 @@ GTK3 app has been removed.
 
 ## Install
 
+Recommended install, no Rust toolchain required:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/olivoil/omarchy-world-clock/main/install.sh | bash
+```
+
+From a local checkout:
+
 ```bash
 ./install.sh
 ```
 
 This:
 
-- installs the Rust binary under `~/.local/share/omarchy-world-clock`
+- downloads the latest prebuilt release binary
+- installs it under `~/.local/share/omarchy-world-clock`
 - writes `~/.local/bin/omarchy-world-clock`
 - patches `~/.config/waybar/config.jsonc`
 - patches `~/.config/waybar/style.css`
 - restarts Waybar
+
+Install a specific release:
+
+```bash
+OMARCHY_WORLD_CLOCK_VERSION=v0.1.0 ./install.sh
+```
+
+Build from source instead:
+
+```bash
+./install.sh --build-from-source
+```
 
 ## Uninstall
 
@@ -51,6 +72,8 @@ To also remove saved user state:
 ```
 
 ## Build And Run
+
+Source builds require Rust/Cargo plus GTK4 development packages.
 
 Build:
 
@@ -88,9 +111,15 @@ This repo assumes an Omarchy-like environment with:
 
 - Hyprland
 - Waybar
-- Rust / Cargo
 - GTK4
 - `gtk4-layer-shell`
+
+Release installs do not require Rust or Cargo on the user's machine. They still
+need the GTK runtime libraries. On Arch/Omarchy:
+
+```bash
+sudo pacman -S gtk4 gtk4-layer-shell
+```
 
 The supported CLI surface is:
 
@@ -134,3 +163,46 @@ Example:
 ## Docs
 
 - Product behavior spec: [docs/specs.md](docs/specs.md)
+
+## Maintainer Release
+
+Releases are published from a local machine, not GitHub Actions:
+
+```bash
+scripts/release.sh --description "Adds prebuilt release installs and local release publishing."
+```
+
+If you omit the tag, the script uses `v<package.version>` from `Cargo.toml`:
+
+```bash
+scripts/release.sh
+```
+
+The release script:
+
+- requires a clean git worktree
+- releases from the remote default branch, `master`, by default
+- uses `Cargo.toml` as the version source of truth
+- rejects explicit tags that do not match `v<package.version>`
+- writes release notes from `--description` plus the commits since the previous tag
+- accepts `--notes-file path/to/notes.md` when you want full manual release notes
+- runs `cargo test --locked` and the shell installer tests
+- builds `target/release/omarchy-world-clock`
+- packages `omarchy-world-clock-<rust-host-target>.tar.gz`
+- creates and pushes the git tag if it does not already exist
+- creates or updates the GitHub release with the archive and `.sha256`
+
+Normal release flow:
+
+```bash
+git checkout master
+git pull --ff-only
+# update Cargo.toml version, commit, and push
+scripts/release.sh --description "Short summary of what changed."
+```
+
+Prerequisites for maintainers:
+
+- Rust/Cargo
+- `gh` authenticated for `olivoil/omarchy-world-clock`
+- `git`, `tar`, and `sha256sum`

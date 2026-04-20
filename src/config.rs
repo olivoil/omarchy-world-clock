@@ -156,6 +156,7 @@ enum RawTimezoneEntry {
 
 #[derive(Debug, Default, Deserialize)]
 struct RawConfig {
+    #[allow(dead_code)]
     version: Option<u64>,
     timezones: Option<Vec<RawTimezoneEntry>>,
     disable_open_meteo_geolocation: Option<bool>,

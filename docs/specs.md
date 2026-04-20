@@ -40,6 +40,7 @@ user-selectable time format controls are not product features.
 - The popup is a top-overlay panel intended for Wayland/layer-shell use.
 - The popup can be dismissed by clicking outside it, losing focus, or pressing
   `Escape`.
+- The popup adapts colors to the active Omarchy theme palette.
 - The popup has three interaction states:
   - read mode
   - edit mode
@@ -105,6 +106,14 @@ Persistence rules:
   re-added after migration has already run.
 - If there are no configured non-local entries, the popup opens directly to the
   add screen.
+
+## Clock Ordering
+
+- Visible clock cards are ordered by wall-clock time at the current reference
+  instant.
+- Equal-time cards fall back to display label ordering.
+- No sort, manual reorder, lock, pin, or pinned-section ordering controls are
+  exposed.
 
 ## Time Display and Manual Reference Mode
 
@@ -230,6 +239,14 @@ Open-Meteo requirements reflected in the product:
 - Removal takes effect immediately.
 - The popup refreshes immediately after removal.
 - The UI must not allow removing the final configured entry.
+
+## Empty State
+
+If there are no configured non-local entries:
+
+- the popup opens directly to the `Add a Location` screen
+- no empty-state filler is shown before the add flow
+- the Waybar tooltip shows `No additional timezones yet.`
 
 ## Performance and Feel
 

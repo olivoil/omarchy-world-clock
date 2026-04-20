@@ -250,21 +250,6 @@ where
     value.format("%H:%M").to_string()
 }
 
-pub fn row_metadata<T>(value: &DateTime<T>) -> String
-where
-    T: TimeZone,
-    T::Offset: std::fmt::Display,
-{
-    let abbreviation = value.format("%Z").to_string();
-    let offset = format_offset(value.offset().fix().local_minus_utc());
-    format!(
-        "{}  ·  {}  ·  {}",
-        value.format("%a %d %b"),
-        abbreviation,
-        offset
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::{

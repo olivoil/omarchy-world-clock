@@ -1,96 +1,86 @@
 # Omarchy World Clock Specification
 
 This document describes the intended product behavior of Omarchy World Clock.
-It is written as the source of truth for future implementation work, including
-rewrites. Where the current implementation differs, this spec wins.
+Where implementation and documentation differ, this document should be updated
+or the implementation should be fixed so the project has one clear product
+surface.
 
 ## Product Summary
 
 Omarchy World Clock adds a world-clock entry point next to Omarchy's center
-Waybar clock. Clicking the icon opens a lightweight popup that shows multiple
-digital clocks for a user-managed list of timezones.
+Waybar clock. Clicking the icon opens a lightweight popup that shows live clocks
+for a user-managed list of places.
 
 The popup supports:
 
-- viewing current time across several timezones
+- viewing the current time across configured places
 - switching between live time and a manually entered reference instant
-- sorting and pinning rows
-- adding, removing, and reordering timezones
-- choosing a display format that follows the system or forces `24h` or `AM/PM`
+- adding places through local timezone search and optional remote geocoding
+- removing configured places
+- displaying times with the system time format
 
-## User-Facing Components
+The old row-list UX, row locking, row sorting controls, drag reordering, and
+user-selectable time format controls are not product features.
 
-### Waybar Module
+## Waybar Module
 
 - A small world icon appears next to the center Waybar clock.
-- The icon uses the same command wrapper as the rest of the app.
 - Left click toggles the popup open and closed.
 - Right click launches the Omarchy timezone selector terminal helper.
 - The module tooltip is a compact text table with no title row.
-- The tooltip lists configured non-local rows in the same time order used by
+- The tooltip lists configured non-local entries in the same time order used by
   the popup read view.
+- If no additional timezones are configured, the tooltip shows
+  `No additional timezones yet.`
 - If the popup is open, the module exposes an `active` class; otherwise it is
   `inactive`.
 
-### Popup
+## Popup
 
 - The popup is a top-overlay panel intended for Wayland/layer-shell use.
-- The popup is visually lightweight and fast to open.
 - The popup can be dismissed by clicking outside it, losing focus, or pressing
   `Escape`.
-- The popup has two top-level interaction states:
-  - read-only mode
+- The popup has three interaction states:
+  - read mode
   - edit mode
-
-## Row Model
-
-Each row represents one timezone entry with:
-
-- canonical timezone identifier
-- optional user label
-- locked flag
-
-Each row displays:
-
-- title: user label if present, otherwise a friendly timezone name
-- context line: canonical timezone name
-- metadata line: weekday, date, abbreviation, and UTC offset
-- large editable time field
-
-If a row's timezone matches the detected local timezone, its title is annotated
-with `· Local`.
+  - add mode
+- Read mode shows the summary clock, a relative timeline, and clock cards for
+  configured non-local entries.
+- Edit mode keeps the read layout but exposes card remove buttons when removal
+  is valid.
+- Add mode shows a search entry, search results, and a map with configured
+  place markers.
 
 ## Configuration and Persistence
 
-The app stores user state in `~/.config/omarchy-world-clock/config.json`.
+State lives in `~/.config/omarchy-world-clock/config.json`.
 
 Persisted settings:
 
-- timezone rows
-- row labels
-- row locked state
-- sort mode
-- time format preference
+- configured timezone entries
+- optional display labels
+- optional latitude and longitude for map placement
+- optional Open-Meteo geocoding opt-out
 
 Expected config shape:
 
 ```json
 {
-  "version": 3,
+  "version": 4,
   "timezones": [
     {
       "timezone": "America/Cancun",
       "label": "Home",
-      "locked": true
+      "latitude": 21.1619,
+      "longitude": -86.8515
     },
     {
       "timezone": "Europe/Paris",
       "label": "Rennes",
-      "locked": false
+      "latitude": 48.1173,
+      "longitude": -1.6778
     }
-  ],
-  "sort_mode": "manual",
-  "time_format": "system"
+  ]
 }
 ```
 
@@ -98,55 +88,37 @@ Persistence rules:
 
 - timezone names are canonicalized before being stored
 - duplicate timezone entries are not allowed
-- locked rows are normalized to the front of the stored list
-- unsupported `sort_mode` values fall back to `manual`
-- unsupported `time_format` values fall back to `system`
+- saved order is preserved
+- empty labels are allowed and display as friendly timezone names
+- invalid coordinates are dropped
+- `disable_open_meteo_geolocation` defaults to `false`
+- `disable_open_meteo_geolocation` is only persisted when true
+- legacy `locked`, `sort_mode`, and `time_format` keys are ignored and are not
+  written back
 
 ## Default Behavior
 
-- Default sort mode is `manual`.
-- Default time format is `system`.
 - On first load, the detected local timezone is inserted unless it already
   exists.
 - Older configs are migrated forward transparently.
-- If the user later removes the local timezone row, it is not automatically
-  re-added again after migration has already run.
-
-## Sorting Behavior
-
-Supported sort modes:
-
-- `manual`
-- `alpha`
-- `time`
-
-Sort semantics:
-
-- `manual`: preserve user-managed order
-- `alpha`: sort unlocked rows by display label, then timezone identifier
-- `time`: sort unlocked rows by wall-clock time in each timezone, then display
-  label
-
-Locking semantics:
-
-- Locked rows always appear above unlocked rows.
-- Locked rows preserve their relative order with each other.
-- Unlocked rows are sorted according to the selected sort mode.
-- A locked row is non-sortable and non-draggable.
+- If the user later removes the local timezone entry, it is not automatically
+  re-added after migration has already run.
+- If there are no configured non-local entries, the popup opens directly to the
+  add screen.
 
 ## Time Display and Manual Reference Mode
 
 The app normally runs in live mode:
 
-- all rows update every second
+- all visible clocks update every second
 - the reference instant is `now`
 
-The user can click into any row's time field and type a reference instant.
-When the value parses successfully:
+The user can click into the summary clock or any visible clock card and type a
+reference instant. When the value parses successfully:
 
 - the app leaves live mode
-- the entered row becomes the source of truth for the reference instant
-- every row updates to show that same instant in its own timezone
+- the edited clock becomes the source of truth for the reference instant
+- every visible clock updates to show that same instant in its own timezone
 
 Accepted manual input forms:
 
@@ -156,13 +128,13 @@ Accepted manual input forms:
 - meridiem shorthand like `3pm`, `8 am`, `12am`
 - full datetime `YYYY-MM-DD HH:MM`
 
-Time-only input is interpreted in the edited row's timezone using that
+Time-only input is interpreted in the edited clock's timezone using that
 timezone's current local date at the current reference instant.
 
 If parsing succeeds:
 
-- the row's text is normalized to the app's display format
-- all rows update to the new converted instant
+- the edited text is normalized to the app's display format
+- all visible clocks update to the new converted instant
 
 If parsing fails:
 
@@ -174,161 +146,112 @@ The refresh button returns the app to live mode and restores `now`.
 
 ## Time Format Behavior
 
-Supported display preferences:
+The only user-facing display format is the system time format.
 
-- `system`
-- `24h`
-- `ampm`
+Detection order:
 
-Format semantics:
-
-- `system` follows the Waybar clock format when detectable
-- if Waybar format cannot be read, the app falls back to locale-based detection
-- if system detection remains ambiguous, default to `24h`
+- follow the Waybar clock format when detectable
+- fall back to locale-based detection
+- default to `24h` if system detection remains ambiguous
 
 Examples:
 
-- `24h` -> `21:26`
-- `ampm` -> `9:26 PM`
+- system 24-hour format displays `21:26`
+- system 12-hour format displays `9:26 PM`
 
-## Edit Mode
-
-Edit mode reveals controls that are hidden in read-only mode.
-
-Read-only mode:
-
-- rows are visible
-- times can still be edited to convert timezones
-- sort controls are hidden
-- add/remove/lock/reorder controls are hidden
-
-Edit mode:
-
-- sort mode control is visible
-- time format control is visible
-- add timezone controls are visible
-- per-row remove buttons are visible
-- per-row lock buttons are visible
-- reorder handles are visible only when reordering is valid
-
-## Add Timezone Flow
+## Add Place Flow
 
 The add panel supports:
 
 - exact timezone identifiers
-- city/place aliases
+- bundled city/place aliases derived from timezone data
 - timezone abbreviations when unambiguous
-- remote place lookup fallback for unresolved queries
+- optional remote place lookup fallback for unresolved queries
 
 Search behavior:
 
 - local timezone resolution/autocomplete runs first
-- remote place search runs only when local search finds nothing useful
+- remote place search runs only when local search finds no results
+- remote place search runs only for normalized queries with at least three
+  characters
+- remote place search is skipped when `disable_open_meteo_geolocation` is true
 - remote results are canonicalized to valid supported timezones
 - duplicate visible results are collapsed by canonical timezone
+- Open-Meteo-sourced results show inline attribution next to the result metadata
 
 Add behavior:
 
 - selecting a visible result adds that timezone to the list
+- pressing Enter adds the first matching result or the exact timezone
 - adding a timezone that already exists shows an error instead of duplicating it
-- after a successful add, the panel collapses and the list refreshes
+- after a successful add, the panel stays ready for another search
+
+## Map Behavior
+
+- The add screen shows a world map with markers for configured places.
+- Saved latitude and longitude are preferred for marker placement.
+- Bundled tzdata coordinates are used when available.
+- Local timezone alias data is used as a fallback when it has coordinates.
+- The map must not call remote services just to backfill missing marker
+  coordinates.
+- Clicking a map marker adds the corresponding timezone when it is not already
+  configured and capacity allows.
+- Hovering a marker shows the place name, time, timezone metadata, and relative
+  offset.
+
+## Open-Meteo Use
+
+Open-Meteo geocoding is enabled by default because it is only used for explicit
+place search. It can be disabled by setting:
+
+```json
+{
+  "disable_open_meteo_geolocation": true
+}
+```
+
+When enabled, the app may send the user's city/place search text to:
+
+```text
+https://geocoding-api.open-meteo.com/v1/search
+```
+
+Open-Meteo requirements reflected in the product:
+
+- use is limited to non-commercial/free API terms unless the project changes to
+  a paid API arrangement
+- single-user app usage is expected to stay far below the free API rate limits
+- Open-Meteo-sourced results include an inline Open-Meteo link
+- README privacy notes must disclose the remote lookup and opt-out
 
 ## Remove Behavior
 
-- The remove button deletes that row from the stored config.
+- The remove button deletes that entry from the stored config.
 - Removal takes effect immediately.
 - The popup refreshes immediately after removal.
-
-## Lock Behavior
-
-- The lock button toggles whether a row is pinned above unlocked rows.
-- Locking a row immediately moves it into the locked section.
-- Unlocking a row returns it to the unlocked section, where it then follows the
-  current sort mode.
-- Locked rows cannot be drag-reordered.
-- Unlocked rows cannot be dropped onto locked rows.
-
-## Drag and Drop Reordering
-
-This section describes the intended final behavior.
-
-Drag reordering is available only when all of the following are true:
-
-- the popup is in edit mode
-- the current sort mode is `manual`
-- the row is unlocked
-
-### Handle Visibility
-
-- Only draggable rows show a drag handle.
-- The handle uses a standard horizontal-lines icon.
-- Locked rows do not show a drag handle.
-- In non-manual sort modes, no row shows a drag handle.
-- In read-only mode, no row shows a drag handle.
-
-### Drag Start
-
-- Pressing the handle does nothing by itself.
-- A drag begins only after the pointer moves beyond a small threshold.
-- A simple click on the handle must not move, hide, or reorder the row.
-
-### During Drag
-
-- The dragged row leaves its original position in the list.
-- The list opens a gap where the row would land if released now.
-- A drag preview row appears in that gap.
-- The preview row is styled as the dragged item, with slight transparency or
-  drag affordance.
-- Other rows shift immediately as the tentative landing position changes.
-- The preview is snapped into list position; it does not follow the cursor as a
-  floating ghost.
-- The preview always represents the exact final landing position.
-- No preview is shown for no-op drops that would keep the row in the same place.
-- Locked rows behave as fixed boundaries and are never displaced by the drag.
-
-### Drop
-
-- Releasing the pointer commits the dragged row to the previewed location.
-- The committed order always matches the final visible preview.
-- Dropping in a no-op position restores the row without changing config.
-- Dropping outside a valid destination restores the row without changing config.
-
-### Reorder Invariants
-
-- Manual reorder mutates only unlocked rows.
-- Locked rows remain at the top.
-- Relative order among locked rows is preserved.
-- Relative order among unaffected unlocked rows is preserved.
-- Reorder writes back to config immediately.
-
-## Empty State
-
-If there are no configured non-local rows:
-
-- the popup opens directly to the `Add a Location` screen
-- no empty-state filler is shown before the add flow
-- the Waybar tooltip shows `No additional timezones yet.`
+- The UI must not allow removing the final configured entry.
 
 ## Performance and Feel
 
 - Popup open should feel immediate.
 - Live updates should be visually stable.
-- Editing one row must not destroy and recreate the focused widget mid-edit.
-- Time-sorted rebuilds should be deferred while the user is actively editing.
+- Editing one clock must not destroy and recreate the focused widget mid-edit.
+- Remote search failures should fail quietly and leave local search usable.
 - The app should remain suitable as a small always-running desktop helper.
 
 ## Acceptance Checklist
 
-A future implementation is correct when all of the following are true:
+A correct implementation satisfies these behaviors:
 
 - Waybar integration is idempotent and reversible.
 - The popup can be toggled from Waybar.
-- The tooltip reflects current configured non-local rows.
-- Time conversion works from any editable row.
-- `system`, `24h`, and `ampm` formats all work.
-- Manual, alpha, and time sorting all work.
-- Locked rows always stay above unlocked rows.
-- Locked rows are non-draggable.
-- Drag handles only appear in manual sort edit mode on unlocked rows.
-- Dragging shows a snapped in-list preview and commits exactly where previewed.
-- Clicking a drag handle without moving does nothing.
+- The tooltip reflects current configured non-local entries.
+- Time conversion works from the summary clock and every visible clock card.
+- Display format follows the system format only.
+- The old row-list, lock, sort, drag, and time-format settings are absent from
+  the UI.
+- Old `locked`, `sort_mode`, and `time_format` config keys are not persisted.
+- Local timezone search works without network access.
+- Open-Meteo geocoding can be disabled with
+  `disable_open_meteo_geolocation`.
+- Open-Meteo results are attributed inline when shown.

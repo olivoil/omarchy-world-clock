@@ -679,6 +679,13 @@ button.add-toggle {{
   font-size: 12px;
 }}
 
+.search-result-meta link,
+.search-result-meta link:hover,
+.search-result-meta link:visited {{
+  color: {muted_foreground};
+  text-decoration-line: none;
+}}
+
 separator {{
   color: {separator};
 }}

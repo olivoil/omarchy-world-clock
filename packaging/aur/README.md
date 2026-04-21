@@ -6,14 +6,10 @@ The `omarchy-world-clock-bin` package files live in:
 packaging/aur/omarchy-world-clock-bin
 ```
 
-This package installs the prebuilt GitHub release binary to
-`/usr/bin/omarchy-world-clock`. It intentionally does not patch user Waybar
-config during package installation. The package post-install message tells users
-which one-time `omarchy-world-clock install-waybar` command to run.
-
-The AUR package source `LICENSE` file is for the packaging files themselves.
-`LICENSE.omarchy-world-clock` is the upstream project license copied into the
-built package under `/usr/share/licenses/omarchy-world-clock-bin/`.
+This package installs the prebuilt GitHub release binary and project `LICENSE`
+from the release archive. It intentionally does not patch user Waybar config
+during package installation. The package post-install message tells users which
+one-time `omarchy-world-clock install-waybar` command to run.
 
 ## Initial Publish
 
@@ -27,7 +23,7 @@ cd aur-omarchy-world-clock-bin
 Copy the package files from this repository into the AUR checkout:
 
 ```bash
-cp /path/to/omarchy-world-clock/packaging/aur/omarchy-world-clock-bin/{PKGBUILD,.SRCINFO,LICENSE,LICENSE.omarchy-world-clock,omarchy-world-clock-bin.install} .
+cp /path/to/omarchy-world-clock/packaging/aur/omarchy-world-clock-bin/{PKGBUILD,.SRCINFO,omarchy-world-clock-bin.install} .
 ```
 
 Validate locally:
@@ -40,7 +36,7 @@ makepkg -f
 Publish:
 
 ```bash
-git add PKGBUILD .SRCINFO LICENSE LICENSE.omarchy-world-clock omarchy-world-clock-bin.install
+git add PKGBUILD .SRCINFO omarchy-world-clock-bin.install
 git commit -m "Initial import"
 git push
 ```

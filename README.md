@@ -7,6 +7,11 @@ places.
 ## Screenshots
 
 <p>
+  <strong>Ristretto - Industrial Moon - Waybar At a Glance</strong><br>
+  <img src="docs/screenshots/ristretto-industrial-moon-waybar-at-a-glance.png" alt="Omarchy World Clock at-a-glance Waybar popup on the Ristretto theme with the Industrial Moon background" width="900">
+</p>
+
+<p>
   <strong>Rose Pine - Read View</strong><br>
   <img src="docs/screenshots/rose-pine-read.png" alt="Omarchy World Clock read view on the Rose Pine theme" width="900">
 </p>

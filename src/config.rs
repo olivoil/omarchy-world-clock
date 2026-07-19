@@ -8,12 +8,13 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::ffi::CStr;
-use std::fs;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::str::FromStr;
 use std::sync::OnceLock;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use unicode_normalization::{char::is_combining_mark, UnicodeNormalization};
 
 pub const CONFIG_VERSION: u64 = 4;
@@ -198,35 +199,81 @@ impl ConfigManager {
             return Ok(config);
         }
 
-        let config = match fs::read_to_string(&self.path) {
-            Ok(text) => match serde_json::from_str::<RawConfig>(&text) {
-                Ok(raw) => self.config_from_raw(raw, local_timezone),
-                Err(_) => self.default_config(local_timezone),
-            },
-            Err(_) => self.default_config(local_timezone),
-        };
-
-        self.save(&config)?;
+        let text = fs::read_to_string(&self.path)
+            .with_context(|| format!("failed to read {}", self.path.display()))?;
+        let raw = serde_json::from_str::<RawConfig>(&text)
+            .with_context(|| format!("failed to parse {}", self.path.display()))?;
+        let config = self.config_from_raw(raw, local_timezone);
+        let normalized_text = self.serialize(&config)?;
+        if text != normalized_text {
+            self.write_atomically(&normalized_text)?;
+        }
         Ok(config)
     }
 
     pub fn save(&self, config: &AppConfig) -> anyhow::Result<()> {
         let normalized = self.normalize_config(config.clone());
+        let text = self.serialize(&normalized)?;
+        self.write_atomically(&text)
+    }
+
+    fn serialize(&self, config: &AppConfig) -> anyhow::Result<String> {
+        let payload = StoredConfig {
+            version: CONFIG_VERSION,
+            timezones: &config.timezones,
+            disable_open_meteo_geolocation: config.disable_open_meteo_geolocation,
+        };
+        let text = serde_json::to_string_pretty(&payload)?;
+        Ok(format!("{text}\n"))
+    }
+
+    fn write_atomically(&self, text: &str) -> anyhow::Result<()> {
         if let Some(parent) = self.path.parent() {
             fs::create_dir_all(parent).with_context(|| {
                 format!("failed to create config directory {}", parent.display())
             })?;
         }
 
-        let payload = StoredConfig {
-            version: CONFIG_VERSION,
-            timezones: &normalized.timezones,
-            disable_open_meteo_geolocation: normalized.disable_open_meteo_geolocation,
-        };
-        let text = serde_json::to_string_pretty(&payload)?;
-        fs::write(&self.path, format!("{text}\n"))
-            .with_context(|| format!("failed to write {}", self.path.display()))?;
-        Ok(())
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let file_name = self
+            .path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("config.json");
+        let temporary_path = self.path.with_file_name(format!(
+            ".{file_name}.tmp-{}-{timestamp}",
+            std::process::id()
+        ));
+
+        let result = (|| -> anyhow::Result<()> {
+            let mut temporary_file = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&temporary_path)
+                .with_context(|| format!("failed to create {}", temporary_path.display()))?;
+            temporary_file
+                .write_all(text.as_bytes())
+                .with_context(|| format!("failed to write {}", temporary_path.display()))?;
+            temporary_file
+                .sync_all()
+                .with_context(|| format!("failed to sync {}", temporary_path.display()))?;
+            fs::rename(&temporary_path, &self.path).with_context(|| {
+                format!(
+                    "failed to replace {} with {}",
+                    self.path.display(),
+                    temporary_path.display()
+                )
+            })?;
+            Ok(())
+        })();
+
+        if result.is_err() {
+            let _ = fs::remove_file(&temporary_path);
+        }
+        result
     }
 
     pub fn add_timezone(&self, timezone_name: &str, label: &str) -> anyhow::Result<AppConfig> {
@@ -1417,6 +1464,51 @@ mod tests {
         let loaded = manager.load_with_local_timezone("UTC").unwrap();
 
         assert!(loaded.disable_open_meteo_geolocation);
+    }
+
+    #[test]
+    fn malformed_config_is_preserved_instead_of_resetting_locations() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("config.json");
+        let partial_config = "{\n  \"version\": 4,\n  \"timezones\": [\n";
+        fs::write(&path, partial_config).unwrap();
+
+        let manager = ConfigManager::new(Some(path.clone()));
+        let error = manager.load_with_local_timezone("UTC").unwrap_err();
+
+        assert!(error.to_string().contains("failed to parse"));
+        assert_eq!(fs::read_to_string(path).unwrap(), partial_config);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn canonical_config_load_does_not_require_write_access() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("config.json");
+        fs::write(
+            &path,
+            r#"{
+  "version": 4,
+  "timezones": [
+    {
+      "timezone": "UTC",
+      "label": ""
+    }
+  ]
+}
+"#,
+        )
+        .unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o444)).unwrap();
+        fs::set_permissions(temp_dir.path(), fs::Permissions::from_mode(0o555)).unwrap();
+
+        let manager = ConfigManager::new(Some(path));
+        let loaded = manager.load_with_local_timezone("UTC").unwrap();
+
+        fs::set_permissions(temp_dir.path(), fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(loaded.timezones.len(), 1);
     }
 
     #[test]

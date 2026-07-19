@@ -112,11 +112,7 @@ fn generic_install_detects_omarchy_shell_with_default_paths() {
 
     let binary = env!("CARGO_BIN_EXE_omarchy-world-clock");
     let install_status = Command::new(binary)
-        .args([
-            "install",
-            "--command-path",
-            "/usr/bin/omarchy-world-clock",
-        ])
+        .args(["install", "--command-path", "/usr/bin/omarchy-world-clock"])
         .env("HOME", &home)
         .env("PATH", "")
         .status()

@@ -1,5 +1,6 @@
 pub mod config;
 pub mod layout;
+pub mod omarchy_shell;
 pub mod popup;
 pub mod runtime;
 pub mod theme;

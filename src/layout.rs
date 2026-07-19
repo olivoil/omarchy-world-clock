@@ -8,7 +8,7 @@ use std::sync::OnceLock;
 
 const DEFAULT_WINDOW_GAP: i32 = 10;
 const DEFAULT_BORDER_SIZE: i32 = 2;
-pub const POPUP_TOP_CONTENT_MARGIN: i32 = 8;
+const DEFAULT_WINDOW_ROUNDING: i32 = 0;
 
 fn home_dir() -> PathBuf {
     env::var_os("HOME")
@@ -109,6 +109,21 @@ pub fn load_window_border_size() -> i32 {
     DEFAULT_BORDER_SIZE
 }
 
-pub fn popup_top_margin(window_gap: i32, border_size: i32, content_margin_top: i32) -> i32 {
-    (window_gap + border_size - content_margin_top).max(0)
+pub fn load_window_rounding() -> i32 {
+    load_hyprctl_option_int("decoration:rounding").unwrap_or(DEFAULT_WINDOW_ROUNDING)
+}
+
+pub fn popup_top_margin(window_gap: i32) -> i32 {
+    (window_gap.max(0) + 1) / 2
+}
+
+#[cfg(test)]
+mod tests {
+    use super::popup_top_margin;
+
+    #[test]
+    fn popup_starts_below_bar_with_native_half_gap() {
+        assert_eq!(popup_top_margin(10), 5);
+        assert_eq!(popup_top_margin(5), 3);
+    }
 }

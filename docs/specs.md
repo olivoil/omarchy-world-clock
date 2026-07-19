@@ -8,8 +8,8 @@ surface.
 ## Product Summary
 
 Omarchy World Clock adds a world-clock entry point next to Omarchy's center
-Waybar clock. Clicking the icon opens a lightweight popup that shows live clocks
-for a user-managed list of places.
+clock. Clicking the icon opens a lightweight popup that shows live clocks for a
+user-managed list of places.
 
 The popup supports:
 
@@ -19,9 +19,11 @@ The popup supports:
 - removing configured places
 - displaying times with the system time format
 
-## Waybar Module
+## Bar Module
 
-- A small world icon appears next to the center Waybar clock.
+- A small world icon appears next to the center clock.
+- Omarchy 4 uses a shell command widget after `omarchy.clock`.
+- Omarchy 3 uses a custom Waybar module after `clock`.
 - Left click toggles the popup open and closed.
 - Right click launches the Omarchy timezone selector terminal helper.
 - The module tooltip is a compact text table with no title row.
@@ -35,6 +37,13 @@ The popup supports:
 ## Popup
 
 - The popup is a top-overlay panel intended for Wayland/layer-shell use.
+- With a top bar, the popup is horizontally centered immediately below the bar
+  using the same half-`gaps_out` spacing as native Omarchy shell panels.
+- On Omarchy 4, the popup uses the active theme's `[popups]` background, text,
+  border, opacity, and border width plus Hyprland's live corner radius.
+- Omarchy 4 theme state is read from
+  `~/.local/state/omarchy/current/theme`; the Omarchy 3 config path remains a
+  fallback.
 - The popup can be dismissed by clicking outside it, losing focus, or pressing
   `Escape`.
 - The popup adapts colors to the active Omarchy theme palette.
@@ -151,7 +160,7 @@ The only user-facing display format is the system time format.
 
 Detection order:
 
-- follow the Waybar clock format when detectable
+- follow the Omarchy shell or Waybar clock format when detectable
 - fall back to locale-based detection
 - default to `24h` if system detection remains ambiguous
 
@@ -238,7 +247,7 @@ If there are no configured non-local entries:
 
 - the popup opens directly to the `Add a Location` screen
 - no empty-state filler is shown before the add flow
-- the Waybar tooltip shows `No additional timezones yet.`
+- the bar tooltip shows `No additional timezones yet.`
 
 ## Performance and Feel
 
@@ -252,8 +261,8 @@ If there are no configured non-local entries:
 
 A correct implementation satisfies these behaviors:
 
-- Waybar integration is idempotent and reversible.
-- The popup can be toggled from Waybar.
+- Omarchy shell and Waybar integrations are idempotent and reversible.
+- The popup can be toggled from the bar.
 - The tooltip reflects current configured non-local entries.
 - Time conversion works from the summary clock and every visible clock card.
 - Display format follows the system format only.

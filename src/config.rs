@@ -566,6 +566,52 @@ pub fn waybar_clock_config_paths() -> Vec<PathBuf> {
     ]
 }
 
+pub fn omarchy_shell_config_paths() -> Vec<PathBuf> {
+    let omarchy_root = env::var_os("OMARCHY_PATH")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/usr/share/omarchy"));
+    vec![
+        home_dir().join(".config/omarchy/shell.json"),
+        omarchy_root.join("config/omarchy/shell.json"),
+    ]
+}
+
+pub fn load_omarchy_shell_clock_format(paths: Option<&[PathBuf]>) -> Option<String> {
+    let candidates = paths
+        .map(|paths| paths.to_vec())
+        .unwrap_or_else(omarchy_shell_config_paths);
+
+    for path in candidates {
+        let Ok(contents) = fs::read_to_string(path) else {
+            continue;
+        };
+        let Ok(root) = serde_json::from_str::<serde_json::Value>(&contents) else {
+            continue;
+        };
+        let Some(layout) = root
+            .pointer("/bar/layout")
+            .and_then(serde_json::Value::as_object)
+        else {
+            continue;
+        };
+
+        for section in ["left", "center", "right"] {
+            let Some(entries) = layout.get(section).and_then(serde_json::Value::as_array) else {
+                continue;
+            };
+            if let Some(format) = entries.iter().find_map(|entry| {
+                (entry.get("id").and_then(serde_json::Value::as_str) == Some("omarchy.clock"))
+                    .then(|| entry.get("format").and_then(serde_json::Value::as_str))
+                    .flatten()
+            }) {
+                return Some(format.to_string());
+            }
+        }
+    }
+
+    None
+}
+
 fn waybar_clock_format_regex() -> &'static Regex {
     static REGEX: OnceLock<Regex> = OnceLock::new();
     REGEX.get_or_init(|| {
@@ -605,10 +651,20 @@ fn infer_time_format_inner(clock_format: &str) -> Option<&'static str> {
     {
         return Some("ampm");
     }
+    if clock_format.contains("AP") || clock_format.contains("ap") {
+        return Some("ampm");
+    }
     if ["%H", "%k", "%R", "%T"]
         .iter()
         .any(|token| clock_format.contains(token))
     {
+        return Some("24h");
+    }
+    static QT_HOUR_TOKEN: OnceLock<Regex> = OnceLock::new();
+    let qt_hour_token = QT_HOUR_TOKEN.get_or_init(|| {
+        Regex::new(r"(^|[^A-Za-z])(?:HH|H|hh|h)([^A-Za-z]|$)").expect("valid Qt hour token regex")
+    });
+    if qt_hour_token.is_match(clock_format) {
         return Some("24h");
     }
     None
@@ -626,6 +682,12 @@ fn locale_format(item: libc::nl_item) -> Option<String> {
 }
 
 pub fn detect_system_time_format_with_paths(paths: Option<&[PathBuf]>) -> String {
+    if let Some(clock_format) = load_omarchy_shell_clock_format(paths) {
+        if let Some(inferred) = infer_time_format_inner(&clock_format) {
+            return inferred.to_string();
+        }
+    }
+
     if let Some(clock_format) = load_waybar_clock_format(paths) {
         if let Some(inferred) = infer_time_format_inner(&clock_format) {
             return inferred.to_string();
@@ -1402,6 +1464,31 @@ mod tests {
         fs::write(
             &path,
             "{\n  \"clock\": {\n    \"format\": \"{:L%A %I:%M %p}\"\n  }\n}\n",
+        )
+        .unwrap();
+
+        assert_eq!(
+            detect_system_time_format_with_paths(Some(&[path])),
+            "ampm".to_string()
+        );
+    }
+
+    #[test]
+    fn detects_system_time_format_from_omarchy_shell_clock() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("shell.json");
+        fs::write(
+            &path,
+            r#"{
+  "bar": {
+    "layout": {
+      "center": [
+        { "id": "omarchy.clock", "format": "dddd h:mm AP" }
+      ]
+    }
+  }
+}
+"#,
         )
         .unwrap();
 

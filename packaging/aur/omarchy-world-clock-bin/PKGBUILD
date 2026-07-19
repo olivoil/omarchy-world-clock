@@ -5,12 +5,13 @@ _pkgname=omarchy-world-clock
 _target=x86_64-unknown-linux-gnu
 pkgver=0.1.1
 pkgrel=1
-pkgdesc="Waybar world clock for Omarchy"
+pkgdesc="World clock widget for Omarchy"
 arch=('x86_64')
 url="https://github.com/olivoil/omarchy-world-clock"
 license=('MIT')
 depends=('cairo' 'glib2' 'glibc' 'graphene' 'gtk4' 'gtk4-layer-shell' 'libgcc')
-optdepends=('waybar: status bar integration'
+optdepends=('quickshell: Omarchy 4 status bar integration'
+            'waybar: Omarchy 3 status bar integration'
             'hyprland: target compositor for Omarchy sessions')
 provides=("$_pkgname=$pkgver")
 conflicts=("$_pkgname")

@@ -1,5 +1,6 @@
 use anyhow::{bail, Context, Result};
 use omarchy_world_clock::config::ConfigManager;
+use omarchy_world_clock::omarchy_shell;
 use omarchy_world_clock::popup::run_popup;
 use omarchy_world_clock::runtime::{
     debug_runtime_log_path, kill_popup, popup_running, runtime_pid_path, spawn_popup,
@@ -16,7 +17,7 @@ use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn usage() -> &'static str {
-    "Usage: omarchy-world-clock <module|toggle|popup|install-waybar|uninstall-waybar|restart-waybar>"
+    "Usage: omarchy-world-clock <module|toggle|popup|install|uninstall|reload|install-shell|uninstall-shell|install-waybar|uninstall-waybar|restart-waybar>"
 }
 
 fn optional_flag(args: &[String], flag: &str) -> Result<Option<String>> {
@@ -83,6 +84,94 @@ fn backup_if_needed(path: &Path, marker: &str) -> Result<()> {
     Ok(())
 }
 
+fn backup(path: &Path) -> Result<()> {
+    if !path.exists() {
+        return Ok(());
+    }
+
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let backup_path = path.with_file_name(format!(
+        "{}.bak.{timestamp}",
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("backup")
+    ));
+    fs::copy(path, &backup_path).with_context(|| {
+        format!(
+            "failed to create backup {} from {}",
+            backup_path.display(),
+            path.display()
+        )
+    })?;
+    Ok(())
+}
+
+fn shell_config_path(args: &[String]) -> Result<PathBuf> {
+    optional_path(args, "--shell-config", "~/.config/omarchy/shell.json")
+}
+
+fn shell_defaults_path(args: &[String]) -> Result<PathBuf> {
+    if let Some(path) = optional_flag(args, "--shell-defaults")? {
+        return Ok(PathBuf::from(path).expanduser());
+    }
+    Ok(env::var_os("OMARCHY_PATH")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/usr/share/omarchy"))
+        .join("config/omarchy/shell.json"))
+}
+
+fn install_shell(args: &[String]) -> Result<()> {
+    let shell_config = shell_config_path(args)?;
+    let command_path = default_command_path(args)?;
+    let user_config = optional_path(
+        args,
+        "--user-config",
+        "~/.config/omarchy-world-clock/config.json",
+    )?;
+    let source = if shell_config.exists() {
+        shell_config.clone()
+    } else {
+        shell_defaults_path(args)?
+    };
+    let config_text = fs::read_to_string(&source)
+        .with_context(|| format!("failed to read {}", source.display()))?;
+
+    if shell_config.exists() && !omarchy_shell::contains_module(&config_text) {
+        backup(&shell_config)?;
+    }
+    write_text(
+        &shell_config,
+        &omarchy_shell::patch_config_text(&config_text, &command_path)?,
+    )?;
+    ConfigManager::new(Some(user_config)).load()?;
+    Ok(())
+}
+
+fn uninstall_shell(args: &[String]) -> Result<()> {
+    let shell_config = shell_config_path(args)?;
+    if !shell_config.exists() {
+        return Ok(());
+    }
+    let config_text = fs::read_to_string(&shell_config)
+        .with_context(|| format!("failed to read {}", shell_config.display()))?;
+    write_text(
+        &shell_config,
+        &omarchy_shell::unpatch_config_text(&config_text)?,
+    )
+}
+
+fn omarchy_shell_available(args: &[String]) -> bool {
+    shell_config_path(args).is_ok_and(|path| path.exists())
+        || env::var_os("OMARCHY_PATH")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("/usr/share/omarchy"))
+            .join("shell")
+            .is_dir()
+}
+
 fn install_waybar(args: &[String]) -> Result<()> {
     let waybar_config = optional_path(args, "--waybar-config", "~/.config/waybar/config.jsonc")?;
     let waybar_style = optional_path(args, "--waybar-style", "~/.config/waybar/style.css")?;
@@ -136,6 +225,17 @@ fn restart_waybar() {
     let _ = Command::new("pkill").args(["-SIGUSR2", "waybar"]).status();
 }
 
+fn reload_shell() {
+    if Command::new("omarchy-shell")
+        .args(["shell", "reloadConfig"])
+        .status()
+        .is_ok_and(|status| status.success())
+    {
+        return;
+    }
+    let _ = Command::new("omarchy").args(["restart", "shell"]).status();
+}
+
 fn main() -> Result<()> {
     if env::var_os("OMARCHY_WORLD_CLOCK_DEBUG").is_some() {
         std::panic::set_hook(Box::new(|panic_info| {
@@ -174,6 +274,37 @@ fn main() -> Result<()> {
                 return Ok(());
             }
             run_popup(&pid_path, None)?;
+        }
+        "install" => {
+            if omarchy_shell_available(&remaining_args) {
+                install_shell(&remaining_args)?;
+                reload_shell();
+            } else {
+                install_waybar(&remaining_args)?;
+                restart_waybar();
+            }
+        }
+        "uninstall" => {
+            uninstall_shell(&remaining_args)?;
+            uninstall_waybar(&remaining_args)?;
+            if omarchy_shell_available(&remaining_args) {
+                reload_shell();
+            } else {
+                restart_waybar();
+            }
+        }
+        "reload" => {
+            if omarchy_shell_available(&remaining_args) {
+                reload_shell();
+            } else {
+                restart_waybar();
+            }
+        }
+        "install-shell" => {
+            install_shell(&remaining_args)?;
+        }
+        "uninstall-shell" => {
+            uninstall_shell(&remaining_args)?;
         }
         "install-waybar" => {
             install_waybar(&remaining_args)?;

@@ -2,15 +2,32 @@ use std::fs;
 use std::process::Command;
 
 #[test]
-fn install_and_uninstall_waybar_with_default_paths() {
+fn generic_install_detects_waybar_and_preserves_existing_locations() {
     let sandbox = tempfile::tempdir().expect("create sandbox");
     let home = sandbox.path().join("home");
     let waybar_dir = home.join(".config/waybar");
     let config_path = waybar_dir.join("config.jsonc");
     let style_path = waybar_dir.join("style.css");
     let user_config_path = home.join(".config/omarchy-world-clock/config.json");
+    let omarchy_path = sandbox.path().join("omarchy-3");
+    let existing_user_config = r#"{
+  "version": 4,
+  "timezones": [
+    {
+      "timezone": "UTC",
+      "label": "Home"
+    },
+    {
+      "timezone": "Asia/Tokyo",
+      "label": "Tokyo"
+    }
+  ]
+}
+"#;
 
     fs::create_dir_all(&waybar_dir).expect("create waybar dir");
+    fs::create_dir_all(user_config_path.parent().expect("user config parent"))
+        .expect("create user config dir");
     fs::write(
         &config_path,
         r#"{
@@ -27,13 +44,16 @@ fn install_and_uninstall_waybar_with_default_paths() {
 "#,
     )
     .expect("write waybar style");
+    fs::write(&user_config_path, existing_user_config).expect("write existing user config");
 
     let binary = env!("CARGO_BIN_EXE_omarchy-world-clock");
     let install_status = Command::new(binary)
-        .arg("install-waybar")
+        .arg("install")
         .env("HOME", &home)
+        .env("OMARCHY_PATH", &omarchy_path)
+        .env("PATH", "")
         .status()
-        .expect("run install-waybar");
+        .expect("run generic install");
     assert!(install_status.success());
 
     let config_text = fs::read_to_string(&config_path).expect("read patched config");
@@ -41,7 +61,10 @@ fn install_and_uninstall_waybar_with_default_paths() {
     assert!(config_text.contains("\"custom/world-clock\""));
     assert!(config_text.contains("omarchy-world-clock module"));
     assert!(style_text.contains("#custom-world-clock"));
-    assert!(user_config_path.exists());
+    assert_eq!(
+        fs::read_to_string(&user_config_path).expect("read preserved user config"),
+        existing_user_config
+    );
 
     let uninstall_status = Command::new(binary)
         .arg("uninstall-waybar")
@@ -57,7 +80,7 @@ fn install_and_uninstall_waybar_with_default_paths() {
 }
 
 #[test]
-fn install_and_uninstall_shell_with_default_paths() {
+fn generic_install_detects_omarchy_shell_with_default_paths() {
     let sandbox = tempfile::tempdir().expect("create sandbox");
     let home = sandbox.path().join("home");
     let shell_dir = home.join(".config/omarchy");
@@ -90,13 +113,14 @@ fn install_and_uninstall_shell_with_default_paths() {
     let binary = env!("CARGO_BIN_EXE_omarchy-world-clock");
     let install_status = Command::new(binary)
         .args([
-            "install-shell",
+            "install",
             "--command-path",
             "/usr/bin/omarchy-world-clock",
         ])
         .env("HOME", &home)
+        .env("PATH", "")
         .status()
-        .expect("run install-shell");
+        .expect("run generic install");
     assert!(install_status.success());
 
     let config_text = fs::read_to_string(&shell_path).expect("read patched shell config");

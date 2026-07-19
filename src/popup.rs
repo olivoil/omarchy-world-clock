@@ -2,9 +2,7 @@ use crate::config::{
     all_timezones, detect_local_timezone, first_location_segment, system_time_format, AppConfig,
     ConfigManager, RemotePlaceSearch, TimezoneEntry, TimezoneResolver, TimezoneSearchResult,
 };
-use crate::layout::{
-    load_window_border_size, load_window_gap, popup_top_margin, POPUP_TOP_CONTENT_MARGIN,
-};
+use crate::layout::{load_window_gap, popup_top_margin};
 use crate::theme::{build_css, load_palette};
 use crate::time::{
     format_display_time, format_timezone_notation, friendly_timezone_name,
@@ -340,6 +338,11 @@ fn keep_popup_open_for_inspection() -> bool {
                 .split([',', ';', ':', ' '])
                 .any(|flag| flag.trim() == "interactive")
         })
+}
+
+fn suppress_layer_popup_dismissal() -> bool {
+    keep_popup_open_for_inspection()
+        || std::env::var_os("OMARCHY_WORLD_CLOCK_LAYER_KEEP_OPEN").is_some()
 }
 
 fn request_window_close(
@@ -1255,8 +1258,8 @@ fn draw_polygon(
 
 fn draw_add_map_fallback(context: &gtk::cairo::Context, width: f64, height: f64) {
     let palette = load_palette();
-    let background = color_components(&palette.background, (0.04, 0.09, 0.18));
-    let foreground = color_components(&palette.foreground, (0.85, 0.88, 0.94));
+    let background = color_components(&palette.popup_background, (0.04, 0.09, 0.18));
+    let foreground = color_components(&palette.popup_foreground, (0.85, 0.88, 0.94));
 
     context.set_source_rgba(background.0, background.1, background.2, 0.12);
     context.rectangle(0.0, 0.0, width, height);
@@ -1595,8 +1598,8 @@ fn draw_add_map_overlay(
     markers: &[MapLocationMarker],
 ) {
     let palette = load_palette();
-    let foreground = color_components(&palette.foreground, (0.85, 0.88, 0.94));
-    let background = color_components(&palette.background, (0.04, 0.09, 0.18));
+    let foreground = color_components(&palette.popup_foreground, (0.85, 0.88, 0.94));
+    let background = color_components(&palette.popup_background, (0.04, 0.09, 0.18));
     let accent = color_components(&palette.accent, (0.95, 0.66, 0.41));
 
     context.set_source_rgba(foreground.0, foreground.1, foreground.2, 0.10);
@@ -2712,11 +2715,7 @@ fn configure_layer_shell(window: &gtk::Window) -> Option<(i32, i32)> {
     window.set_anchor(Edge::Bottom, true);
     window.set_anchor(Edge::Left, true);
     window.set_anchor(Edge::Right, true);
-    let top_margin = popup_top_margin(
-        load_window_gap(),
-        load_window_border_size(),
-        POPUP_TOP_CONTENT_MARGIN,
-    );
+    let top_margin = popup_top_margin(load_window_gap());
     window.set_margin(Edge::Top, top_margin);
 
     let display = gdk::Display::default()?;
@@ -2918,7 +2917,7 @@ fn build_window(
 
     let top_band = gtk::Box::new(Orientation::Vertical, 0);
     top_band.set_halign(Align::Center);
-    top_band.set_valign(Align::Center);
+    top_band.set_valign(Align::Start);
     overlay.add_overlay(&top_band);
     if keep_popup_open_for_inspection() {
         overlay.set_measure_overlay(&top_band, true);
@@ -3338,7 +3337,7 @@ fn build_window(
         );
         let anchor = zoned_datetime(state.reference_utc, &state.local_timezone);
         let side_hours = timeline_side_hours(&timeline_items);
-        let stroke = gdk::RGBA::parse(&load_palette().foreground)
+        let stroke = gdk::RGBA::parse(&load_palette().popup_foreground)
             .ok()
             .map(|rgba| {
                 (
@@ -3592,7 +3591,7 @@ fn build_window(
         if !state.dismiss_armed {
             return;
         }
-        if keep_popup_open_for_inspection() {
+        if suppress_layer_popup_dismissal() {
             debug_popup_event("dismiss_click ignored for inspection");
             return;
         }
@@ -3678,7 +3677,7 @@ pub fn run_popup(pid_path: &Path, config_path: Option<PathBuf>) -> Result<()> {
         if state.dismiss_armed
             && is_keyboard_or_focus_dismissible_screen(&state)
             && !window.is_active()
-            && !keep_popup_open_for_inspection()
+            && !suppress_layer_popup_dismissal()
         {
             drop(state);
             request_window_close(&state_for_focus, window, "focus_lost_read_mode");

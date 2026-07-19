@@ -160,8 +160,7 @@ test_installs_release_archive() {
 
   assert_executable "$sandbox/prefix/bin/omarchy-world-clock"
   assert_executable "$sandbox/bin/omarchy-world-clock"
-  assert_contains "$sandbox/log" "release-binary install-waybar"
-  assert_contains "$sandbox/log" "release-binary restart-waybar"
+  assert_contains "$sandbox/log" "release-binary install"
 }
 
 test_can_build_from_source() {
@@ -173,9 +172,8 @@ test_can_build_from_source() {
 
   run_install "$sandbox" --build-from-source
 
-  assert_contains "$sandbox/log" "cargo install --path $REPO_ROOT --root $sandbox/prefix --force"
-  assert_contains "$sandbox/log" "source-binary install-waybar"
-  assert_contains "$sandbox/log" "source-binary restart-waybar"
+  assert_contains "$sandbox/log" "cargo install --locked --path $REPO_ROOT --root $sandbox/prefix --force"
+  assert_contains "$sandbox/log" "source-binary install"
 }
 
 test_installs_arch_runtime_dependencies() {
@@ -195,7 +193,7 @@ test_installs_arch_runtime_dependencies() {
 
   assert_contains "$sandbox/log" "pacman -T gtk4 gtk4-layer-shell"
   assert_contains "$sandbox/log" "pacman -S --needed --noconfirm gtk4 gtk4-layer-shell"
-  assert_contains "$sandbox/log" "release-binary install-waybar"
+  assert_contains "$sandbox/log" "release-binary install"
 }
 
 test_installs_release_archive

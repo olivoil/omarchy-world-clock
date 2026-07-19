@@ -7,9 +7,10 @@ packaging/aur/omarchy-world-clock-bin
 ```
 
 This package installs the prebuilt GitHub release binary and project `LICENSE`
-from the release archive. It intentionally does not patch user Waybar config
-during package installation. The package post-install message tells users which
-one-time `omarchy-world-clock install-waybar` command to run.
+from the release archive. It intentionally does not patch user bar config
+during package installation. The package post-install message tells users to
+run the one-time `omarchy-world-clock install` command, which detects the
+Omarchy 4 shell or Omarchy 3 Waybar.
 
 ## Initial Publish
 

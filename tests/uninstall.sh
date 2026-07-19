@@ -99,8 +99,8 @@ test_prefers_wrapper() {
 
   run_uninstall "$sandbox"
 
-  assert_contains "$sandbox/log" "wrapper uninstall-waybar"
-  assert_not_contains "$sandbox/log" "installed-binary uninstall-waybar"
+  assert_contains "$sandbox/log" "wrapper uninstall"
+  assert_not_contains "$sandbox/log" "installed-binary uninstall"
   assert_not_contains "$sandbox/log" "cargo run"
   assert_missing "$sandbox/bin/omarchy-world-clock"
   assert_missing "$sandbox/prefix"
@@ -117,8 +117,8 @@ test_falls_back_to_installed_binary() {
 
   run_uninstall "$sandbox"
 
-  assert_contains "$sandbox/log" "wrapper uninstall-waybar"
-  assert_contains "$sandbox/log" "installed-binary uninstall-waybar"
+  assert_contains "$sandbox/log" "wrapper uninstall"
+  assert_contains "$sandbox/log" "installed-binary uninstall"
   assert_not_contains "$sandbox/log" "cargo run"
   assert_missing "$sandbox/bin/omarchy-world-clock"
   assert_missing "$sandbox/prefix"
@@ -133,8 +133,7 @@ test_falls_back_to_cargo_and_purges_config() {
 
   run_uninstall "$sandbox" --purge
 
-  assert_contains "$sandbox/log" "cargo run --manifest-path $REPO_ROOT/Cargo.toml -- uninstall-waybar"
-  assert_contains "$sandbox/log" "restart-waybar "
+  assert_contains "$sandbox/log" "cargo run --manifest-path $REPO_ROOT/Cargo.toml -- uninstall"
   assert_missing "$sandbox/prefix"
   assert_missing "$sandbox/home/.config/omarchy-world-clock"
 }

@@ -6,6 +6,7 @@ PREFIX=${OMARCHY_WORLD_CLOCK_HOME:-"$HOME/.local/share/omarchy-world-clock"}
 BIN_DIR=${OMARCHY_WORLD_CLOCK_BIN_DIR:-"$HOME/.local/bin"}
 WAYBAR_CONFIG=${WAYBAR_CONFIG:-"$HOME/.config/waybar/config.jsonc"}
 WAYBAR_STYLE=${WAYBAR_STYLE:-"$HOME/.config/waybar/style.css"}
+SHELL_CONFIG=${OMARCHY_SHELL_CONFIG:-"$HOME/.config/omarchy/shell.json"}
 CONFIG_DIR=${OMARCHY_WORLD_CLOCK_CONFIG_DIR:-"$HOME/.config/omarchy-world-clock"}
 WRAPPER_PATH="$BIN_DIR/omarchy-world-clock"
 INSTALLED_BINARY="$PREFIX/bin/omarchy-world-clock"
@@ -25,30 +26,31 @@ for arg in "$@"; do
   esac
 done
 
-try_uninstall_waybar() {
+try_uninstall() {
   local label=$1
   shift
   local -a command=("$@")
 
-  if "${command[@]}" uninstall-waybar \
+  if "${command[@]}" uninstall \
+    --shell-config "$SHELL_CONFIG" \
     --waybar-config "$WAYBAR_CONFIG" \
     --waybar-style "$WAYBAR_STYLE"; then
     return 0
   fi
 
-  printf 'Failed to uninstall Waybar via %s; trying next fallback.\n' "$label" >&2
+  printf 'Failed to uninstall bar integration via %s; trying next fallback.\n' "$label" >&2
   return 1
 }
 
-if [[ -x "$WRAPPER_PATH" ]] && try_uninstall_waybar wrapper "$WRAPPER_PATH"; then
+if [[ -x "$WRAPPER_PATH" ]] && try_uninstall wrapper "$WRAPPER_PATH"; then
   :
-elif [[ -x "$INSTALLED_BINARY" ]] && try_uninstall_waybar installed-binary "$INSTALLED_BINARY"; then
+elif [[ -x "$INSTALLED_BINARY" ]] && try_uninstall installed-binary "$INSTALLED_BINARY"; then
   :
 elif command -v cargo >/dev/null 2>&1 \
-  && try_uninstall_waybar cargo cargo run --manifest-path "$REPO_ROOT/Cargo.toml" --; then
+  && try_uninstall cargo cargo run --manifest-path "$REPO_ROOT/Cargo.toml" --; then
   :
 else
-  printf 'Unable to uninstall Waybar: wrapper, installed binary, and cargo fallback all failed.\n' >&2
+  printf 'Unable to uninstall bar integration: wrapper, installed binary, and cargo fallback all failed.\n' >&2
   exit 1
 fi
 
@@ -59,12 +61,6 @@ rm -rf "$LEGACY_PREFIX"
 
 if [[ "$PURGE" == true ]]; then
   rm -rf "$CONFIG_DIR"
-fi
-
-if command -v omarchy-restart-waybar >/dev/null 2>&1; then
-  omarchy-restart-waybar || true
-else
-  pkill -SIGUSR2 waybar || true
 fi
 
 printf 'Uninstalled Omarchy World Clock.\n'

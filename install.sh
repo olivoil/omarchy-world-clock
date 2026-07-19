@@ -12,6 +12,7 @@ PREFIX=${OMARCHY_WORLD_CLOCK_HOME:-"$HOME/.local/share/omarchy-world-clock"}
 BIN_DIR=${OMARCHY_WORLD_CLOCK_BIN_DIR:-"$HOME/.local/bin"}
 WAYBAR_CONFIG=${WAYBAR_CONFIG:-"$HOME/.config/waybar/config.jsonc"}
 WAYBAR_STYLE=${WAYBAR_STYLE:-"$HOME/.config/waybar/style.css"}
+SHELL_CONFIG=${OMARCHY_SHELL_CONFIG:-"$HOME/.config/omarchy/shell.json"}
 USER_CONFIG=${OMARCHY_WORLD_CLOCK_CONFIG:-"$HOME/.config/omarchy-world-clock/config.json"}
 WRAPPER_PATH="$BIN_DIR/omarchy-world-clock"
 INSTALLED_BINARY="$PREFIX/bin/omarchy-world-clock"
@@ -145,7 +146,7 @@ install_from_source() {
     exit 1
   fi
 
-  cargo install --path "$REPO_ROOT" --root "$PREFIX" --force
+  cargo install --locked --path "$REPO_ROOT" --root "$PREFIX" --force
 }
 
 install_arch_runtime_dependencies() {
@@ -219,7 +220,8 @@ chmod +x "$WRAPPER_PATH"
 
 check_runtime_libraries
 
-"$WRAPPER_PATH" install-waybar \
+"$WRAPPER_PATH" install \
+  --shell-config "$SHELL_CONFIG" \
   --waybar-config "$WAYBAR_CONFIG" \
   --waybar-style "$WAYBAR_STYLE" \
   --command-path "$WRAPPER_PATH" \
@@ -228,7 +230,10 @@ check_runtime_libraries
 rm -f "$LEGACY_WRAPPER_PATH"
 rm -rf "$LEGACY_PREFIX"
 
-"$WRAPPER_PATH" restart-waybar
-
-printf 'Installed Omarchy World Clock.\nWaybar config: %s\nWaybar style: %s\nWrapper: %s\n' \
-  "$WAYBAR_CONFIG" "$WAYBAR_STYLE" "$WRAPPER_PATH"
+if [[ -f "$SHELL_CONFIG" ]]; then
+  printf 'Installed Omarchy World Clock.\nOmarchy shell config: %s\nWrapper: %s\n' \
+    "$SHELL_CONFIG" "$WRAPPER_PATH"
+else
+  printf 'Installed Omarchy World Clock.\nWaybar config: %s\nWaybar style: %s\nWrapper: %s\n' \
+    "$WAYBAR_CONFIG" "$WAYBAR_STYLE" "$WRAPPER_PATH"
+fi

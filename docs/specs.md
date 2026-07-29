@@ -130,6 +130,10 @@ reference instant. When the value parses successfully:
 - the edited clock becomes the source of truth for the reference instant
 - every visible clock updates to show that same instant in its own timezone
 
+Pressing `Enter` in read mode focuses the summary clock and selects its current
+value, so typing immediately replaces it with a reference time in the local
+timezone.
+
 Accepted manual input forms:
 
 - `HH:MM`
@@ -252,6 +256,10 @@ If there are no configured non-local entries:
 ## Performance and Feel
 
 - Popup open should feel immediate.
+- The first rendered frame should use the compositor's final work area without
+  resizing after it appears.
+- Map-only timezone lookup data should initialize outside the popup's critical
+  opening path.
 - Live updates should be visually stable.
 - Editing one clock must not destroy and recreate the focused widget mid-edit.
 - Remote search failures should fail quietly and leave local search usable.

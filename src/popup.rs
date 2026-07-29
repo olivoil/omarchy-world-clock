@@ -2,7 +2,9 @@ use crate::config::{
     all_timezones, detect_local_timezone, first_location_segment, system_time_format, AppConfig,
     ConfigManager, RemotePlaceSearch, TimezoneEntry, TimezoneResolver, TimezoneSearchResult,
 };
-use crate::layout::{load_window_gap, popup_top_margin};
+use crate::layout::{
+    load_monitor_reserved_space, load_window_gap, popup_surface_size, popup_top_margin,
+};
 use crate::theme::{build_css, load_palette};
 use crate::time::{
     format_display_time, format_timezone_notation, friendly_timezone_name,
@@ -93,7 +95,7 @@ struct PopupState {
     search_results_scroller: gtk::ScrolledWindow,
     search_results_box: gtk::Box,
     add_map_area: gtk::DrawingArea,
-    map_timezone_finder: TimezoneFinder,
+    map_timezone_finder: Arc<OnceLock<TimezoneFinder>>,
     add_map_hover_layer: gtk::Fixed,
     add_map_hover_card: gtk::Box,
     add_map_hover_title: gtk::Label,
@@ -2010,6 +2012,16 @@ fn is_keyboard_or_focus_dismissible_screen(state: &PopupState) -> bool {
             && read_entry_count(&state.config.timezones, &state.local_timezone) == 0)
 }
 
+fn should_focus_summary_time_entry(
+    key: gdk::Key,
+    screen_mode: PopupScreen,
+    active_time_entry: Option<&ActiveTimeEntry>,
+) -> bool {
+    matches!(key, gdk::Key::Return | gdk::Key::KP_Enter)
+        && matches!(screen_mode, PopupScreen::Read)
+        && active_time_entry.is_none()
+}
+
 fn remove_timezone_entry(state_handle: &Rc<RefCell<PopupState>>, timezone_name: &str) {
     let config_manager = {
         let state = state_handle.borrow();
@@ -2175,7 +2187,7 @@ fn map_hover_result_at_position(
     y: f64,
 ) -> Option<TimezoneSearchResult> {
     let (lng, lat) = map_coordinates_to_lng_lat(area_width, area_height, x, y)?;
-    let timezone_name = state.map_timezone_finder.get_tz_name(lng, lat);
+    let timezone_name = state.map_timezone_finder.get()?.get_tz_name(lng, lat);
     if timezone_name.is_empty() || timezone_name.starts_with("Etc/") {
         return None;
     }
@@ -2721,8 +2733,10 @@ fn configure_layer_shell(window: &gtk::Window) -> Option<(i32, i32)> {
     let display = gdk::Display::default()?;
     let monitor = target_monitor(&display)?;
     let geometry = monitor.geometry();
-    let width = geometry.width().max(200);
-    let height = (geometry.height() - top_margin).max(200);
+    let connector = monitor.connector();
+    let reserved = load_monitor_reserved_space(connector.as_deref());
+    let (width, height) =
+        popup_surface_size(geometry.width(), geometry.height(), top_margin, reserved);
 
     window.set_monitor(Some(&monitor));
     window.set_default_size(width, height);
@@ -3214,14 +3228,22 @@ fn build_window(
         read_entry_count(&config.timezones, &local_timezone),
     );
 
+    let resolver = TimezoneResolver::new(Some(all_timezones()));
+    let place_search = Arc::new(Mutex::new(RemotePlaceSearch::new(
+        Some(all_timezones()),
+        None,
+    )));
+    let map_timezone_finder = Arc::new(OnceLock::new());
+    let map_timezone_finder_for_worker = map_timezone_finder.clone();
+    thread::spawn(move || {
+        let _ = map_timezone_finder_for_worker.set(TimezoneFinder::new());
+    });
+
     let state = Rc::new(RefCell::new(PopupState {
         config_manager,
         config,
-        resolver: TimezoneResolver::new(Some(all_timezones())),
-        place_search: Arc::new(Mutex::new(RemotePlaceSearch::new(
-            Some(all_timezones()),
-            None,
-        ))),
+        resolver,
+        place_search,
         remote_search_sender,
         local_timezone,
         time_format: initial_time_format.clone(),
@@ -3256,7 +3278,7 @@ fn build_window(
         search_results_scroller: search_results_scroller.clone(),
         search_results_box: search_results_box.clone(),
         add_map_area: add_map_area.clone(),
-        map_timezone_finder: TimezoneFinder::new(),
+        map_timezone_finder,
         add_map_hover_layer: add_map_hover_layer.clone(),
         add_map_hover_card: add_map_hover_card.clone(),
         add_map_hover_title: add_map_hover_title.clone(),
@@ -3642,25 +3664,42 @@ pub fn run_popup(pid_path: &Path, config_path: Option<PathBuf>) -> Result<()> {
     }
 
     let key_controller = gtk::EventControllerKey::new();
-    let state_for_escape = state.clone();
-    let window_for_escape = window.clone();
+    key_controller.set_propagation_phase(gtk::PropagationPhase::Capture);
+    let state_for_key = state.clone();
+    let window_for_key = window.clone();
     key_controller.connect_key_pressed(move |_, key, _, _| {
         if key == gdk::Key::Escape {
             let should_close = {
-                let state = state_for_escape.borrow();
+                let state = state_for_key.borrow();
                 is_keyboard_or_focus_dismissible_screen(&state)
             };
             if should_close {
-                request_window_close(&state_for_escape, &window_for_escape, "escape");
+                request_window_close(&state_for_key, &window_for_key, "escape");
             } else {
                 {
-                    let state = state_for_escape.borrow();
+                    let state = state_for_key.borrow();
                     clear_status(&state);
                 }
-                set_screen_mode(&state_for_escape, PopupScreen::Read);
+                set_screen_mode(&state_for_key, PopupScreen::Read);
             }
             return Propagation::Stop;
         }
+
+        let summary_time_entry = {
+            let state = state_for_key.borrow();
+            should_focus_summary_time_entry(
+                key,
+                state.screen_mode,
+                state.active_time_entry.as_ref(),
+            )
+            .then(|| state.read_summary_time.clone())
+        };
+        if let Some(summary_time_entry) = summary_time_entry {
+            let _ = summary_time_entry.grab_focus();
+            summary_time_entry.select_region(0, -1);
+            return Propagation::Stop;
+        }
+
         Propagation::Proceed
     });
     window.add_controller(key_controller);
@@ -3734,8 +3773,9 @@ mod tests {
         layout_map_location_markers, lng_lat_to_map_coordinates, map_coordinates_to_lng_lat,
         merge_zone_tab_coordinates, parse_zone_tab_coordinate, read_card_row_width,
         read_card_title, read_entry_count, screen_mode_for_read_entry_count,
-        search_result_subtitle, sort_read_entries_by_time, summary_search_result, timeline_entries,
-        timeline_side_hours, timeline_tick_relative_minutes, visible_read_entries, MapCoordinate,
+        search_result_subtitle, should_focus_summary_time_entry, sort_read_entries_by_time,
+        summary_search_result, timeline_entries, timeline_side_hours,
+        timeline_tick_relative_minutes, visible_read_entries, ActiveTimeEntry, MapCoordinate,
         MapLocationMarker, PopupScreen, READ_CARD_COLUMNS, READ_CARD_LIMIT, READ_CARD_SPACING,
         READ_CARD_WIDTH,
     };
@@ -3783,6 +3823,30 @@ mod tests {
             visible.last().map(|entry| entry.timezone.as_str()),
             Some("Europe/London")
         );
+    }
+
+    #[test]
+    fn enter_starts_summary_time_entry_from_read_mode() {
+        assert!(should_focus_summary_time_entry(
+            gtk::gdk::Key::Return,
+            PopupScreen::Read,
+            None,
+        ));
+        assert!(should_focus_summary_time_entry(
+            gtk::gdk::Key::KP_Enter,
+            PopupScreen::Read,
+            None,
+        ));
+        assert!(!should_focus_summary_time_entry(
+            gtk::gdk::Key::Return,
+            PopupScreen::Add,
+            None,
+        ));
+        assert!(!should_focus_summary_time_entry(
+            gtk::gdk::Key::Return,
+            PopupScreen::Read,
+            Some(&ActiveTimeEntry::Summary),
+        ));
     }
 
     #[test]

@@ -1,7 +1,8 @@
 use crate::config::{
-    all_timezones, detect_local_timezone, first_location_segment, non_local_location_count,
-    place_coordinate, system_time_format, AppConfig, ConfigManager, LocationKey, RemotePlaceSearch,
-    TimezoneEntry, TimezoneResolver, TimezoneSearchResult, CLOCK_CARD_LIMIT,
+    all_timezones, canonical_timezone_name, detect_local_timezone, first_location_segment,
+    non_local_location_count, place_coordinate, system_time_format, AppConfig, ConfigManager,
+    LocationKey, RemotePlaceSearch, TimezoneEntry, TimezoneResolver, TimezoneSearchResult,
+    CLOCK_CARD_LIMIT,
 };
 use crate::layout::{
     load_monitor_reserved_space, load_window_gap, popup_surface_size, popup_top_margin,
@@ -407,6 +408,43 @@ fn time_entry_width_chars(time_format: &str) -> i32 {
 
 fn read_entry_count(entries: &[TimezoneEntry], local_timezone: &str) -> usize {
     non_local_location_count(entries, local_timezone)
+}
+
+fn local_timezone_is_configured(entries: &[TimezoneEntry], local_timezone: &str) -> bool {
+    let local_timezone = canonical_timezone_name(local_timezone);
+    !local_timezone.is_empty() && entries.iter().any(|entry| entry.timezone == local_timezone)
+}
+
+fn add_controls_available(entries: &[TimezoneEntry], local_timezone: &str) -> bool {
+    let read_entry_count = read_entry_count(entries, local_timezone);
+    if read_entry_count < READ_CARD_LIMIT {
+        return true;
+    }
+    if read_entry_count > READ_CARD_LIMIT {
+        return false;
+    }
+
+    let local_timezone = canonical_timezone_name(local_timezone);
+    !local_timezone.is_empty() && !local_timezone_is_configured(entries, &local_timezone)
+}
+
+fn can_add_location_at_limit(
+    entries: &[TimezoneEntry],
+    local_timezone: &str,
+    candidate_timezone: &str,
+) -> bool {
+    let read_entry_count = read_entry_count(entries, local_timezone);
+    if read_entry_count < READ_CARD_LIMIT {
+        return true;
+    }
+    if read_entry_count > READ_CARD_LIMIT {
+        return false;
+    }
+
+    let local_timezone = canonical_timezone_name(local_timezone);
+    !local_timezone.is_empty()
+        && !local_timezone_is_configured(entries, &local_timezone)
+        && canonical_timezone_name(candidate_timezone) == local_timezone
 }
 
 fn visible_read_entries(entries: &[TimezoneEntry], local_timezone: &str) -> Vec<TimezoneEntry> {
@@ -1910,7 +1948,7 @@ fn render_read_view(state: &mut PopupState) {
 }
 
 fn can_add_more_locations(state: &PopupState) -> bool {
-    read_entry_count(&state.config.timezones, &state.local_timezone) < READ_CARD_LIMIT
+    add_controls_available(&state.config.timezones, &state.local_timezone)
 }
 
 fn screen_mode_for_read_entry_count(
@@ -2599,7 +2637,11 @@ fn add_timezone(
             return;
         }
 
-        if read_entry_count(&state.config.timezones, &state.local_timezone) >= READ_CARD_LIMIT {
+        if !can_add_location_at_limit(
+            &state.config.timezones,
+            &state.local_timezone,
+            timezone_name,
+        ) {
             set_status(
                 &state,
                 &format!(
@@ -3703,14 +3745,15 @@ pub fn run_popup(pid_path: &Path, config_path: Option<PathBuf>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        active_entry_is_read_card, build_timeline_items, first_location_segment,
-        format_timeline_zone_text, layout_map_location_markers, lng_lat_to_map_coordinates,
-        map_coordinates_to_lng_lat, merge_search_results, read_card_row_width, read_card_title,
-        read_entry_count, screen_mode_for_read_entry_count, search_result_subtitle,
-        should_focus_summary_time_entry, sort_read_entries_by_time, summary_search_result,
-        timeline_entries, timeline_side_hours, timeline_tick_relative_minutes,
-        visible_read_entries, ActiveTimeEntry, MapCoordinate, MapLocationMarker, PopupScreen,
-        READ_CARD_COLUMNS, READ_CARD_LIMIT, READ_CARD_SPACING, READ_CARD_WIDTH,
+        active_entry_is_read_card, add_controls_available, build_timeline_items,
+        can_add_location_at_limit, first_location_segment, format_timeline_zone_text,
+        layout_map_location_markers, lng_lat_to_map_coordinates, map_coordinates_to_lng_lat,
+        merge_search_results, read_card_row_width, read_card_title, read_entry_count,
+        screen_mode_for_read_entry_count, search_result_subtitle, should_focus_summary_time_entry,
+        sort_read_entries_by_time, summary_search_result, timeline_entries, timeline_side_hours,
+        timeline_tick_relative_minutes, visible_read_entries, ActiveTimeEntry, MapCoordinate,
+        MapLocationMarker, PopupScreen, READ_CARD_COLUMNS, READ_CARD_LIMIT, READ_CARD_SPACING,
+        READ_CARD_WIDTH,
     };
     use crate::config::{TimezoneEntry, TimezoneSearchResult};
     use crate::time::zoned_datetime;
@@ -3859,6 +3902,50 @@ mod tests {
         let entries = vec![entry("America/Cancun")];
 
         assert_eq!(read_entry_count(&entries, "America/Cancun"), 0);
+    }
+
+    #[test]
+    fn add_controls_allow_only_the_missing_local_summary_at_the_card_limit() {
+        let entries = vec![
+            entry("America/Vancouver"),
+            entry("America/Denver"),
+            entry("America/Chicago"),
+            entry("America/New_York"),
+            entry("Europe/London"),
+            entry("Europe/Paris"),
+            entry("Asia/Kolkata"),
+            entry("Asia/Tokyo"),
+            entry("Australia/Sydney"),
+        ];
+
+        assert!(add_controls_available(&entries, "America/Cancun"));
+        assert!(can_add_location_at_limit(
+            &entries,
+            "America/Cancun",
+            "America/Cancun"
+        ));
+        assert!(!can_add_location_at_limit(
+            &entries,
+            "America/Cancun",
+            "Pacific/Auckland"
+        ));
+
+        let mut with_local_summary = entries;
+        with_local_summary.push(entry("America/Cancun"));
+        assert!(!add_controls_available(
+            &with_local_summary,
+            "America/Cancun"
+        ));
+
+        let mut over_limit = with_local_summary;
+        over_limit.push(entry("Pacific/Auckland"));
+        over_limit.retain(|entry| entry.timezone != "America/Cancun");
+        assert!(!add_controls_available(&over_limit, "America/Cancun"));
+        assert!(!can_add_location_at_limit(
+            &over_limit,
+            "America/Cancun",
+            "America/Cancun"
+        ));
     }
 
     #[test]

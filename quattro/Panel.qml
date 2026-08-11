@@ -79,7 +79,10 @@ Panel {
   readonly property int maxClocks: 9
   readonly property bool canRemove: Number(snapshot.configured_count || 0) > 1
   readonly property bool localTimezoneConfigured: snapshot.local_configured === true
-  readonly property bool canAdd: clocks.length < maxClocks || !localTimezoneConfigured
+  readonly property int nonLocalLocationCount: Math.max(0,
+    Number(snapshot.configured_count || 0) - (localTimezoneConfigured ? 1 : 0))
+  readonly property bool canAdd: nonLocalLocationCount < maxClocks
+    || nonLocalLocationCount === maxClocks && !localTimezoneConfigured
   readonly property var mapClocks: {
     var entries = []
     if (root.hasMapCoordinate(summary)) entries.push(summary)
@@ -342,7 +345,8 @@ Panel {
   }
 
   function canAddLocation(timezone) {
-    if (clocks.length < maxClocks) return true
+    if (nonLocalLocationCount < maxClocks) return true
+    if (nonLocalLocationCount > maxClocks) return false
     var candidate = String(timezone || "").trim()
     var localTimezone = String(snapshot.local_timezone || "").trim()
     return !localTimezoneConfigured && candidate !== "" && candidate === localTimezone

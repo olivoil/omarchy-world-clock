@@ -357,6 +357,24 @@ mod tests {
     }
 
     #[test]
+    fn snapshot_marks_a_pinned_local_location_on_the_summary() {
+        let config = AppConfig {
+            timezones: vec![entry("America/Cancun", "Cancun")],
+            pinned_location: Some(LocationKey {
+                timezone: "America/Cancun".to_string(),
+                label: "Cancun".to_string(),
+            }),
+            disable_open_meteo_geolocation: false,
+        };
+        let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
+
+        let snapshot = build_snapshot(&config, now, "America/Cancun", "24h");
+
+        assert!(snapshot.summary.pinned);
+        assert!(snapshot.clocks.is_empty());
+    }
+
+    #[test]
     fn snapshot_populates_timezone_coordinates_when_the_config_has_none() {
         let config = AppConfig {
             timezones: vec![entry("America/New_York", "New York")],

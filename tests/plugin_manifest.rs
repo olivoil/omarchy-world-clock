@@ -65,6 +65,11 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("var manual = root.snapshotActiveReference !== \"\""));
     assert!(panel.contains("Qt.callLater(root.flushSnapshotRequest)"));
     assert!(panel.contains("Qt.callLater(root.flushEditorRefresh)"));
+    assert!(panel.contains("property string searchResultsQuery: \"\""));
+    assert!(panel.contains("searchResultsQuery === query"));
+    assert!(panel.contains("onTextChanged: root.searchTextChanged()"));
+    assert!(panel.contains("visible: root.summary.pinned === true"));
+    assert!(panel.contains("onClicked: root.togglePin(root.summary)"));
     assert!(panel.contains("https://open-meteo.com/"));
     assert!(panel.contains("onLinkActivated: function(link) { Qt.openUrlExternally(link) }"));
     assert!(panel.contains("readonly property string currentLocationTitle"));

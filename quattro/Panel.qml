@@ -42,6 +42,7 @@ Panel {
   property bool statusError: false
   property string actionName: ""
   property string searchQueryInFlight: ""
+  property string searchResultsQuery: ""
   property var searchResults: []
   property var mapSelection: null
   property real mapRequestedLatitude: 0
@@ -130,6 +131,7 @@ Panel {
   function close() {
     mode = "read"
     searchResults = []
+    searchResultsQuery = ""
     mapSelection = null
     mapClickPending = false
     controller.hide()
@@ -292,10 +294,17 @@ Panel {
     searchDebounce.restart()
   }
 
+  function searchTextChanged() {
+    searchResults = []
+    searchResultsQuery = ""
+    scheduleSearch()
+  }
+
   function startSearch() {
     var query = String(addField.text || "").trim()
     if (!query) {
       searchResults = []
+      searchResultsQuery = ""
       return
     }
     if (searchProcess.running) return
@@ -305,7 +314,8 @@ Panel {
   }
 
   function addFirstResult() {
-    if (searchResults.length > 0 && canAdd)
+    var query = String(addField.text || "").trim()
+    if (searchResults.length > 0 && searchResultsQuery === query && canAdd)
       runAction("add", searchResults[0].timezone, searchResults[0])
   }
 
@@ -474,10 +484,11 @@ Panel {
     onExited: function(exitCode) {
       var current = root.snapshotActiveGeneration === root.snapshotStateGeneration
       var manual = root.snapshotActiveReference !== ""
-      if (exitCode === 0 && current && root.timeEditorActive
-          && !root.editorRefreshPending) {
-        root.editorRefreshPending = true
-        root.editorRefreshReference = root.snapshotActiveReference
+      if (exitCode === 0 && current && root.timeEditorActive) {
+        if (!root.editorRefreshPending) {
+          root.editorRefreshPending = true
+          root.editorRefreshReference = root.snapshotActiveReference
+        }
       } else if (exitCode === 0 && current) {
         root.applySnapshot(snapshotOutput.text, manual)
       } else if (exitCode !== 0 && current)
@@ -520,6 +531,7 @@ Panel {
       if (root.actionName === "add") {
         addField.text = ""
         root.searchResults = []
+        root.searchResultsQuery = ""
         root.mapSelection = null
         root.mapClickPending = false
         root.setStatus("Location added.", false)
@@ -542,16 +554,19 @@ Panel {
       }
       if (exitCode !== 0) {
         root.searchResults = []
+        root.searchResultsQuery = ""
         root.setStatus("Search is unavailable; exact timezone names still work.", true)
         return
       }
       try {
         var payload = JSON.parse(String(searchOutput.text || "[]"))
         root.searchResults = Array.isArray(payload) ? payload : []
+        root.searchResultsQuery = root.searchQueryInFlight
         if (root.searchResults.length === 0) root.setStatus("No matching location.", false)
         else root.clearStatus()
       } catch (error) {
         root.searchResults = []
+        root.searchResultsQuery = ""
       }
     }
   }
@@ -662,6 +677,17 @@ Panel {
                   if (root.mode === "add") root.mode = "read"
                   else root.returnToLive()
                 }
+              }
+
+              Button {
+                visible: root.summary.pinned === true
+                text: "UNPIN"
+                selected: true
+                tooltipText: "Remove this time from the bar"
+                fontSize: Style.font.caption
+                horizontalPadding: Style.space(6)
+                verticalPadding: Style.space(4)
+                onClicked: root.togglePin(root.summary)
               }
             }
 
@@ -1053,7 +1079,7 @@ Panel {
               placeholderText: "Search for a city or timezone"
               foreground: root.contentForeground
               enabled: root.canAdd && !actionProcess.running
-              onTextChanged: root.scheduleSearch()
+              onTextChanged: root.searchTextChanged()
               onAccepted: root.addFirstResult()
               onActiveFocusChanged: root.editorActive = activeFocus
             }

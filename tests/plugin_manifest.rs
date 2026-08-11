@@ -86,9 +86,13 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("Qt.callLater(root.flushEditorRefresh)"));
     assert!(panel.contains("property string searchResultsQuery: \"\""));
     assert!(panel.contains("property string searchSubmitQuery: \"\""));
+    assert!(panel.contains("if (mode !== \"add\") return"));
+    assert!(panel.contains("if (mode !== \"add\" || !query || !canAdd"));
+    assert!(panel.contains("searchDebounce.stop()"));
     assert!(panel.contains("searchResultsQuery === query"));
     assert!(panel.contains("searchSubmitQuery = query"));
     assert!(panel.contains("Qt.callLater(root.startSearch)"));
+    assert!(panel.contains("if (root.mode === \"add\""));
     assert!(panel.contains("onTextChanged: root.searchTextChanged()"));
     assert!(panel.contains("visible: root.summary.pinned === true"));
     assert!(panel.contains("onClicked: root.togglePin(root.summary)"));

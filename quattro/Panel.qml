@@ -345,6 +345,7 @@ Panel {
   }
 
   function startSearch() {
+    if (mode !== "add") return
     var query = String(addField.text || "").trim()
     if (!query) {
       searchResults = []
@@ -359,7 +360,7 @@ Panel {
 
   function addFirstResult() {
     var query = String(addField.text || "").trim()
-    if (!query || !canAdd || actionProcess.running) return
+    if (mode !== "add" || !query || !canAdd || actionProcess.running) return
     if (searchResultsQuery === query) {
       if (searchResults.length > 0)
         runAction("add", searchResults[0].timezone, searchResults[0])
@@ -523,6 +524,10 @@ Panel {
     if (mode === "add") {
       focusAddField()
     } else {
+      searchDebounce.stop()
+      searchResults = []
+      searchResultsQuery = ""
+      searchSubmitQuery = ""
       mapSelection = null
       mapClickPending = false
     }
@@ -606,11 +611,17 @@ Panel {
     stdout: StdioCollector { id: searchOutput; waitForEnd: true }
     stderr: StdioCollector { waitForEnd: true }
     onExited: function(exitCode) {
+      if (root.mode !== "add") {
+        root.searchResults = []
+        root.searchResultsQuery = ""
+        root.searchSubmitQuery = ""
+        return
+      }
       var currentQuery = String(addField.text || "").trim()
       if (root.searchQueryInFlight !== currentQuery) {
-        if (root.searchSubmitQuery === currentQuery)
+        if (root.mode === "add" && root.searchSubmitQuery === currentQuery)
           Qt.callLater(root.startSearch)
-        else
+        else if (root.mode === "add")
           root.scheduleSearch()
         return
       }
@@ -630,7 +641,8 @@ Panel {
           root.setStatus("No matching location.", false)
         } else {
           root.clearStatus()
-          if (root.searchSubmitQuery === root.searchResultsQuery && root.canAdd) {
+          if (root.mode === "add"
+              && root.searchSubmitQuery === root.searchResultsQuery && root.canAdd) {
             root.searchSubmitQuery = ""
             root.runAction("add", root.searchResults[0].timezone, root.searchResults[0])
           }

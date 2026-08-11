@@ -111,7 +111,7 @@ fn generic_install_uses_quattro_plugin_and_migrates_command_module() {
     );
     write_executable(
         &stubs.join("git"),
-        "#!/bin/sh\nprintf 'git %s\\n' \"$*\" >> \"$TEST_LOG\"\n",
+        "#!/bin/sh\nprintf 'git %s\\n' \"$*\" >> \"$TEST_LOG\"\nif [ \"${TEST_PLUGIN_REVISION_HAS_MANIFEST:-1}\" = 0 ] && [ \"$3 $4\" = \"cat-file -e\" ]; then\n  exit 1\nfi\n",
     );
     write_executable(
         &stubs.join("omarchy-shell"),
@@ -185,6 +185,10 @@ fn generic_install_uses_quattro_plugin_and_migrates_command_module() {
         plugin_path.display()
     )));
     assert!(commands.contains(&format!(
+        "git -C {} cat-file -e FETCH_HEAD:manifest.json",
+        plugin_path.display()
+    )));
+    assert!(commands.contains(&format!(
         "omarchy plugin validate {}",
         plugin_path.display()
     )));
@@ -197,7 +201,7 @@ fn generic_install_uses_quattro_plugin_and_migrates_command_module() {
     fs::write(plugin_path.join("manifest.json"), "{}\n").expect("write plugin manifest");
 
     let reinstall_status = Command::new(binary)
-        .args(["install-shell", "--plugin-revision", "v0.2.1"])
+        .args(["install-shell", "--plugin-revision", "v0.3.0"])
         .env("HOME", &home)
         .env("PATH", &stubs)
         .env("TEST_LOG", &command_log)
@@ -213,13 +217,47 @@ fn generic_install_uses_quattro_plugin_and_migrates_command_module() {
         1
     );
     assert!(commands.contains(&format!(
-        "git -C {} fetch --quiet -- https://github.com/olivoil/omarchy-world-clock.git v0.2.1",
+        "git -C {} fetch --quiet -- https://github.com/olivoil/omarchy-world-clock.git v0.3.0",
         plugin_path.display()
     )));
     assert_eq!(
         commands.matches("omarchy-shell shell reloadConfig").count(),
         2,
         "each install must reload the backend command into the live widget"
+    );
+
+    let checkout_count = commands
+        .matches(&format!(
+            "git -C {} checkout --quiet --detach FETCH_HEAD",
+            plugin_path.display()
+        ))
+        .count();
+    let incompatible_revision = Command::new(binary)
+        .args(["install-shell", "--plugin-revision", "v0.2.1"])
+        .env("HOME", &home)
+        .env("PATH", &stubs)
+        .env("TEST_LOG", &command_log)
+        .env("TEST_PLUGIN_REVISION_HAS_MANIFEST", "0")
+        .output()
+        .expect("reject pre-Quattro plugin revision");
+    assert!(!incompatible_revision.status.success());
+    assert!(String::from_utf8_lossy(&incompatible_revision.stderr)
+        .contains("does not contain manifest.json; the installed plugin was left unchanged"));
+
+    let commands = fs::read_to_string(&command_log).expect("read rejected command log");
+    assert!(commands.contains(&format!(
+        "git -C {} fetch --quiet -- https://github.com/olivoil/omarchy-world-clock.git v0.2.1",
+        plugin_path.display()
+    )));
+    assert_eq!(
+        commands
+            .matches(&format!(
+                "git -C {} checkout --quiet --detach FETCH_HEAD",
+                plugin_path.display()
+            ))
+            .count(),
+        checkout_count,
+        "an incompatible revision must be rejected before checkout"
     );
 
     let uninstall_status = Command::new(binary)

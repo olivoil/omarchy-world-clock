@@ -17,6 +17,14 @@ assert_contains() {
   fi
 }
 
+assert_not_contains() {
+  local file=$1
+  local needle=$2
+  if grep -F -- "$needle" "$file" >/dev/null 2>&1; then
+    fail "did not expect '$needle' in $file"
+  fi
+}
+
 assert_executable() {
   local path=$1
   if [[ ! -x "$path" ]]; then
@@ -130,6 +138,9 @@ case "$*" in
   *"rev-parse --verify "*"^{commit}")
     exit 1
     ;;
+  *"cat-file -e "*)
+    [[ ${TEST_PLUGIN_REVISION_HAS_MANIFEST:-0} == 1 ]]
+    ;;
 esac
 EOF
   chmod +x "$path"
@@ -176,6 +187,7 @@ run_install() {
     WAYBAR_STYLE="$sandbox/home/.config/waybar/style.css" \
     OMARCHY_WORLD_CLOCK_CONFIG="$sandbox/home/.config/omarchy-world-clock/config.json" \
     TEST_PLUGIN_PATH="${TEST_PLUGIN_PATH:-}" \
+    TEST_PLUGIN_REVISION_HAS_MANIFEST="${TEST_PLUGIN_REVISION_HAS_MANIFEST:-}" \
     OMARCHY_WORLD_CLOCK_SKIP_RUNTIME_DEPS="${OMARCHY_WORLD_CLOCK_SKIP_RUNTIME_DEPS:-1}" \
     "$REPO_ROOT/install.sh" "$@"
 }
@@ -234,7 +246,7 @@ test_installs_arch_runtime_dependencies() {
   assert_contains "$sandbox/log" "release-binary install"
 }
 
-test_pins_plugin_after_installing_an_older_binary() {
+test_pins_plugin_after_installing_a_matching_plugin_release() {
   local sandbox archive plugin_path
   sandbox=$(make_sandbox)
   trap 'rm -rf "$sandbox"' RETURN
@@ -248,19 +260,46 @@ test_pins_plugin_after_installing_an_older_binary() {
   tar -C "$sandbox/release-src" -czf "$archive" omarchy-world-clock
 
   TEST_PLUGIN_PATH="$plugin_path" \
-    OMARCHY_WORLD_CLOCK_VERSION=v0.2.1 \
+    TEST_PLUGIN_REVISION_HAS_MANIFEST=1 \
+    OMARCHY_WORLD_CLOCK_VERSION=v0.3.0 \
     OMARCHY_WORLD_CLOCK_DOWNLOAD_URL="file://$archive" \
     run_install "$sandbox"
 
-  assert_contains "$sandbox/log" "git -C $plugin_path fetch --quiet -- origin v0.2.1"
+  assert_contains "$sandbox/log" "git -C $plugin_path fetch --quiet -- origin v0.3.0"
+  assert_contains "$sandbox/log" "git -C $plugin_path cat-file -e target-head:manifest.json"
   assert_contains "$sandbox/log" "git -C $plugin_path checkout --quiet --detach target-head"
   assert_contains "$sandbox/log" "omarchy plugin validate $plugin_path"
   assert_contains "$sandbox/log" "omarchy-shell shell rescanPlugins"
 }
 
+test_removes_plugin_after_installing_a_pre_quattro_release() {
+  local sandbox archive plugin_path
+  sandbox=$(make_sandbox)
+  trap 'rm -rf "$sandbox"' RETURN
+  plugin_path="$sandbox/home/.config/omarchy/plugins/io.github.olivoil.world-clock"
+
+  write_binary_stub "$sandbox/release-src/omarchy-world-clock" release-binary
+  write_git_pin_stub "$sandbox/stubs/git"
+  write_binary_stub "$sandbox/stubs/omarchy" omarchy
+  archive="$sandbox/omarchy-world-clock-x86_64-unknown-linux-gnu.tar.gz"
+  tar -C "$sandbox/release-src" -czf "$archive" omarchy-world-clock
+
+  TEST_PLUGIN_PATH="$plugin_path" \
+    OMARCHY_WORLD_CLOCK_VERSION=v0.2.1 \
+    OMARCHY_WORLD_CLOCK_DOWNLOAD_URL="file://$archive" \
+    run_install "$sandbox"
+
+  assert_contains "$sandbox/log" "git -C $plugin_path fetch --quiet -- origin v0.2.1"
+  assert_contains "$sandbox/log" "git -C $plugin_path cat-file -e target-head:manifest.json"
+  assert_contains "$sandbox/log" "omarchy plugin remove io.github.olivoil.world-clock --yes"
+  assert_not_contains "$sandbox/log" "git -C $plugin_path checkout"
+  assert_not_contains "$sandbox/log" "omarchy plugin validate $plugin_path"
+}
+
 test_installs_release_archive
 test_can_build_from_source
 test_installs_arch_runtime_dependencies
-test_pins_plugin_after_installing_an_older_binary
+test_pins_plugin_after_installing_a_matching_plugin_release
+test_removes_plugin_after_installing_a_pre_quattro_release
 
 printf 'install.sh tests passed\n'

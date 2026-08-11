@@ -269,6 +269,16 @@ fn pin_quattro_plugin(plugin_path: &Path, plugin_url: &str, revision: &str) -> R
         ],
         "fetch the matching Quattro plugin revision",
     )?;
+    let manifest_ref = "FETCH_HEAD:manifest.json";
+    let manifest_check = Command::new("git")
+        .args(["-C", plugin_path, "cat-file", "-e", manifest_ref])
+        .output()
+        .context("failed to inspect the matching Quattro plugin revision")?;
+    if !manifest_check.status.success() {
+        bail!(
+            "Quattro plugin revision {revision} does not contain manifest.json; the installed plugin was left unchanged"
+        );
+    }
     run_checked(
         "git",
         &[

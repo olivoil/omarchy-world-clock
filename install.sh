@@ -243,6 +243,11 @@ pin_installed_plugin_revision() {
     git -C "$PLUGIN_PATH" fetch --quiet -- origin "$revision"
     target=$(git -C "$PLUGIN_PATH" rev-parse --verify FETCH_HEAD)
   fi
+  if ! git -C "$PLUGIN_PATH" cat-file -e "${target}:manifest.json" 2>/dev/null; then
+    printf 'World Clock %s predates the Quattro plugin; removing the incompatible native plugin.\n' "$revision"
+    omarchy plugin remove "$PLUGIN_ID" --yes
+    return 0
+  fi
   if [[ "$current" != "$target" ]]; then
     git -C "$PLUGIN_PATH" checkout --quiet --detach "$target"
     changed=1

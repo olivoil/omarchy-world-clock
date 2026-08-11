@@ -202,7 +202,8 @@ OMARCHY_WORLD_CLOCK_VERSION=v0.1.0 ./install.sh
 
 The release installer pins the Quattro plugin to the same tag. Source installs
 pin it to the checkout commit; `OMARCHY_WORLD_CLOCK_PLUGIN_REVISION` can
-override the revision explicitly.
+override the revision explicitly. Installing a pre-Quattro release removes the
+incompatible native plugin after that backend restores its legacy bar module.
 
 Build from source instead:
 

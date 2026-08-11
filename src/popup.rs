@@ -53,6 +53,7 @@ struct ReadCardWidgets {
     timezone_label: gtk::Label,
     delta_label: gtk::Label,
     controls: gtk::Box,
+    pin_button: gtk::Button,
     remove_button: gtk::Button,
     dirty: Rc<Cell<bool>>,
     suppress_changes: Rc<Cell<bool>>,
@@ -516,15 +517,40 @@ fn set_entry_error(entry: &gtk::Entry, enabled: bool) {
     }
 }
 
+fn read_card_control_availability(screen_mode: PopupScreen, can_remove: bool) -> (bool, bool) {
+    let visible = matches!(screen_mode, PopupScreen::Edit);
+    (visible, visible && can_remove)
+}
+
 fn set_read_card_controls(state: &PopupState) {
     let can_remove = state.config.timezones.len() > 1;
-    let show_card_controls = can_remove && matches!(state.screen_mode, PopupScreen::Edit);
+    let (show_card_controls, remove_sensitive) =
+        read_card_control_availability(state.screen_mode, can_remove);
     for card in &state.read_cards {
+        let pinned = state.config.is_pinned(&card.entry);
+        card.timezone_label.set_visible(!show_card_controls);
+        card.title
+            .set_margin_end(if show_card_controls { 84 } else { 0 });
         card.controls.set_visible(show_card_controls);
         card.controls
             .set_opacity(if show_card_controls { 1.0 } else { 0.0 });
         card.controls.set_sensitive(show_card_controls);
-        card.remove_button.set_sensitive(show_card_controls);
+        card.pin_button.set_sensitive(show_card_controls);
+        if pinned {
+            card.pin_button.add_css_class("active");
+            card.pin_button
+                .set_tooltip_text(Some("Remove this time from the bar."));
+        } else {
+            card.pin_button.remove_css_class("active");
+            card.pin_button
+                .set_tooltip_text(Some("Keep this time visible in the bar."));
+        }
+        card.remove_button.set_sensitive(remove_sensitive);
+        card.remove_button.set_tooltip_text(Some(if can_remove {
+            "Remove timezone."
+        } else {
+            "Keep at least one timezone in the popup."
+        }));
     }
 }
 
@@ -1668,16 +1694,16 @@ fn build_read_card(entry: &TimezoneEntry, time_format: &str) -> ReadCardWidgets 
     time_group.append(&footer);
     card.append(&time_group);
 
-    let controls = gtk::Box::new(Orientation::Horizontal, 0);
+    let controls = gtk::Box::new(Orientation::Horizontal, 8);
     controls.set_halign(Align::Start);
     controls.set_valign(Align::Start);
-    controls.set_size_request(36, 36);
+    controls.set_size_request(80, 36);
     controls.set_overflow(gtk::Overflow::Visible);
     card_shell.connect_get_child_position(|overlay, _| {
         Some(gdk::Rectangle::new(
-            (overlay.allocated_width() - 22).max(0),
+            (overlay.allocated_width() - 66).max(0),
             4,
-            36,
+            80,
             36,
         ))
     });
@@ -1685,10 +1711,18 @@ fn build_read_card(entry: &TimezoneEntry, time_format: &str) -> ReadCardWidgets 
     card_shell.set_measure_overlay(&controls, false);
     card_shell.set_clip_overlay(&controls, false);
 
+    let pin_button = gtk::Button::from_icon_name("view-pin-symbolic");
+    pin_button.add_css_class("icon-button");
+    pin_button.add_css_class("card-control-button");
+    pin_button.add_css_class("card-floating-control");
+    pin_button.set_size_request(36, 36);
+    pin_button.set_tooltip_text(Some("Keep this time visible in the bar."));
+    controls.append(&pin_button);
+
     let remove_button = gtk::Button::from_icon_name("edit-delete-symbolic");
     remove_button.add_css_class("icon-button");
     remove_button.add_css_class("card-control-button");
-    remove_button.add_css_class("card-hover-delete");
+    remove_button.add_css_class("card-floating-control");
     remove_button.add_css_class("destructive");
     remove_button.set_size_request(36, 36);
     remove_button.set_tooltip_text(Some("Remove timezone."));
@@ -1703,6 +1737,7 @@ fn build_read_card(entry: &TimezoneEntry, time_format: &str) -> ReadCardWidgets 
         timezone_label,
         delta_label,
         controls,
+        pin_button,
         remove_button,
         dirty: Rc::new(Cell::new(false)),
         suppress_changes: Rc::new(Cell::new(false)),
@@ -1795,6 +1830,12 @@ fn rebuild_read_cards(state: &mut PopupState, entries: &[TimezoneEntry]) {
             let entry_for_remove = entry.clone();
             widgets.remove_button.connect_clicked(move |_| {
                 remove_timezone_entry(&state_for_remove, &entry_for_remove);
+            });
+
+            let state_for_pin = state_handle.clone();
+            let entry_for_pin = entry.clone();
+            widgets.pin_button.connect_clicked(move |_| {
+                toggle_pinned_timezone_entry(&state_for_pin, &entry_for_pin);
             });
         }
 
@@ -1989,6 +2030,30 @@ fn remove_timezone_entry(state_handle: &Rc<RefCell<PopupState>>, entry: &Timezon
     };
 
     match config_manager.remove_location(&entry.timezone, Some(&entry.label)) {
+        Ok(config) => {
+            let mut state = state_handle.borrow_mut();
+            refresh_config_state(&mut state, config);
+        }
+        Err(error) => {
+            let state = state_handle.borrow();
+            set_status(&state, &error.to_string(), true);
+        }
+    }
+}
+
+fn toggle_pinned_timezone_entry(state_handle: &Rc<RefCell<PopupState>>, entry: &TimezoneEntry) {
+    let (config_manager, pinned) = {
+        let state = state_handle.borrow();
+        (state.config_manager.clone(), state.config.is_pinned(entry))
+    };
+
+    let result = if pinned {
+        config_manager.set_pinned_timezone(None)
+    } else {
+        config_manager.set_pinned_location(Some(&entry.timezone), Some(&entry.label))
+    };
+
+    match result {
         Ok(config) => {
             let mut state = state_handle.borrow_mut();
             refresh_config_state(&mut state, config);
@@ -3748,12 +3813,12 @@ mod tests {
         active_entry_is_read_card, add_controls_available, build_timeline_items,
         can_add_location_at_limit, first_location_segment, format_timeline_zone_text,
         layout_map_location_markers, lng_lat_to_map_coordinates, map_coordinates_to_lng_lat,
-        merge_search_results, read_card_row_width, read_card_title, read_entry_count,
-        screen_mode_for_read_entry_count, search_result_subtitle, should_focus_summary_time_entry,
-        sort_read_entries_by_time, summary_search_result, timeline_entries, timeline_side_hours,
-        timeline_tick_relative_minutes, visible_read_entries, ActiveTimeEntry, MapCoordinate,
-        MapLocationMarker, PopupScreen, READ_CARD_COLUMNS, READ_CARD_LIMIT, READ_CARD_SPACING,
-        READ_CARD_WIDTH,
+        merge_search_results, read_card_control_availability, read_card_row_width, read_card_title,
+        read_entry_count, screen_mode_for_read_entry_count, search_result_subtitle,
+        should_focus_summary_time_entry, sort_read_entries_by_time, summary_search_result,
+        timeline_entries, timeline_side_hours, timeline_tick_relative_minutes,
+        visible_read_entries, ActiveTimeEntry, MapCoordinate, MapLocationMarker, PopupScreen,
+        READ_CARD_COLUMNS, READ_CARD_LIMIT, READ_CARD_SPACING, READ_CARD_WIDTH,
     };
     use crate::config::{TimezoneEntry, TimezoneSearchResult};
     use crate::time::zoned_datetime;
@@ -3822,6 +3887,18 @@ mod tests {
             PopupScreen::Read,
             Some(&ActiveTimeEntry::Summary),
         ));
+    }
+
+    #[test]
+    fn edit_mode_keeps_pin_controls_available_when_remove_is_disabled() {
+        assert_eq!(
+            read_card_control_availability(PopupScreen::Edit, false),
+            (true, false)
+        );
+        assert_eq!(
+            read_card_control_availability(PopupScreen::Read, true),
+            (false, false)
+        );
     }
 
     #[test]

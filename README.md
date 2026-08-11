@@ -112,9 +112,10 @@ calendar avoids coupling two independently useful panels while still making
 them easy to switch between. The GTK layer-shell popup remains available for
 Omarchy 3/Waybar and direct `popup` use.
 
-To pin a timezone in Quattro, open World Clock, choose the edit button, and
-select `PIN` on a location. Select `UNPIN` to return to the icon-only bar
-entry.
+To pin a timezone, open World Clock, choose the edit button, and select the pin
+control on a location. Select it again to return to the icon-only bar entry.
+The control is available in both the native Quattro panel and the legacy GTK
+popup used by Waybar.
 
 For local development, point the widget at a checkout build with:
 

@@ -33,6 +33,8 @@ Panel {
   property bool editorActive: false
   property bool timeEditorActive: false
   property bool liveRefreshPending: false
+  property bool snapshotRequestPending: false
+  property string snapshotRequestReference: ""
   property string statusText: ""
   property bool statusError: false
   property string actionName: ""
@@ -175,11 +177,26 @@ Panel {
   }
 
   function requestSnapshot(referenceUtc) {
-    if (snapshotProcess.running) return
+    var reference = String(referenceUtc || "")
+    if (snapshotProcess.running) {
+      snapshotRequestPending = true
+      snapshotRequestReference = reference
+      return
+    }
+    snapshotRequestPending = false
+    snapshotRequestReference = ""
     var command = [backendCommand, "snapshot"]
-    if (referenceUtc) command.push("--at", String(referenceUtc))
+    if (reference) command.push("--at", reference)
     snapshotProcess.command = command
     snapshotProcess.running = true
+  }
+
+  function flushSnapshotRequest() {
+    if (!snapshotRequestPending || snapshotProcess.running) return
+    var reference = snapshotRequestReference
+    snapshotRequestPending = false
+    snapshotRequestReference = ""
+    requestSnapshot(reference)
   }
 
   function requestLiveSnapshot() {
@@ -219,9 +236,6 @@ Panel {
   function convertFrom(timezone, value) {
     var text = String(value || "").trim()
     if (!text || convertProcess.running) return
-    editorActive = false
-    timeEditorActive = false
-    liveRefreshPending = false
     convertProcess.command = [
       backendCommand,
       "convert",
@@ -446,6 +460,7 @@ Panel {
     onExited: function(exitCode) {
       if (exitCode === 0) root.applySnapshot(snapshotOutput.text, !root.live)
       else root.setStatus("World Clock backend needs an update. Install omarchy-world-clock-bin.", true)
+      Qt.callLater(root.flushSnapshotRequest)
       Qt.callLater(root.flushLiveRefresh)
     }
   }

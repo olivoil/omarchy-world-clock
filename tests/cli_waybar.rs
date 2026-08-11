@@ -107,7 +107,11 @@ fn generic_install_uses_quattro_plugin_and_migrates_command_module() {
     fs::create_dir_all(&stubs).expect("create stub dir");
     write_executable(
         &stubs.join("omarchy"),
-        "#!/bin/sh\nprintf 'omarchy %s\\n' \"$*\" >> \"$TEST_LOG\"\n",
+        "#!/bin/sh\nprintf 'omarchy %s\\n' \"$*\" >> \"$TEST_LOG\"\nif [ \"$1 $2\" = \"plugin add\" ]; then\n  plugin_dir=\"$HOME/.config/omarchy/plugins/io.github.olivoil.world-clock\"\n  /usr/bin/mkdir -p \"$plugin_dir/.git\"\n  printf '{}\\n' > \"$plugin_dir/manifest.json\"\nfi\n",
+    );
+    write_executable(
+        &stubs.join("git"),
+        "#!/bin/sh\nprintf 'git %s\\n' \"$*\" >> \"$TEST_LOG\"\n",
     );
     write_executable(
         &stubs.join("omarchy-shell"),
@@ -171,6 +175,19 @@ fn generic_install_uses_quattro_plugin_and_migrates_command_module() {
     let commands = fs::read_to_string(&command_log).expect("read command log");
     assert!(commands
         .contains("omarchy plugin add https://github.com/olivoil/omarchy-world-clock.git --yes"));
+    assert!(commands.contains(&format!(
+        "git -C {} fetch --quiet -- https://github.com/olivoil/omarchy-world-clock.git v{}",
+        plugin_path.display(),
+        env!("CARGO_PKG_VERSION")
+    )));
+    assert!(commands.contains(&format!(
+        "git -C {} checkout --quiet --detach FETCH_HEAD",
+        plugin_path.display()
+    )));
+    assert!(commands.contains(&format!(
+        "omarchy plugin validate {}",
+        plugin_path.display()
+    )));
     assert!(
         commands.contains("omarchy bar put io.github.olivoil.world-clock --after omarchy.clock")
     );
@@ -180,7 +197,7 @@ fn generic_install_uses_quattro_plugin_and_migrates_command_module() {
     fs::write(plugin_path.join("manifest.json"), "{}\n").expect("write plugin manifest");
 
     let reinstall_status = Command::new(binary)
-        .arg("install-shell")
+        .args(["install-shell", "--plugin-revision", "v0.2.1"])
         .env("HOME", &home)
         .env("PATH", &stubs)
         .env("TEST_LOG", &command_log)
@@ -195,6 +212,10 @@ fn generic_install_uses_quattro_plugin_and_migrates_command_module() {
             .count(),
         1
     );
+    assert!(commands.contains(&format!(
+        "git -C {} fetch --quiet -- https://github.com/olivoil/omarchy-world-clock.git v0.2.1",
+        plugin_path.display()
+    )));
     assert_eq!(
         commands.matches("omarchy-shell shell reloadConfig").count(),
         2,

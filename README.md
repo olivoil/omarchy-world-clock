@@ -87,9 +87,19 @@ The repository root is a Quattro plugin. If the backend is already installed,
 you can install and position the plugin directly instead of using the helper:
 
 ```bash
+plugin_revision="v$(omarchy-world-clock version)"
+plugin_path="$HOME/.config/omarchy/plugins/io.github.olivoil.world-clock"
 omarchy plugin add https://github.com/olivoil/omarchy-world-clock.git --yes
+git -C "$plugin_path" fetch --quiet -- \
+  https://github.com/olivoil/omarchy-world-clock.git "$plugin_revision"
+git -C "$plugin_path" checkout --quiet --detach FETCH_HEAD
+omarchy plugin validate "$plugin_path"
 omarchy bar put io.github.olivoil.world-clock --after omarchy.clock
 ```
+
+The checkout is pinned to the backend's release tag so QML and backend payloads
+stay compatible. `omarchy-world-clock install` and `install-shell` perform this
+pin automatically.
 
 The Quickshell plugin owns both the bar affordance and the normal World Clock
 panel. It uses the same `KeyboardPanel`, popup tokens, focus behavior, active
@@ -188,6 +198,10 @@ Install a specific release:
 ```bash
 OMARCHY_WORLD_CLOCK_VERSION=v0.1.0 ./install.sh
 ```
+
+The release installer pins the Quattro plugin to the same tag. Source installs
+pin it to the checkout commit; `OMARCHY_WORLD_CLOCK_PLUGIN_REVISION` can
+override the revision explicitly.
 
 Build from source instead:
 

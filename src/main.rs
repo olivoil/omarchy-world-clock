@@ -235,6 +235,59 @@ fn call_quattro_panel(method: &str) -> Result<Option<String>> {
     ))
 }
 
+fn quattro_plugin_revision(args: &[String]) -> Result<String> {
+    let revision = optional_flag(args, "--plugin-revision")?
+        .or_else(|| env::var("OMARCHY_WORLD_CLOCK_PLUGIN_REVISION").ok())
+        .unwrap_or_else(|| format!("v{}", env!("CARGO_PKG_VERSION")));
+    let revision = revision.trim();
+    if revision.is_empty() || revision.starts_with('-') {
+        bail!("invalid Quattro plugin revision: {revision:?}");
+    }
+    Ok(revision.to_string())
+}
+
+fn pin_quattro_plugin(plugin_path: &Path, plugin_url: &str, revision: &str) -> Result<()> {
+    if !plugin_path.join(".git").exists() {
+        bail!(
+            "Quattro plugin is not a git checkout and cannot be pinned to {revision}: {}",
+            plugin_path.display()
+        );
+    }
+    let plugin_path = plugin_path
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("Quattro plugin path is not valid UTF-8"))?;
+    run_checked(
+        "git",
+        &[
+            "-C",
+            plugin_path,
+            "fetch",
+            "--quiet",
+            "--",
+            plugin_url,
+            revision,
+        ],
+        "fetch the matching Quattro plugin revision",
+    )?;
+    run_checked(
+        "git",
+        &[
+            "-C",
+            plugin_path,
+            "checkout",
+            "--quiet",
+            "--detach",
+            "FETCH_HEAD",
+        ],
+        "check out the matching Quattro plugin revision",
+    )?;
+    run_checked(
+        "omarchy",
+        &["plugin", "validate", plugin_path],
+        "validate the pinned Quattro plugin",
+    )
+}
+
 fn install_shell(args: &[String]) -> Result<()> {
     if !quattro_shell_running() {
         bail!("Omarchy shell is not running; start it before installing the Quattro plugin");
@@ -249,6 +302,9 @@ fn install_shell(args: &[String]) -> Result<()> {
     ConfigManager::new(Some(user_config)).load()?;
 
     let plugin_path = quattro_plugin_path(args)?;
+    let plugin_revision = quattro_plugin_revision(args)?;
+    let plugin_url =
+        optional_flag(args, "--plugin-url")?.unwrap_or_else(|| QUATTRO_PLUGIN_URL.to_string());
     if plugin_path.exists() && !plugin_path.join("manifest.json").is_file() {
         bail!(
             "Quattro plugin directory exists without a manifest: {}",
@@ -257,14 +313,17 @@ fn install_shell(args: &[String]) -> Result<()> {
     }
 
     if !plugin_path.exists() {
-        let plugin_url =
-            optional_flag(args, "--plugin-url")?.unwrap_or_else(|| QUATTRO_PLUGIN_URL.to_string());
         run_checked(
             "omarchy",
             &["plugin", "add", &plugin_url, "--yes"],
             "add the Quattro plugin",
         )?;
     }
+
+    // `omarchy plugin add` currently clones the default branch and exposes no
+    // revision option. Pin immediately afterwards so the QML frontend always
+    // matches this backend release, including package downgrades.
+    pin_quattro_plugin(&plugin_path, &plugin_url, &plugin_revision)?;
 
     run_checked(
         "omarchy",

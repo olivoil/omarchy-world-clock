@@ -204,6 +204,7 @@ Panel {
         throw new Error("Unsupported snapshot")
       snapshot = payload
       snapshotLoaded = true
+      invalidConversionSource = ""
       summaryInput.text = String(payload.summary.time || "--:--")
       if (manual !== true && live) live = true
       if (clocks.length === 0 && mode !== "add" && !summaryFocusPending)

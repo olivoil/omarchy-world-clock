@@ -70,6 +70,7 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("property int snapshotStateGeneration: 0"));
     assert!(panel.contains("property int convertActiveGeneration: -1"));
     assert!(panel.contains("property string invalidConversionSource: \"\""));
+    assert!(panel.contains("snapshotLoaded = true\n      invalidConversionSource = \"\""));
     assert!(panel.contains("if (!snapshotLoaded || !timezoneName || !reference"));
     assert!(panel.contains("if (timeEditorActive)"));
     assert!(panel.contains("snapshotActiveGeneration === snapshotStateGeneration"));

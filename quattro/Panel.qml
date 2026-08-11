@@ -22,6 +22,7 @@ Panel {
     local_timezone: "",
     time_format: "24h",
     configured_count: 0,
+    local_configured: false,
     pinned_timezone: null,
     summary: ({ timezone: "", label: "", title: "", time: "--:--", day: "", notation: "", relative_minutes: 0, relative_label: "Same time" }),
     clocks: [],
@@ -77,7 +78,8 @@ Panel {
   }
   readonly property int maxClocks: 9
   readonly property bool canRemove: Number(snapshot.configured_count || 0) > 1
-  readonly property bool canAdd: clocks.length < maxClocks
+  readonly property bool localTimezoneConfigured: snapshot.local_configured === true
+  readonly property bool canAdd: clocks.length < maxClocks || !localTimezoneConfigured
   readonly property var mapClocks: {
     var entries = []
     if (root.hasMapCoordinate(summary)) entries.push(summary)
@@ -309,6 +311,11 @@ Panel {
 
   function runAction(name, timezone, result) {
     if (actionProcess.running) return
+    if (name === "add" && !canAddLocation(timezone)) {
+      setStatus("Only " + currentLocationTitle
+        + " can be added at the nine-location limit.", true)
+      return
+    }
     actionName = name
     var command = [backendCommand, name]
     if (name !== "unpin") command.push(String(timezone || ""))
@@ -332,6 +339,13 @@ Panel {
 
   function removeClock(clock) {
     if (canRemove) runAction("remove", clock.timezone, clock)
+  }
+
+  function canAddLocation(timezone) {
+    if (clocks.length < maxClocks) return true
+    var candidate = String(timezone || "").trim()
+    var localTimezone = String(snapshot.local_timezone || "").trim()
+    return !localTimezoneConfigured && candidate !== "" && candidate === localTimezone
   }
 
   function scheduleSearch() {
@@ -1242,7 +1256,8 @@ Panel {
                     required property var modelData
                     width: searchResultList.width
                     height: Style.space(48)
-                    enabled: root.canAdd && !actionProcess.running
+                    enabled: root.canAddLocation(resultButton.modelData.timezone)
+                      && !actionProcess.running
                     leftAlign: true
                     text: ""
                     onClicked: root.runAction("add", resultButton.modelData.timezone, resultButton.modelData)

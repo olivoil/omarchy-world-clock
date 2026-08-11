@@ -42,6 +42,7 @@ pub struct QuattroSnapshot {
     pub local_timezone: String,
     pub time_format: String,
     pub configured_count: usize,
+    pub local_configured: bool,
     pub pinned_timezone: Option<String>,
     pub summary: QuattroClock,
     pub clocks: Vec<QuattroClock>,
@@ -284,6 +285,7 @@ pub fn build_snapshot(
         local_timezone: local_timezone.to_string(),
         time_format: time_format.to_string(),
         configured_count: config.timezones.len(),
+        local_configured: summary_entry_index.is_some(),
         pinned_timezone: config.pinned_entry().map(|entry| entry.timezone.clone()),
         summary,
         clocks,
@@ -325,6 +327,7 @@ mod tests {
         let snapshot = build_snapshot(&config, now, "America/Cancun", "24h");
 
         assert_eq!(snapshot.summary.timezone, "America/Cancun");
+        assert!(snapshot.local_configured);
         assert_eq!(snapshot.clocks[0].timezone, "America/Vancouver");
         assert_eq!(snapshot.clocks[1].timezone, "Europe/Paris");
         assert_eq!(snapshot.clocks[1].time, "13:05");
@@ -429,6 +432,7 @@ mod tests {
         let snapshot = build_snapshot(&config, now, "America/Cancun", "24h");
 
         assert_eq!(snapshot.configured_count, 10);
+        assert!(!snapshot.local_configured);
         assert_eq!(snapshot.clocks.len(), 9);
     }
 

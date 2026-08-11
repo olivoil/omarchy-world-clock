@@ -491,9 +491,6 @@ fn main() -> Result<()> {
                 .first()
                 .ok_or_else(|| anyhow::anyhow!("missing timezone to remove"))?;
             let manager = ConfigManager::new(None);
-            if manager.load()?.timezones.len() <= 1 {
-                bail!("keep at least one timezone in World Clock");
-            }
             manager.remove_location(
                 timezone,
                 optional_flag(&remaining_args, "--label")?.as_deref(),

@@ -324,6 +324,7 @@ fn quattro_backend_commands_snapshot_convert_search_and_pin() {
     let snapshot: serde_json::Value =
         serde_json::from_slice(&snapshot.stdout).expect("parse snapshot");
     assert_eq!(snapshot["schema_version"], 1);
+    assert_eq!(snapshot["local_configured"], false);
     assert_eq!(snapshot["pinned_timezone"], "Asia/Tokyo");
     assert_eq!(snapshot["configured_count"], 2);
 

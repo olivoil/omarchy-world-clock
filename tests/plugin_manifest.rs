@@ -44,6 +44,9 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("onTabRequested"));
     assert!(panel.contains("root.switchPanel(direction)"));
     assert!(panel.contains("readonly property int maxClocks: 9"));
+    assert!(panel.contains("readonly property bool localTimezoneConfigured"));
+    assert!(panel.contains("function canAddLocation(timezone)"));
+    assert!(panel.contains("root.canAddLocation(resultButton.modelData.timezone)"));
     assert!(panel.contains("source: Qt.resolvedUrl(\"../assets/world-map.png\")"));
     assert!(panel.contains("backendCommand, \"locate\""));
     assert!(panel.contains("id: searchResultOverlay"));

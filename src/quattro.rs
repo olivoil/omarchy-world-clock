@@ -254,9 +254,24 @@ pub fn build_snapshot(
             ))
             .then_with(|| left.display_label().cmp(&right.display_label()))
     });
+    if entries.len() > QUATTRO_CLOCK_LIMIT {
+        if let Some(pinned_index) = entries
+            .iter()
+            .position(|entry| config.is_pinned(entry))
+            .filter(|index| *index >= QUATTRO_CLOCK_LIMIT)
+        {
+            entries = entries
+                .into_iter()
+                .enumerate()
+                .filter(|(index, _)| *index < QUATTRO_CLOCK_LIMIT - 1 || *index == pinned_index)
+                .map(|(_, entry)| entry)
+                .collect();
+        } else {
+            entries.truncate(QUATTRO_CLOCK_LIMIT);
+        }
+    }
     let clocks = entries
         .into_iter()
-        .take(QUATTRO_CLOCK_LIMIT)
         .map(|entry| clock_from_entry(entry, config, reference_utc, local_timezone, time_format))
         .collect::<Vec<_>>();
     let timeline = timeline_items(&summary, &clocks);
@@ -413,6 +428,38 @@ mod tests {
 
         assert_eq!(snapshot.configured_count, 10);
         assert_eq!(snapshot.clocks.len(), 9);
+    }
+
+    #[test]
+    fn snapshot_keeps_pinned_clock_inside_the_travel_cap() {
+        let config = AppConfig {
+            timezones: vec![
+                entry("America/Vancouver", "Vancouver"),
+                entry("America/Los_Angeles", "Los Angeles"),
+                entry("America/Denver", "Denver"),
+                entry("America/Chicago", "Chicago"),
+                entry("America/New_York", "New York"),
+                entry("America/Halifax", "Halifax"),
+                entry("Europe/London", "London"),
+                entry("Europe/Paris", "Paris"),
+                entry("Asia/Kolkata", "Delhi"),
+                entry("Asia/Tokyo", "Tokyo"),
+            ],
+            pinned_location: Some(LocationKey {
+                timezone: "Asia/Tokyo".to_string(),
+                label: "Tokyo".to_string(),
+            }),
+            disable_open_meteo_geolocation: false,
+        };
+        let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
+
+        let snapshot = build_snapshot(&config, now, "America/Cancun", "24h");
+
+        assert_eq!(snapshot.clocks.len(), 9);
+        assert!(snapshot
+            .clocks
+            .iter()
+            .any(|clock| clock.title == "Tokyo" && clock.pinned));
     }
 
     #[test]

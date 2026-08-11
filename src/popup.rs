@@ -2613,13 +2613,23 @@ fn add_timezone(
 
     let config_manager = state_handle.borrow().config_manager.clone();
     match config_manager.add_timezone_with_coordinate(timezone_name, label, latitude, longitude) {
-        Ok(config) => {
+        Ok(outcome) => {
+            if !outcome.added {
+                let mut state = state_handle.borrow_mut();
+                refresh_config_state(&mut state, outcome.config);
+                set_status(
+                    &state,
+                    &format!("{display_name} is already in the list."),
+                    true,
+                );
+                return;
+            }
             debug_popup_event(&format!(
                 "add_timezone success timezone={timezone_name} label={display_name}"
             ));
             let (add_entry, add_map_area) = {
                 let mut state = state_handle.borrow_mut();
-                refresh_config_state(&mut state, config);
+                refresh_config_state(&mut state, outcome.config);
                 clear_search_results(&mut state);
                 (state.add_entry.clone(), state.add_map_area.clone())
             };

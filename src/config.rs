@@ -41,6 +41,12 @@ pub struct AppConfig {
     pub disable_open_meteo_geolocation: bool,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct AddLocationOutcome {
+    pub config: AppConfig,
+    pub added: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LocationKey {
     pub timezone: String,
@@ -335,17 +341,18 @@ impl ConfigManager {
         &self,
         local_timezone: &str,
         mutate: F,
-    ) -> anyhow::Result<AppConfig>
+    ) -> anyhow::Result<(AppConfig, bool)>
     where
         F: FnOnce(&mut AppConfig) -> anyhow::Result<bool>,
     {
         let _lock = self.lock_config()?;
         let mut config = self.load_unlocked(local_timezone)?;
-        if mutate(&mut config)? {
+        let changed = mutate(&mut config)?;
+        if changed {
             config = self.normalize_config(config);
             self.save_unlocked(&config)?;
         }
-        Ok(config)
+        Ok((config, changed))
     }
 
     fn serialize(&self, config: &AppConfig) -> anyhow::Result<String> {
@@ -409,7 +416,9 @@ impl ConfigManager {
     }
 
     pub fn add_timezone(&self, timezone_name: &str, label: &str) -> anyhow::Result<AppConfig> {
-        self.add_timezone_with_coordinate(timezone_name, label, None, None)
+        Ok(self
+            .add_timezone_with_coordinate(timezone_name, label, None, None)?
+            .config)
     }
 
     pub fn add_timezone_with_coordinate(
@@ -418,7 +427,7 @@ impl ConfigManager {
         label: &str,
         latitude: Option<f64>,
         longitude: Option<f64>,
-    ) -> anyhow::Result<AppConfig> {
+    ) -> anyhow::Result<AddLocationOutcome> {
         let local_timezone = detect_local_timezone();
         self.add_timezone_with_coordinate_for_local(
             timezone_name,
@@ -436,11 +445,11 @@ impl ConfigManager {
         latitude: Option<f64>,
         longitude: Option<f64>,
         local_timezone: &str,
-    ) -> anyhow::Result<AppConfig> {
+    ) -> anyhow::Result<AddLocationOutcome> {
         let timezone_name = canonical_timezone_name(timezone_name);
         let label = label.trim().to_string();
         let (latitude, longitude) = sanitize_place_coordinate(latitude, longitude);
-        self.mutate_with_local_timezone(local_timezone, move |config| {
+        let (config, added) = self.mutate_with_local_timezone(local_timezone, move |config| {
             if timezone_name.is_empty() || !is_valid_timezone(&timezone_name) {
                 return Ok(false);
             }
@@ -465,7 +474,8 @@ impl ConfigManager {
                 );
             }
             Ok(true)
-        })
+        })?;
+        Ok(AddLocationOutcome { config, added })
     }
 
     pub fn remove_timezone(&self, timezone_name: &str) -> anyhow::Result<AppConfig> {
@@ -508,6 +518,7 @@ impl ConfigManager {
             });
             Ok(true)
         })
+        .map(|(config, _)| config)
     }
 
     pub fn set_pinned_timezone(&self, timezone_name: Option<&str>) -> anyhow::Result<AppConfig> {
@@ -549,6 +560,7 @@ impl ConfigManager {
             };
             Ok(true)
         })
+        .map(|(config, _)| config)
     }
 
     fn config_from_raw(&self, raw: RawConfig, local_timezone: &str) -> AppConfig {
@@ -2006,9 +2018,20 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(updated.timezones[1].label, "Austin");
-        assert_eq!(updated.timezones[1].latitude, Some(30.2672));
-        assert_eq!(updated.timezones[1].longitude, Some(-97.7431));
+        assert!(updated.added);
+        assert_eq!(updated.config.timezones[1].label, "Austin");
+        assert_eq!(updated.config.timezones[1].latitude, Some(30.2672));
+        assert_eq!(updated.config.timezones[1].longitude, Some(-97.7431));
+
+        let duplicate = manager
+            .add_timezone_with_coordinate(
+                "America/Chicago",
+                "Austin",
+                Some(30.2672),
+                Some(-97.7431),
+            )
+            .unwrap();
+        assert!(!duplicate.added);
 
         let loaded = manager.load_with_local_timezone("UTC").unwrap();
         assert_eq!(loaded.timezones[1].latitude, Some(30.2672));
@@ -2094,9 +2117,10 @@ mod tests {
         let updated = manager
             .add_timezone_with_coordinate_for_local("UTC", "Home", None, None, "UTC")
             .unwrap();
-        assert_eq!(updated.timezones.len(), CLOCK_CARD_LIMIT + 1);
+        assert!(updated.added);
+        assert_eq!(updated.config.timezones.len(), CLOCK_CARD_LIMIT + 1);
         assert_eq!(
-            non_local_location_count(&updated.timezones, "UTC"),
+            non_local_location_count(&updated.config.timezones, "UTC"),
             CLOCK_CARD_LIMIT
         );
     }

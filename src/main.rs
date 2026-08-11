@@ -475,14 +475,13 @@ fn main() -> Result<()> {
                 .ok_or_else(|| anyhow::anyhow!("missing timezone to add"))?;
             let label = optional_flag(&remaining_args, "--label")?.unwrap_or_default();
             let manager = ConfigManager::new(None);
-            let before = manager.load()?;
-            let updated = manager.add_timezone_with_coordinate(
+            let outcome = manager.add_timezone_with_coordinate(
                 timezone,
                 &label,
                 optional_f64(&remaining_args, "--latitude")?,
                 optional_f64(&remaining_args, "--longitude")?,
             )?;
-            if updated.timezones.len() == before.timezones.len() {
+            if !outcome.added {
                 bail!("location is invalid or already configured: {timezone}");
             }
         }

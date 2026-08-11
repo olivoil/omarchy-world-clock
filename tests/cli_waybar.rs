@@ -436,6 +436,26 @@ fn quattro_backend_keeps_distinct_places_that_share_a_timezone() {
         .expect("add Boston");
     assert!(add.success(), "Boston should coexist with New York");
 
+    let duplicate = Command::new(binary)
+        .args([
+            "add",
+            "America/New_York",
+            "--label",
+            boston_label,
+            "--latitude",
+            "42.3601",
+            "--longitude",
+            "-71.0589",
+        ])
+        .env("OMARCHY_WORLD_CLOCK_CONFIG", &config_path)
+        .output()
+        .expect("reject duplicate Boston");
+    assert!(
+        !duplicate.status.success(),
+        "the locked add outcome should report an existing location"
+    );
+    assert!(String::from_utf8_lossy(&duplicate.stderr).contains("already configured"));
+
     let pin = Command::new(binary)
         .args(["pin", "America/New_York", "--label", boston_label])
         .env("OMARCHY_WORLD_CLOCK_CONFIG", &config_path)

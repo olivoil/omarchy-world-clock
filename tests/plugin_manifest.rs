@@ -59,6 +59,7 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("property bool summaryFocusPending: false"));
     assert!(panel.contains("if (!snapshotLoaded)"));
     assert!(panel.contains("if (summaryFocusPending) Qt.callLater(root.focusSummaryEditor)"));
+    assert!(panel.contains("if (clocks.length === 0 && mode !== \"add\" && !summaryFocusPending)"));
     assert!(panel.contains("function focusAddField()"));
     assert!(panel.contains("addField.forceActiveFocus(Qt.ShortcutFocusReason)"));
     assert!(panel.contains("if (mode === \"add\")"));

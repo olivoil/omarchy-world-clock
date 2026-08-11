@@ -201,7 +201,8 @@ Panel {
       snapshotLoaded = true
       summaryInput.text = String(payload.summary.time || "--:--")
       if (manual !== true && live) live = true
-      if (clocks.length === 0 && mode !== "add") mode = "add"
+      if (clocks.length === 0 && mode !== "add" && !summaryFocusPending)
+        mode = "add"
       clearStatus()
       if (summaryFocusPending) Qt.callLater(root.focusSummaryEditor)
     } catch (error) {

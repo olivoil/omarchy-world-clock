@@ -16,6 +16,7 @@ BarWidget {
   property string clockTooltip: "World Clock"
   property string pinnedTime: ""
   property string pinnedLabel: ""
+  property bool moduleRefreshPending: false
 
   readonly property string backendCommand: {
     var configured = String(setting("command", "omarchy-world-clock")).trim()
@@ -49,10 +50,25 @@ BarWidget {
   }
 
   function refresh() {
-    if (!moduleProcess.running) moduleProcess.running = true
+    requestModuleRefresh()
     if (panelLoader.item && panelLoader.item.opened && panelLoader.item.live
         && panelLoader.item.refresh)
       panelLoader.item.refresh()
+  }
+
+  function requestModuleRefresh() {
+    if (moduleProcess.running) {
+      moduleRefreshPending = true
+      return
+    }
+    moduleRefreshPending = false
+    moduleProcess.running = true
+  }
+
+  function flushModuleRefresh() {
+    if (!moduleRefreshPending || moduleProcess.running) return
+    moduleRefreshPending = false
+    moduleProcess.running = true
   }
 
   function open() {
@@ -150,6 +166,7 @@ BarWidget {
         root.backendChecked = true
         root.backendAvailable = false
       }
+      Qt.callLater(root.flushModuleRefresh)
     }
   }
 

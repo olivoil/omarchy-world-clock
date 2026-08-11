@@ -31,6 +31,9 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(qml.contains("slotSize: Style.bar.statusSlot"));
     assert!(qml.contains("useActiveColor: false"));
     assert!(qml.contains("openPanelIndicatorWidth"));
+    assert!(qml.contains("property bool moduleRefreshPending: false"));
+    assert!(qml.contains("function flushModuleRefresh()"));
+    assert!(qml.contains("Qt.callLater(root.flushModuleRefresh)"));
     assert!(!qml.contains("command: [root.backendCommand, \"open\"]"));
 
     let panel_path = qml_path.parent().unwrap().join("Panel.qml");
@@ -66,7 +69,10 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("Qt.callLater(root.flushSnapshotRequest)"));
     assert!(panel.contains("Qt.callLater(root.flushEditorRefresh)"));
     assert!(panel.contains("property string searchResultsQuery: \"\""));
+    assert!(panel.contains("property string searchSubmitQuery: \"\""));
     assert!(panel.contains("searchResultsQuery === query"));
+    assert!(panel.contains("searchSubmitQuery = query"));
+    assert!(panel.contains("Qt.callLater(root.startSearch)"));
     assert!(panel.contains("onTextChanged: root.searchTextChanged()"));
     assert!(panel.contains("visible: root.summary.pinned === true"));
     assert!(panel.contains("onClicked: root.togglePin(root.summary)"));

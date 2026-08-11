@@ -43,6 +43,7 @@ Panel {
   property string actionName: ""
   property string searchQueryInFlight: ""
   property string searchResultsQuery: ""
+  property string searchSubmitQuery: ""
   property var searchResults: []
   property var mapSelection: null
   property real mapRequestedLatitude: 0
@@ -132,6 +133,7 @@ Panel {
     mode = "read"
     searchResults = []
     searchResultsQuery = ""
+    searchSubmitQuery = ""
     mapSelection = null
     mapClickPending = false
     controller.hide()
@@ -297,6 +299,7 @@ Panel {
   function searchTextChanged() {
     searchResults = []
     searchResultsQuery = ""
+    searchSubmitQuery = ""
     scheduleSearch()
   }
 
@@ -315,8 +318,15 @@ Panel {
 
   function addFirstResult() {
     var query = String(addField.text || "").trim()
-    if (searchResults.length > 0 && searchResultsQuery === query && canAdd)
-      runAction("add", searchResults[0].timezone, searchResults[0])
+    if (!query || !canAdd || actionProcess.running) return
+    if (searchResultsQuery === query) {
+      if (searchResults.length > 0)
+        runAction("add", searchResults[0].timezone, searchResults[0])
+      return
+    }
+    searchSubmitQuery = query
+    searchDebounce.stop()
+    startSearch()
   }
 
   function hasMapCoordinate(entry) {
@@ -532,6 +542,7 @@ Panel {
         addField.text = ""
         root.searchResults = []
         root.searchResultsQuery = ""
+        root.searchSubmitQuery = ""
         root.mapSelection = null
         root.mapClickPending = false
         root.setStatus("Location added.", false)
@@ -549,12 +560,16 @@ Panel {
     onExited: function(exitCode) {
       var currentQuery = String(addField.text || "").trim()
       if (root.searchQueryInFlight !== currentQuery) {
-        root.scheduleSearch()
+        if (root.searchSubmitQuery === currentQuery)
+          Qt.callLater(root.startSearch)
+        else
+          root.scheduleSearch()
         return
       }
       if (exitCode !== 0) {
         root.searchResults = []
         root.searchResultsQuery = ""
+        root.searchSubmitQuery = ""
         root.setStatus("Search is unavailable; exact timezone names still work.", true)
         return
       }
@@ -562,11 +577,20 @@ Panel {
         var payload = JSON.parse(String(searchOutput.text || "[]"))
         root.searchResults = Array.isArray(payload) ? payload : []
         root.searchResultsQuery = root.searchQueryInFlight
-        if (root.searchResults.length === 0) root.setStatus("No matching location.", false)
-        else root.clearStatus()
+        if (root.searchResults.length === 0) {
+          root.searchSubmitQuery = ""
+          root.setStatus("No matching location.", false)
+        } else {
+          root.clearStatus()
+          if (root.searchSubmitQuery === root.searchResultsQuery && root.canAdd) {
+            root.searchSubmitQuery = ""
+            root.runAction("add", root.searchResults[0].timezone, root.searchResults[0])
+          }
+        }
       } catch (error) {
         root.searchResults = []
         root.searchResultsQuery = ""
+        root.searchSubmitQuery = ""
       }
     }
   }

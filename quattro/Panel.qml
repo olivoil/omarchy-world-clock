@@ -39,6 +39,8 @@ Panel {
   property int snapshotActiveGeneration: -1
   property string snapshotActiveReference: ""
   property int convertActiveGeneration: -1
+  property string convertActiveSource: ""
+  property string invalidConversionSource: ""
   property string statusText: ""
   property bool statusError: false
   property string actionName: ""
@@ -161,6 +163,19 @@ Panel {
     statusError = error === true
   }
 
+  function conversionSource(clock) {
+    if (!clock) return ""
+    var label = clock.label !== null && clock.label !== undefined
+      ? clock.label : clock.title
+    return String(clock.timezone || "") + "\u001f" + String(label || "")
+  }
+
+  function clearConversionError(source) {
+    if (invalidConversionSource !== String(source || "")) return
+    invalidConversionSource = ""
+    clearStatus()
+  }
+
   function notifyHost() {
     if (hostWidget && typeof hostWidget.broadcast === "function")
       hostWidget.broadcast("refresh")
@@ -248,15 +263,17 @@ Panel {
 
   function returnToLive() {
     invalidateSnapshotRequests()
+    invalidConversionSource = ""
     live = true
     requestLiveSnapshot()
   }
 
-  function convertFrom(timezone, value) {
+  function convertFrom(timezone, value, source) {
     var text = String(value || "").trim()
     if (!text || convertProcess.running) return
     invalidateSnapshotRequests()
     convertActiveGeneration = snapshotStateGeneration
+    convertActiveSource = String(source || "")
     convertProcess.command = [
       backendCommand,
       "convert",
@@ -517,15 +534,19 @@ Panel {
     stderr: StdioCollector { id: convertError; waitForEnd: true }
     onExited: function(exitCode) {
       var current = root.convertActiveGeneration === root.snapshotStateGeneration
+      var source = root.convertActiveSource
       root.convertActiveGeneration = -1
+      root.convertActiveSource = ""
       if (!current) return
       if (exitCode !== 0) {
+        root.invalidConversionSource = source
         root.setStatus(String(convertError.text || "Use HH:MM, 830, 8.5, 3pm, or YYYY-MM-DD HH:MM.").trim(), true)
         return
       }
       try {
         var payload = JSON.parse(String(convertOutput.text || ""))
         root.invalidateSnapshotRequests()
+        root.invalidConversionSource = ""
         root.live = false
         root.applySnapshot(JSON.stringify(payload.snapshot), true)
       } catch (error) {
@@ -769,11 +790,14 @@ Panel {
 
               TextInput {
                 id: summaryInput
+                readonly property string conversionSource: root.conversionSource(root.summary)
+                readonly property bool conversionInvalid:
+                  root.invalidConversionSource === conversionSource
                 anchors.horizontalCenter: parent.horizontalCenter
                 width: Math.max(implicitWidth, Style.space(230))
                 horizontalAlignment: Text.AlignHCenter
                 text: root.summary.time || "--:--"
-                color: root.contentForeground
+                color: conversionInvalid ? Color.urgent : root.contentForeground
                 selectionColor: Style.selectionFill
                 selectedTextColor: root.contentForeground
                 font.family: root.contentFontFamily
@@ -781,21 +805,25 @@ Panel {
                 font.bold: true
                 selectByMouse: true
                 enabled: root.mode === "read"
-                onAccepted: root.convertFrom(root.summary.timezone, text)
+                onAccepted: root.convertFrom(root.summary.timezone, text, conversionSource)
+                onTextEdited: root.clearConversionError(conversionSource)
                 onActiveFocusChanged: {
                   root.editorActive = activeFocus
                   root.timeEditorActive = activeFocus
-                  if (!activeFocus && text !== root.summary.time) text = root.summary.time
+                  if (!activeFocus && !conversionInvalid && text !== root.summary.time)
+                    text = root.summary.time
                 }
               }
 
               Rectangle {
-                visible: summaryInput.activeFocus
+                visible: summaryInput.activeFocus || summaryInput.conversionInvalid
                 anchors.left: summaryInput.left
                 anchors.right: summaryInput.right
                 anchors.top: summaryInput.bottom
                 height: Style.spacing.hairline
-                color: Style.focusStateColor(root.contentForeground, Color.accent)
+                color: summaryInput.conversionInvalid
+                  ? Color.urgent
+                  : Style.focusStateColor(root.contentForeground, Color.accent)
               }
 
               Text {
@@ -1048,9 +1076,14 @@ Panel {
                         }
 
                         TextInput {
+                          id: cardTimeInput
+                          readonly property string conversionSource:
+                            root.conversionSource(clockCell.clockData)
+                          readonly property bool conversionInvalid:
+                            root.invalidConversionSource === conversionSource
                           width: parent.width
                           text: clockCell.clockData.time
-                          color: root.contentForeground
+                          color: conversionInvalid ? Color.urgent : root.contentForeground
                           selectionColor: Style.selectionFill
                           selectedTextColor: root.contentForeground
                           font.family: root.contentFontFamily
@@ -1058,12 +1091,24 @@ Panel {
                           font.bold: true
                           selectByMouse: true
                           enabled: root.mode === "read"
-                          onAccepted: root.convertFrom(clockCell.clockData.timezone, text)
+                          onAccepted: root.convertFrom(
+                            clockCell.clockData.timezone, text, conversionSource)
+                          onTextEdited: root.clearConversionError(conversionSource)
                           onActiveFocusChanged: {
                             root.editorActive = activeFocus
                             root.timeEditorActive = activeFocus
-                            if (!activeFocus && text !== clockCell.clockData.time)
+                            if (!activeFocus && !conversionInvalid
+                                && text !== clockCell.clockData.time)
                               text = clockCell.clockData.time
+                          }
+
+                          Rectangle {
+                            visible: cardTimeInput.conversionInvalid
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.bottom: parent.bottom
+                            height: Style.spacing.hairline
+                            color: Color.urgent
                           }
                         }
 

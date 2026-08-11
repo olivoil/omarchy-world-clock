@@ -63,9 +63,12 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("property bool editorRefreshPending: false"));
     assert!(panel.contains("property bool snapshotRequestPending: false"));
     assert!(panel.contains("property int snapshotStateGeneration: 0"));
+    assert!(panel.contains("property int convertActiveGeneration: -1"));
     assert!(panel.contains("if (timeEditorActive)"));
     assert!(panel.contains("snapshotActiveGeneration === snapshotStateGeneration"));
     assert!(panel.contains("var manual = root.snapshotActiveReference !== \"\""));
+    assert!(panel
+        .contains("var current = root.convertActiveGeneration === root.snapshotStateGeneration"));
     assert!(panel.contains("Qt.callLater(root.flushSnapshotRequest)"));
     assert!(panel.contains("Qt.callLater(root.flushEditorRefresh)"));
     assert!(panel.contains("property string searchResultsQuery: \"\""));

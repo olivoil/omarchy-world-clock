@@ -38,6 +38,7 @@ Panel {
   property int snapshotStateGeneration: 0
   property int snapshotActiveGeneration: -1
   property string snapshotActiveReference: ""
+  property int convertActiveGeneration: -1
   property string statusText: ""
   property bool statusError: false
   property string actionName: ""
@@ -255,6 +256,7 @@ Panel {
     var text = String(value || "").trim()
     if (!text || convertProcess.running) return
     invalidateSnapshotRequests()
+    convertActiveGeneration = snapshotStateGeneration
     convertProcess.command = [
       backendCommand,
       "convert",
@@ -514,6 +516,9 @@ Panel {
     stdout: StdioCollector { id: convertOutput; waitForEnd: true }
     stderr: StdioCollector { id: convertError; waitForEnd: true }
     onExited: function(exitCode) {
+      var current = root.convertActiveGeneration === root.snapshotStateGeneration
+      root.convertActiveGeneration = -1
+      if (!current) return
       if (exitCode !== 0) {
         root.setStatus(String(convertError.text || "Use HH:MM, 830, 8.5, 3pm, or YYYY-MM-DD HH:MM.").trim(), true)
         return

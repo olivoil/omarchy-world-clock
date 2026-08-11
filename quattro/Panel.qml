@@ -187,6 +187,11 @@ Panel {
     clearStatus()
   }
 
+  function timeInputEdited(source) {
+    clearConversionError(source)
+    if (convertProcess.running) convertActiveGeneration = -1
+  }
+
   function notifyHost() {
     if (hostWidget && typeof hostWidget.broadcast === "function")
       hostWidget.broadcast("refresh")
@@ -822,8 +827,9 @@ Panel {
                 font.bold: true
                 selectByMouse: true
                 enabled: root.mode === "read" && root.snapshotLoaded
+                readOnly: convertProcess.running
                 onAccepted: root.convertFrom(root.summary.timezone, text, conversionSource)
-                onTextEdited: root.clearConversionError(conversionSource)
+                onTextEdited: root.timeInputEdited(conversionSource)
                 onActiveFocusChanged: {
                   root.editorActive = activeFocus
                   root.timeEditorActive = activeFocus
@@ -1108,9 +1114,10 @@ Panel {
                           font.bold: true
                           selectByMouse: true
                           enabled: root.mode === "read" && root.snapshotLoaded
+                          readOnly: convertProcess.running
                           onAccepted: root.convertFrom(
                             clockCell.clockData.timezone, text, conversionSource)
-                          onTextEdited: root.clearConversionError(conversionSource)
+                          onTextEdited: root.timeInputEdited(conversionSource)
                           onActiveFocusChanged: {
                             root.editorActive = activeFocus
                             root.timeEditorActive = activeFocus

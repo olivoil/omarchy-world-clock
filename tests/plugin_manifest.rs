@@ -77,7 +77,10 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel
         .contains("var current = root.convertActiveGeneration === root.snapshotStateGeneration"));
     assert!(panel.contains("function conversionSource(clock)"));
-    assert!(panel.contains("onTextEdited: root.clearConversionError(conversionSource)"));
+    assert!(panel.contains("function timeInputEdited(source)"));
+    assert!(panel.contains("if (convertProcess.running) convertActiveGeneration = -1"));
+    assert!(panel.contains("readOnly: convertProcess.running"));
+    assert!(panel.contains("onTextEdited: root.timeInputEdited(conversionSource)"));
     assert!(panel.contains("conversionInvalid ? Color.urgent : root.contentForeground"));
     assert!(panel.contains("Qt.callLater(root.flushSnapshotRequest)"));
     assert!(panel.contains("Qt.callLater(root.flushEditorRefresh)"));

@@ -7,8 +7,8 @@ product
 ## Users
 
 Omarchy users who coordinate across timezones from the desktop bar. They need
-to scan current times and convert a reference time without leaving their active
-workspace.
+to scan current times, keep a home timezone visible while traveling, and
+convert a reference time without leaving their active workspace.
 
 ## Product Purpose
 
@@ -35,6 +35,7 @@ Native, precise, quiet.
 - Make timezone comparison fast to scan and stable while clocks update.
 - Use Omarchy's active runtime tokens instead of approximating a theme.
 - Keep advanced editing available without adding noise to the read view.
+- Treat a pinned timezone as quiet ambient context, not an alert state.
 - Preserve useful behavior across Omarchy versions where practical.
 
 ## Accessibility & Inclusion

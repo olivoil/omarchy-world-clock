@@ -127,10 +127,9 @@ fn parse_meridiem_time(value: &str) -> Option<(u32, u32, u32, String)> {
         (raw, false)
     } else if let Some(raw) = cleaned.strip_suffix("pm") {
         (raw, true)
-    } else if let Some(raw) = cleaned.strip_suffix('p') {
-        (raw, true)
     } else {
-        return None;
+        let raw = cleaned.strip_suffix('p')?;
+        (raw, true)
     };
 
     if digits.is_empty() {

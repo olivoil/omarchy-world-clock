@@ -10,7 +10,8 @@ This package installs the prebuilt GitHub release binary and project `LICENSE`
 from the release archive. It intentionally does not patch user bar config
 during package installation. The package post-install message tells users to
 run the one-time `omarchy-world-clock install` command, which detects the
-Omarchy 4 shell or Omarchy 3 Waybar.
+Omarchy 4 shell or Omarchy 3 Waybar. On Omarchy 4, that command installs the
+repository's native Quattro plugin and migrates the old command widget.
 
 ## Initial Publish
 

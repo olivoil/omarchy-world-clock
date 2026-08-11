@@ -2,6 +2,7 @@ pub mod config;
 pub mod layout;
 pub mod omarchy_shell;
 pub mod popup;
+pub mod quattro;
 pub mod runtime;
 pub mod theme;
 pub mod time;

@@ -22,10 +22,18 @@ The popup supports:
 ## Bar Module
 
 - A small world icon appears next to the center clock.
-- Omarchy 4 uses a shell command widget after `omarchy.clock`.
+- Omarchy 4 uses the manifest-backed `io.github.olivoil.world-clock` Quattro
+  plugin after `omarchy.clock`.
 - Omarchy 3 uses a custom Waybar module after `clock`.
 - Left click toggles the popup open and closed.
 - Right click launches the Omarchy timezone selector terminal helper.
+- The Quattro widget follows the bar's `open`, `close`, and `opened` contract
+  and participates in its single-popout coordination with the calendar and
+  other panels.
+- Quattro uses the same compact status slot as weather. Opening the panel adds
+  the bar's native underline without recoloring the world icon.
+- One configured timezone can be pinned. Its current time then appears beside
+  the world icon in both Quattro and Waybar.
 - The module tooltip is a compact text table with no title row.
 - The tooltip lists configured non-local entries in the same time order used by
   the popup read view.
@@ -36,7 +44,10 @@ The popup supports:
 
 ## Popup
 
-- The popup is a top-overlay panel intended for Wayland/layer-shell use.
+- Omarchy 4 renders the normal panel inside the already-running Quickshell
+  process with Quattro's shared `KeyboardPanel`.
+- Omarchy 3/Waybar and the direct `popup` command retain the GTK layer-shell
+  panel.
 - With a top bar, the popup is horizontally centered immediately below the bar
   using the same half-`gaps_out` spacing as native Omarchy shell panels.
 - On Omarchy 4, the popup uses the active theme's `[popups]` background, text,
@@ -44,19 +55,22 @@ The popup supports:
 - Omarchy 4 theme state is read from
   `~/.local/state/omarchy/current/theme`; the Omarchy 3 config path remains a
   fallback.
-- The popup can be dismissed by clicking outside it, losing focus, or pressing
-  `Escape`.
+- The popup can be dismissed by clicking outside it or pressing `Escape`; the
+  legacy GTK panel also dismisses on focus loss.
+- While the Quattro panel is open, clicks on sibling bar widgets are forwarded
+  through the shared bar click targets, and `Tab`/`Shift+Tab` switch between
+  adjacent panels.
 - The popup adapts colors to the active Omarchy theme palette.
 - The popup has three interaction states:
   - read mode
   - edit mode
   - add mode
-- Read mode shows the summary clock, a relative timeline, and clock cards for
-  configured non-local entries.
-- Edit mode keeps the read layout but exposes card remove buttons when removal
-  is valid.
-- Add mode shows a search entry, search results, and a map with configured
-  place markers.
+- Read mode shows the summary clock, a proportional relative timeline with
+  hourly ticks, and a borderless three-column layout for up to nine configured
+  non-local entries.
+- Edit mode keeps the read layout but exposes pin/unpin and remove controls.
+- Add mode shows a search entry, search results, and a world map in both the
+  native Quattro panel and the legacy GTK view.
 
 ## Configuration and Persistence
 
@@ -67,13 +81,15 @@ Persisted settings:
 - configured timezone entries
 - optional display labels
 - optional latitude and longitude for map placement
+- optional pinned timezone
 - optional Open-Meteo geocoding opt-out
 
 Expected config shape:
 
 ```json
 {
-  "version": 4,
+  "version": 5,
+  "pinned_timezone": "Europe/Paris",
   "timezones": [
     {
       "timezone": "America/Cancun",
@@ -98,6 +114,8 @@ Persistence rules:
 - saved order is preserved
 - empty labels are allowed and display as friendly timezone names
 - invalid coordinates are dropped
+- `pinned_timezone` must name a configured entry
+- removing the pinned entry clears the pin
 - `disable_open_meteo_geolocation` defaults to `false`
 - `disable_open_meteo_geolocation` is only persisted when true
 
@@ -112,18 +130,19 @@ Persistence rules:
 
 ## Clock Ordering
 
-- Visible clock cards are ordered by wall-clock time at the current reference
+- Visible locations are ordered by wall-clock time at the current reference
   instant.
-- Equal-time cards fall back to display label ordering.
+- Equal-time locations fall back to display label ordering.
 
 ## Time Display and Manual Reference Mode
 
 The app normally runs in live mode:
 
-- all visible clocks update every second
+- Quattro clocks update on minute boundaries; the legacy GTK panel ticks every
+  second (both display the system's minute-level format)
 - the reference instant is `now`
 
-The user can click into the summary clock or any visible clock card and type a
+The user can click into the summary clock or any visible location and type a
 reference instant. When the value parses successfully:
 
 - the app leaves live mode
@@ -202,16 +221,18 @@ Add behavior:
 
 ## Map Behavior
 
-- The add screen shows a world map with markers for configured places.
+- Both add screens show a world map with markers for configured places.
 - Saved latitude and longitude are preferred for marker placement.
 - Bundled tzdata coordinates are used when available.
 - Local timezone alias data is used as a fallback when it has coordinates.
 - The map must not call remote services just to backfill missing marker
   coordinates.
-- Clicking a map marker adds the corresponding timezone when it is not already
+- Clicking a land region resolves and adds its timezone when it is not already
   configured and capacity allows.
-- Hovering a marker shows the place name, time, timezone metadata, and relative
-  offset.
+- The native map resolves coordinates only after a click, keeping timezone
+  boundary loading outside the panel-open path.
+- The legacy GTK map additionally previews the place name, time, timezone
+  metadata, and relative offset on hover.
 
 ## Open-Meteo Use
 
@@ -245,6 +266,18 @@ Open-Meteo requirements reflected in the product:
 - The popup refreshes immediately after removal.
 - The UI must not allow removing the final configured entry.
 
+## Pin Behavior
+
+- Edit mode offers `PIN` on each non-local location.
+- Pinning a different card replaces the previous pin; only one timezone can be
+  pinned.
+- The pinned time follows the system's 12/24-hour format and updates on minute
+  boundaries.
+- The pinned timezone is stored by canonical timezone identifier, so changing
+  the system timezone while traveling does not change the saved home clock.
+- `UNPIN`, removing the pinned timezone, or normalizing an invalid pin returns
+  the bar entry to its icon-only state.
+
 ## Empty State
 
 If there are no configured non-local entries:
@@ -256,10 +289,12 @@ If there are no configured non-local entries:
 ## Performance and Feel
 
 - Popup open should feel immediate.
+- Quattro opening is an in-process state change and must not launch the GTK UI
+  process.
 - The first rendered frame should use the compositor's final work area without
   resizing after it appears.
-- Map-only timezone lookup data should initialize outside the popup's critical
-  opening path.
+- Map-only timezone lookup data must stay outside the popup's critical opening
+  path; Quattro resolves it on click and GTK initializes it asynchronously.
 - Live updates should be visually stable.
 - Editing one clock must not destroy and recreate the focused widget mid-edit.
 - Remote search failures should fail quietly and leave local search usable.
@@ -269,10 +304,14 @@ If there are no configured non-local entries:
 
 A correct implementation satisfies these behaviors:
 
-- Omarchy shell and Waybar integrations are idempotent and reversible.
+- Quattro plugin and Waybar integrations are idempotent and reversible.
 - The popup can be toggled from the bar.
 - The tooltip reflects current configured non-local entries.
-- Time conversion works from the summary clock and every visible clock card.
+- Pinning a timezone persists it and shows its current time beside the bar icon.
+- The Quattro icon keeps its normal foreground while open and uses the native
+  active underline.
+- Calendar, weather, and World Clock can hand off in one click.
+- Time conversion works from the summary clock and every visible location.
 - Display format follows the system format only.
 - Local timezone search works without network access.
 - Open-Meteo geocoding can be disabled with

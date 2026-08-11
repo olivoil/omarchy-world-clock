@@ -17,7 +17,7 @@ use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use unicode_normalization::{char::is_combining_mark, UnicodeNormalization};
 
-pub const CONFIG_VERSION: u64 = 4;
+pub const CONFIG_VERSION: u64 = 5;
 pub const LOCAL_TIMEZONE_MIGRATION_VERSION: u64 = 2;
 
 const STANDARD_TZ_REGIONS: [&str; 10] = [
@@ -36,6 +36,7 @@ const STANDARD_TZ_REGIONS: [&str; 10] = [
 #[derive(Debug, Clone, PartialEq)]
 pub struct AppConfig {
     pub timezones: Vec<TimezoneEntry>,
+    pub pinned_timezone: Option<String>,
     pub disable_open_meteo_geolocation: bool,
 }
 
@@ -74,7 +75,7 @@ pub fn first_location_segment(label: &str) -> String {
         .to_string()
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct TimezoneSearchResult {
     pub timezone: String,
     pub title: String,
@@ -160,6 +161,7 @@ struct RawConfig {
     #[allow(dead_code)]
     version: Option<u64>,
     timezones: Option<Vec<RawTimezoneEntry>>,
+    pinned_timezone: Option<String>,
     disable_open_meteo_geolocation: Option<bool>,
 }
 
@@ -167,6 +169,8 @@ struct RawConfig {
 struct StoredConfig<'a> {
     version: u64,
     timezones: &'a [TimezoneEntry],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pinned_timezone: Option<&'a str>,
     #[serde(skip_serializing_if = "is_false")]
     disable_open_meteo_geolocation: bool,
 }
@@ -221,6 +225,7 @@ impl ConfigManager {
         let payload = StoredConfig {
             version: CONFIG_VERSION,
             timezones: &config.timezones,
+            pinned_timezone: config.pinned_timezone.as_deref(),
             disable_open_meteo_geolocation: config.disable_open_meteo_geolocation,
         };
         let text = serde_json::to_string_pretty(&payload)?;
@@ -322,10 +327,32 @@ impl ConfigManager {
         Ok(config)
     }
 
+    pub fn set_pinned_timezone(&self, timezone_name: Option<&str>) -> anyhow::Result<AppConfig> {
+        let mut config = self.load()?;
+        config.pinned_timezone = match timezone_name {
+            None => None,
+            Some(timezone_name) => {
+                let timezone_name = canonical_timezone_name(timezone_name);
+                if !config
+                    .timezones
+                    .iter()
+                    .any(|entry| entry.timezone == timezone_name)
+                {
+                    anyhow::bail!("timezone is not in the World Clock list: {timezone_name}");
+                }
+                Some(timezone_name)
+            }
+        };
+        config = self.normalize_config(config);
+        self.save(&config)?;
+        Ok(config)
+    }
+
     fn config_from_raw(&self, raw: RawConfig, local_timezone: &str) -> AppConfig {
         let RawConfig {
             version,
             timezones,
+            pinned_timezone,
             disable_open_meteo_geolocation,
         } = raw;
         let config_version = version.unwrap_or(1);
@@ -361,6 +388,7 @@ impl ConfigManager {
 
         self.normalize_config(AppConfig {
             timezones: entries,
+            pinned_timezone,
             disable_open_meteo_geolocation: disable_open_meteo_geolocation.unwrap_or(false),
         })
     }
@@ -391,6 +419,11 @@ impl ConfigManager {
     }
 
     fn normalize_config(&self, config: AppConfig) -> AppConfig {
+        let pinned_timezone = config
+            .pinned_timezone
+            .as_deref()
+            .map(canonical_timezone_name)
+            .filter(|timezone| !timezone.is_empty() && is_valid_timezone(timezone));
         let mut seen = HashSet::new();
         let mut timezones = Vec::new();
 
@@ -414,8 +447,15 @@ impl ConfigManager {
             timezones.push(normalized);
         }
 
+        let pinned_timezone = pinned_timezone.filter(|pinned| {
+            timezones
+                .iter()
+                .any(|entry: &TimezoneEntry| &entry.timezone == pinned)
+        });
+
         AppConfig {
             timezones,
+            pinned_timezone,
             disable_open_meteo_geolocation: config.disable_open_meteo_geolocation,
         }
     }
@@ -435,6 +475,7 @@ impl ConfigManager {
 
         AppConfig {
             timezones,
+            pinned_timezone: None,
             disable_open_meteo_geolocation: false,
         }
     }
@@ -1417,6 +1458,7 @@ mod tests {
                     latitude: None,
                     longitude: None,
                 }],
+                pinned_timezone: None,
                 disable_open_meteo_geolocation: false,
             }
         );
@@ -1490,7 +1532,7 @@ mod tests {
         fs::write(
             &path,
             r#"{
-  "version": 4,
+  "version": 5,
   "timezones": [
     {
       "timezone": "UTC",
@@ -1546,7 +1588,7 @@ mod tests {
         assert!(!rewritten.contains("\"locked\""));
         assert!(!rewritten.contains("\"sort_mode\""));
         assert!(!rewritten.contains("\"time_format\""));
-        assert!(rewritten.contains("\"version\": 4"));
+        assert!(rewritten.contains("\"version\": 5"));
     }
 
     #[test]
@@ -1644,5 +1686,50 @@ mod tests {
         let updated = manager.remove_timezone("Asia/Tokyo").unwrap();
         assert_eq!(updated.timezones.len(), 1);
         assert_eq!(updated.timezones[0].timezone, "UTC");
+    }
+
+    #[test]
+    fn pinned_timezone_round_trips_and_can_be_cleared() {
+        let temp_dir = TempDir::new().unwrap();
+        let manager = manager_in(&temp_dir);
+        manager.load_with_local_timezone("UTC").unwrap();
+        manager.add_timezone("Asia/Tokyo", "Tokyo").unwrap();
+
+        let pinned = manager.set_pinned_timezone(Some("Asia/Tokyo")).unwrap();
+        assert_eq!(pinned.pinned_timezone.as_deref(), Some("Asia/Tokyo"));
+        assert_eq!(
+            manager
+                .load_with_local_timezone("UTC")
+                .unwrap()
+                .pinned_timezone
+                .as_deref(),
+            Some("Asia/Tokyo")
+        );
+
+        let cleared = manager.set_pinned_timezone(None).unwrap();
+        assert_eq!(cleared.pinned_timezone, None);
+    }
+
+    #[test]
+    fn removing_or_normalizing_a_missing_timezone_clears_the_pin() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("config.json");
+        fs::write(
+            &path,
+            r#"{
+  "version": 5,
+  "pinned_timezone": "Asia/Tokyo",
+  "timezones": [
+    { "timezone": "UTC", "label": "Home" },
+    { "timezone": "Asia/Tokyo", "label": "Tokyo" }
+  ]
+}
+"#,
+        )
+        .unwrap();
+        let manager = ConfigManager::new(Some(path));
+
+        let removed = manager.remove_timezone("Asia/Tokyo").unwrap();
+        assert_eq!(removed.pinned_timezone, None);
     }
 }

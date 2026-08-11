@@ -1,10 +1,19 @@
 # Omarchy World Clock
 
-Omarchy World Clock adds a small world-clock entry point next to Omarchy's
-center clock and opens a multi-timezone popup for planning across places. It
-supports the Omarchy 4 shell and the legacy Omarchy 3 Waybar.
+Omarchy World Clock adds a native Quattro bar entry next to Omarchy's center
+clock and opens a multi-timezone popup for planning across places. It supports
+the Omarchy 4 shell and the legacy Omarchy 3 Waybar.
 
 ## Screenshots
+
+<p>
+  <strong>Omarchy 4 / Quattro - Native World Clock</strong><br>
+  <img src="preview.png" alt="Native Omarchy Quattro World Clock panel with a pinned home time, proportional timezone timeline, and six borderless location clocks" width="960">
+</p>
+
+The remaining screenshots document the GTK planner retained for Omarchy
+3/Waybar. Both integrations share the same timezone, conversion, search, and
+location model.
 
 <p>
   <strong>Ristretto - Industrial Moon - Waybar At a Glance</strong><br>
@@ -31,11 +40,18 @@ supports the Omarchy 4 shell and the legacy Omarchy 3 Waybar.
 - Adds a compact world icon next to Omarchy's center clock.
 - Toggles the popup on left click and opens Omarchy's timezone selector on
   right click.
+- Participates in Quattro's popout coordination, so opening World Clock closes
+  the calendar and opening the calendar closes World Clock.
+- Can pin one configured timezone beside the bar icon, keeping home time
+  visible while the system timezone follows your trip.
 - Opens beneath the top bar and follows Omarchy 4's active popup colors,
   border, opacity, and corner radius.
 - Opens a popup with live clocks for a user-managed timezone list.
-- Supports manual reference-time conversion across the visible clock cards.
+- Supports manual reference-time conversion across the visible locations.
 - Lets you add and remove timezones.
+- Shows a native world map for adding timezone regions and placing configured
+  locations.
+- Shows up to nine non-local locations in a borderless three-column layout.
 - Searches local timezone data first, then can use Open-Meteo geocoding for
   unresolved city/place searches.
 - Follows the system time format.
@@ -59,44 +75,43 @@ Then add the module to the current user's bar:
 omarchy-world-clock install
 ```
 
-The AUR package installs only the system binary. `install` detects Omarchy 4's
-shell or Omarchy 3's Waybar, patches the matching user config, reloads the bar,
-and creates the world-clock config file.
+The AUR package provides the timezone/config backend. On Omarchy 4, `install`
+then adds the repository as a Quattro plugin, enables its native bar widget and
+panel, and places it immediately after `omarchy.clock`. It also removes the
+older command widget if one is present without changing saved places. On
+Omarchy 3, the same command installs the legacy Waybar module and GTK popup.
 
-To patch non-default paths:
+### Omarchy 4 / Quattro
+
+The repository root is a Quattro plugin. If the backend is already installed,
+you can install and position the plugin directly instead of using the helper:
 
 ```bash
-omarchy-world-clock install-shell \
-  --shell-config "$HOME/.config/omarchy/shell.json" \
-  --command-path "$(command -v omarchy-world-clock)" \
-  --user-config "$HOME/.config/omarchy-world-clock/config.json"
+omarchy plugin add https://github.com/olivoil/omarchy-world-clock.git --yes
+omarchy bar put io.github.olivoil.world-clock --after omarchy.clock
 ```
 
-### Omarchy 4 Shell
+The Quickshell plugin owns both the bar affordance and the normal World Clock
+panel. It uses the same `KeyboardPanel`, popup tokens, focus behavior, active
+underline, and one-popout-at-a-time handoff as Quattro's calendar and weather
+widgets. The Rust binary supplies timezone snapshots, conversion, search, and
+configuration mutations; opening the panel does not start a new UI process.
 
-On Omarchy 4, the installer adds a command widget immediately after
-`omarchy.clock` in `~/.config/omarchy/shell.json`. The existing weather,
-system-update, and indicator widgets remain in place. The shell hot-reloads the
-config.
+Keeping World Clock adjacent to the calendar rather than embedding it in the
+calendar avoids coupling two independently useful panels while still making
+them easy to switch between. The GTK layer-shell popup remains available for
+Omarchy 3/Waybar and direct `popup` use.
 
-The popup reads the active palette and `[popups]` surface roles from
-`~/.local/state/omarchy/current/theme`, with the Omarchy 3 theme location kept
-as a fallback.
+To pin a timezone in Quattro, open World Clock, choose the edit button, and
+select `PIN` on a location. Select `UNPIN` to return to the icon-only bar
+entry.
 
-Manual entry:
+For local development, point the widget at a checkout build with:
 
-```json
-{
-  "id": "world-clock",
-  "type": "command",
-  "exec": "/usr/bin/omarchy-world-clock module",
-  "interval": 2,
-  "onClick": "/usr/bin/omarchy-world-clock toggle",
-  "onRightClick": "omarchy-menu-timezone"
-}
+```bash
+omarchy bar set io.github.olivoil.world-clock command \
+  "$PWD/target/debug/omarchy-world-clock"
 ```
-
-Place it after `{ "id": "omarchy.clock" }` in `bar.layout.center`.
 
 ### Omarchy 3 Waybar
 
@@ -165,7 +180,7 @@ This:
 - installs missing Arch/Omarchy runtime packages (`gtk4`, `gtk4-layer-shell`)
 - installs it under `~/.local/share/omarchy-world-clock`
 - writes `~/.local/bin/omarchy-world-clock`
-- patches and reloads `~/.config/omarchy/shell.json` on Omarchy 4
+- installs and enables the Quattro plugin on Omarchy 4
 - otherwise patches and restarts the Omarchy 3 Waybar config and style
 
 Install a specific release:
@@ -181,6 +196,20 @@ Build from source instead:
 ```
 
 ## Uninstall
+
+Remove the bar integration while keeping the binary and saved places:
+
+```bash
+omarchy-world-clock uninstall
+```
+
+Remove only the Quattro plugin:
+
+```bash
+omarchy plugin remove io.github.olivoil.world-clock --yes
+```
+
+Remove a script installation and keep saved places:
 
 ```bash
 ./uninstall.sh
@@ -226,6 +255,12 @@ Run tests:
 cargo test
 ```
 
+Validate the Quattro manifest and QML against the installed Omarchy shell:
+
+```bash
+scripts/validate-plugin.sh
+```
+
 Run the local PR checks:
 
 ```bash
@@ -233,7 +268,8 @@ scripts/ci.sh
 ```
 
 This mirrors the checks this project would normally put in a GitHub Action:
-formatting, Clippy, Rust tests, and the shell installer tests.
+formatting, Clippy, Rust tests, shell installer tests, and Quattro validation
+when the local Omarchy tooling is available.
 
 Sign off the current commit after the local checks pass:
 
@@ -278,8 +314,19 @@ sudo pacman -S --needed gtk4 gtk4-layer-shell
 The supported CLI surface is:
 
 - `omarchy-world-clock module`
+- `omarchy-world-clock snapshot`
+- `omarchy-world-clock convert`
+- `omarchy-world-clock search`
+- `omarchy-world-clock add`
+- `omarchy-world-clock remove`
+- `omarchy-world-clock pin`
+- `omarchy-world-clock unpin`
+- `omarchy-world-clock open`
+- `omarchy-world-clock close`
 - `omarchy-world-clock toggle`
+- `omarchy-world-clock status`
 - `omarchy-world-clock popup`
+- `omarchy-world-clock version`
 - `omarchy-world-clock install`
 - `omarchy-world-clock uninstall`
 - `omarchy-world-clock reload`
@@ -301,7 +348,8 @@ Example:
 
 ```json
 {
-  "version": 4,
+  "version": 5,
+  "pinned_timezone": "Europe/Paris",
   "timezones": [
     {
       "timezone": "America/Cancun",

@@ -80,6 +80,7 @@ struct PopupState {
     content_stack: gtk::Stack,
     panel_title: gtk::Label,
     live_button: gtk::Button,
+    summary_unpin_button: gtk::Button,
     edit_button: gtk::Button,
     add_button: gtk::Button,
     cancel_button: gtk::Button,
@@ -520,6 +521,15 @@ fn set_entry_error(entry: &gtk::Entry, enabled: bool) {
 fn read_card_control_availability(screen_mode: PopupScreen, can_remove: bool) -> (bool, bool) {
     let visible = matches!(screen_mode, PopupScreen::Edit);
     (visible, visible && can_remove)
+}
+
+fn summary_entry_is_pinned(config: &AppConfig, local_timezone: &str) -> bool {
+    let local_timezone = canonical_timezone_name(local_timezone);
+    config
+        .timezones
+        .iter()
+        .find(|entry| entry.timezone == local_timezone)
+        .is_some_and(|entry| config.is_pinned(entry))
 }
 
 fn set_read_card_controls(state: &PopupState) {
@@ -2041,16 +2051,16 @@ fn remove_timezone_entry(state_handle: &Rc<RefCell<PopupState>>, entry: &Timezon
     }
 }
 
-fn toggle_pinned_timezone_entry(state_handle: &Rc<RefCell<PopupState>>, entry: &TimezoneEntry) {
-    let (config_manager, pinned) = {
-        let state = state_handle.borrow();
-        (state.config_manager.clone(), state.config.is_pinned(entry))
-    };
-
-    let result = if pinned {
-        config_manager.set_pinned_timezone(None)
-    } else {
-        config_manager.set_pinned_location(Some(&entry.timezone), Some(&entry.label))
+fn persist_pinned_timezone_entry(
+    state_handle: &Rc<RefCell<PopupState>>,
+    entry: Option<&TimezoneEntry>,
+) {
+    let config_manager = state_handle.borrow().config_manager.clone();
+    let result = match entry {
+        Some(entry) => {
+            config_manager.set_pinned_location(Some(&entry.timezone), Some(&entry.label))
+        }
+        None => config_manager.set_pinned_timezone(None),
     };
 
     match result {
@@ -2063,6 +2073,11 @@ fn toggle_pinned_timezone_entry(state_handle: &Rc<RefCell<PopupState>>, entry: &
             set_status(&state, &error.to_string(), true);
         }
     }
+}
+
+fn toggle_pinned_timezone_entry(state_handle: &Rc<RefCell<PopupState>>, entry: &TimezoneEntry) {
+    let pinned = state_handle.borrow().config.is_pinned(entry);
+    persist_pinned_timezone_entry(state_handle, (!pinned).then_some(entry));
 }
 
 fn sync_map_hover_card(state: &PopupState) {
@@ -2113,6 +2128,9 @@ fn update_screen_mode(state: &PopupState) {
     state.panel_title.set_text(&title);
 
     state.live_button.set_visible(!in_add);
+    state
+        .summary_unpin_button
+        .set_visible(!in_add && summary_entry_is_pinned(&state.config, &state.local_timezone));
     state.edit_button.set_visible(!in_add);
     if in_edit {
         state.edit_button.add_css_class("active");
@@ -3004,6 +3022,14 @@ fn build_window(
     live_button.set_valign(Align::Center);
     header_start.append(&live_button);
 
+    let summary_unpin_button = gtk::Button::from_icon_name("view-pin-symbolic");
+    summary_unpin_button.add_css_class("icon-button");
+    summary_unpin_button.add_css_class("active");
+    summary_unpin_button.set_valign(Align::Center);
+    summary_unpin_button.set_visible(false);
+    summary_unpin_button.set_tooltip_text(Some("Remove this time from the bar."));
+    header_start.append(&summary_unpin_button);
+
     let cancel_button = gtk::Button::from_icon_name("go-previous-symbolic");
     cancel_button.add_css_class("icon-button");
     cancel_button.set_valign(Align::Center);
@@ -3301,6 +3327,7 @@ fn build_window(
         content_stack: content_stack.clone(),
         panel_title: title.clone(),
         live_button: live_button.clone(),
+        summary_unpin_button: summary_unpin_button.clone(),
         edit_button: edit_button.clone(),
         add_button: add_button.clone(),
         cancel_button: cancel_button.clone(),
@@ -3525,6 +3552,11 @@ fn build_window(
     let state_for_now = state.clone();
     live_button.connect_clicked(move |_| {
         reset_live_now(&state_for_now);
+    });
+
+    let state_for_summary_unpin = state.clone();
+    summary_unpin_button.connect_clicked(move |_| {
+        persist_pinned_timezone_entry(&state_for_summary_unpin, None);
     });
 
     let state_for_add_screen = state.clone();
@@ -3815,12 +3847,13 @@ mod tests {
         layout_map_location_markers, lng_lat_to_map_coordinates, map_coordinates_to_lng_lat,
         merge_search_results, read_card_control_availability, read_card_row_width, read_card_title,
         read_entry_count, screen_mode_for_read_entry_count, search_result_subtitle,
-        should_focus_summary_time_entry, sort_read_entries_by_time, summary_search_result,
-        timeline_entries, timeline_side_hours, timeline_tick_relative_minutes,
-        visible_read_entries, ActiveTimeEntry, MapCoordinate, MapLocationMarker, PopupScreen,
-        READ_CARD_COLUMNS, READ_CARD_LIMIT, READ_CARD_SPACING, READ_CARD_WIDTH,
+        should_focus_summary_time_entry, sort_read_entries_by_time, summary_entry_is_pinned,
+        summary_search_result, timeline_entries, timeline_side_hours,
+        timeline_tick_relative_minutes, visible_read_entries, ActiveTimeEntry, MapCoordinate,
+        MapLocationMarker, PopupScreen, READ_CARD_COLUMNS, READ_CARD_LIMIT, READ_CARD_SPACING,
+        READ_CARD_WIDTH,
     };
-    use crate::config::{TimezoneEntry, TimezoneSearchResult};
+    use crate::config::{AppConfig, LocationKey, TimezoneEntry, TimezoneSearchResult};
     use crate::time::zoned_datetime;
     use chrono::{TimeZone, Utc};
 
@@ -3899,6 +3932,27 @@ mod tests {
             read_card_control_availability(PopupScreen::Read, true),
             (false, false)
         );
+    }
+
+    #[test]
+    fn summary_unpin_matches_the_exact_local_location() {
+        let mut new_york = entry("America/New_York");
+        new_york.label = "New York".to_string();
+        let mut boston = entry("America/New_York");
+        boston.label = "Boston".to_string();
+        let mut config = AppConfig {
+            timezones: vec![new_york.clone(), boston.clone()],
+            pinned_location: Some(LocationKey {
+                timezone: boston.timezone.clone(),
+                label: boston.label.clone(),
+            }),
+            disable_open_meteo_geolocation: false,
+        };
+
+        assert!(!summary_entry_is_pinned(&config, "America/New_York"));
+
+        config.pinned_location = Some(new_york.location_key());
+        assert!(summary_entry_is_pinned(&config, "America/New_York"));
     }
 
     #[test]

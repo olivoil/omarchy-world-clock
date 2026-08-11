@@ -1,7 +1,6 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
-import Quickshell
 import Quickshell.Io
 import qs.Commons
 import qs.Ui
@@ -32,9 +31,13 @@ Panel {
   property bool live: true
   property bool editorActive: false
   property bool timeEditorActive: false
-  property bool liveRefreshPending: false
+  property bool editorRefreshPending: false
+  property string editorRefreshReference: ""
   property bool snapshotRequestPending: false
   property string snapshotRequestReference: ""
+  property int snapshotStateGeneration: 0
+  property int snapshotActiveGeneration: -1
+  property string snapshotActiveReference: ""
   property string statusText: ""
   property bool statusError: false
   property string actionName: ""
@@ -84,7 +87,6 @@ Panel {
 
   function open() {
     controller.show()
-    refresh()
   }
 
   function focusSummaryEditor() {
@@ -101,8 +103,9 @@ Panel {
 
   function openEditor() {
     mode = "read"
+    var alreadyOpened = opened
     controller.show()
-    refresh()
+    if (alreadyOpened) refresh()
     // Opening KeyboardPanel also schedules its focus target. Queue this one
     // turn later so editing wins that initial focus handoff as well.
     Qt.callLater(root.focusSummaryEditor)
@@ -118,8 +121,9 @@ Panel {
 
   function openAdd() {
     mode = "add"
+    var alreadyOpened = opened
     controller.show()
-    refresh()
+    if (alreadyOpened) refresh()
     focusAddField()
   }
 
@@ -158,10 +162,6 @@ Panel {
   }
 
   function applySnapshot(raw, manual) {
-    if (manual !== true && timeEditorActive) {
-      liveRefreshPending = true
-      return
-    }
     try {
       var payload = JSON.parse(String(raw || ""))
       if (!payload || Number(payload.schema_version) !== 1 || !payload.summary)
@@ -178,13 +178,26 @@ Panel {
 
   function requestSnapshot(referenceUtc) {
     var reference = String(referenceUtc || "")
+    if (timeEditorActive) {
+      snapshotRequestPending = false
+      snapshotRequestReference = ""
+      editorRefreshPending = true
+      editorRefreshReference = reference
+      return
+    }
     if (snapshotProcess.running) {
+      if (snapshotRequestPending && snapshotRequestReference === reference) return
+      if (!snapshotRequestPending
+          && snapshotActiveGeneration === snapshotStateGeneration
+          && snapshotActiveReference === reference) return
       snapshotRequestPending = true
       snapshotRequestReference = reference
       return
     }
     snapshotRequestPending = false
     snapshotRequestReference = ""
+    snapshotActiveGeneration = snapshotStateGeneration
+    snapshotActiveReference = reference
     var command = [backendCommand, "snapshot"]
     if (reference) command.push("--at", reference)
     snapshotProcess.command = command
@@ -199,36 +212,37 @@ Panel {
     requestSnapshot(reference)
   }
 
+  function invalidateSnapshotRequests() {
+    snapshotStateGeneration += 1
+    snapshotRequestPending = false
+    snapshotRequestReference = ""
+    editorRefreshPending = false
+    editorRefreshReference = ""
+  }
+
   function requestLiveSnapshot() {
     if (!live) {
-      liveRefreshPending = false
       return
     }
-    if (timeEditorActive || snapshotProcess.running) {
-      liveRefreshPending = true
-      return
-    }
-    liveRefreshPending = false
     requestSnapshot("")
   }
 
-  function flushLiveRefresh() {
-    if (!liveRefreshPending) return
-    if (!live) {
-      liveRefreshPending = false
-      return
-    }
-    if (timeEditorActive || snapshotProcess.running) return
-    liveRefreshPending = false
-    requestSnapshot("")
-  }
-
-  function refresh() {
-    var reference = !live && snapshot ? String(snapshot.reference_utc || "") : ""
+  function flushEditorRefresh() {
+    if (!editorRefreshPending) return
+    if (timeEditorActive) return
+    var reference = editorRefreshReference
+    editorRefreshPending = false
+    editorRefreshReference = ""
     requestSnapshot(reference)
   }
 
+  function refresh() {
+    if (live) requestLiveSnapshot()
+    else requestSnapshot(snapshot ? String(snapshot.reference_utc || "") : "")
+  }
+
   function returnToLive() {
+    invalidateSnapshotRequests()
     live = true
     requestLiveSnapshot()
   }
@@ -236,6 +250,7 @@ Panel {
   function convertFrom(timezone, value) {
     var text = String(value || "").trim()
     if (!text || convertProcess.running) return
+    invalidateSnapshotRequests()
     convertProcess.command = [
       backendCommand,
       "convert",
@@ -440,8 +455,8 @@ Panel {
 
   onOpenedChanged: if (opened) refresh()
   onTimeEditorActiveChanged: {
-    if (!timeEditorActive && liveRefreshPending)
-      Qt.callLater(root.flushLiveRefresh)
+    if (!timeEditorActive && editorRefreshPending)
+      Qt.callLater(root.flushEditorRefresh)
   }
   onModeChanged: {
     if (mode === "add") {
@@ -451,17 +466,25 @@ Panel {
       mapClickPending = false
     }
   }
-  Component.onCompleted: refresh()
 
   Process {
     id: snapshotProcess
     stdout: StdioCollector { id: snapshotOutput; waitForEnd: true }
     stderr: StdioCollector { id: snapshotError; waitForEnd: true }
     onExited: function(exitCode) {
-      if (exitCode === 0) root.applySnapshot(snapshotOutput.text, !root.live)
-      else root.setStatus("World Clock backend needs an update. Install omarchy-world-clock-bin.", true)
+      var current = root.snapshotActiveGeneration === root.snapshotStateGeneration
+      var manual = root.snapshotActiveReference !== ""
+      if (exitCode === 0 && current && root.timeEditorActive
+          && !root.editorRefreshPending) {
+        root.editorRefreshPending = true
+        root.editorRefreshReference = root.snapshotActiveReference
+      } else if (exitCode === 0 && current) {
+        root.applySnapshot(snapshotOutput.text, manual)
+      } else if (exitCode !== 0 && current)
+        root.setStatus("World Clock backend needs an update. Install omarchy-world-clock-bin.", true)
+      root.snapshotActiveReference = ""
       Qt.callLater(root.flushSnapshotRequest)
-      Qt.callLater(root.flushLiveRefresh)
+      Qt.callLater(root.flushEditorRefresh)
     }
   }
 
@@ -476,6 +499,7 @@ Panel {
       }
       try {
         var payload = JSON.parse(String(convertOutput.text || ""))
+        root.invalidateSnapshotRequests()
         root.live = false
         root.applySnapshot(JSON.stringify(payload.snapshot), true)
       } catch (error) {
@@ -500,6 +524,7 @@ Panel {
         root.mapClickPending = false
         root.setStatus("Location added.", false)
       }
+      root.invalidateSnapshotRequests()
       root.requestSnapshot(root.live ? "" : String(root.snapshot.reference_utc || ""))
       root.notifyHost()
     }
@@ -571,12 +596,6 @@ Panel {
     id: searchDebounce
     interval: 180
     onTriggered: root.startSearch()
-  }
-
-  SystemClock {
-    id: minuteClock
-    precision: SystemClock.Minutes
-    onDateChanged: root.requestLiveSnapshot()
   }
 
   KeyboardPanel {

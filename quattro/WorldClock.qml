@@ -50,7 +50,9 @@ BarWidget {
 
   function refresh() {
     if (!moduleProcess.running) moduleProcess.running = true
-    if (panelLoader.item && panelLoader.item.refresh) panelLoader.item.refresh()
+    if (panelLoader.item && panelLoader.item.opened && panelLoader.item.live
+        && panelLoader.item.refresh)
+      panelLoader.item.refresh()
   }
 
   function open() {

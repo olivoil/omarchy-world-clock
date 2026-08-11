@@ -410,16 +410,20 @@ fn time_entry_width_chars(time_format: &str) -> i32 {
 }
 
 fn read_entry_count(entries: &[TimezoneEntry], local_timezone: &str) -> usize {
-    entries
-        .iter()
-        .filter(|entry| entry.timezone != local_timezone)
-        .count()
+    entries.len().saturating_sub(usize::from(
+        entries.iter().any(|entry| entry.timezone == local_timezone),
+    ))
 }
 
 fn visible_read_entries(entries: &[TimezoneEntry], local_timezone: &str) -> Vec<TimezoneEntry> {
+    let local_entry_index = entries
+        .iter()
+        .position(|entry| entry.timezone == local_timezone);
     entries
         .iter()
-        .filter(|entry| entry.timezone != local_timezone)
+        .enumerate()
+        .filter(|(index, _)| Some(*index) != local_entry_index)
+        .map(|(_, entry)| entry)
         .take(READ_CARD_LIMIT)
         .cloned()
         .collect()
@@ -457,19 +461,17 @@ fn timeline_entries(
     reference_utc: DateTime<Utc>,
 ) -> Vec<TimezoneEntry> {
     let mut visible = visible_read_entries(entries, local_timezone);
-    if !visible.iter().any(|entry| entry.timezone == local_timezone) {
-        let local_entry = entries
-            .iter()
-            .find(|entry| entry.timezone == local_timezone)
-            .cloned()
-            .unwrap_or(TimezoneEntry {
-                timezone: local_timezone.to_string(),
-                label: String::new(),
-                latitude: None,
-                longitude: None,
-            });
-        visible.push(local_entry);
-    }
+    let local_entry = entries
+        .iter()
+        .find(|entry| entry.timezone == local_timezone)
+        .cloned()
+        .unwrap_or(TimezoneEntry {
+            timezone: local_timezone.to_string(),
+            label: String::new(),
+            latitude: None,
+            longitude: None,
+        });
+    visible.push(local_entry);
     sort_read_entries_by_time(&mut visible, reference_utc, local_timezone);
     visible
 }
@@ -1836,9 +1838,9 @@ fn rebuild_read_cards(state: &mut PopupState, entries: &[TimezoneEntry]) {
             });
 
             let state_for_remove = state_handle.clone();
-            let timezone_name_for_remove = entry.timezone.clone();
+            let entry_for_remove = entry.clone();
             widgets.remove_button.connect_clicked(move |_| {
-                remove_timezone_entry(&state_for_remove, &timezone_name_for_remove);
+                remove_timezone_entry(&state_for_remove, &entry_for_remove);
             });
         }
 
@@ -1857,11 +1859,11 @@ fn update_read_cards(
     let current_order = state
         .read_cards
         .iter()
-        .map(|card| card.entry.timezone.clone())
+        .map(|card| card.entry.location_key())
         .collect::<Vec<_>>();
     let desired_order = entries
         .iter()
-        .map(|entry| entry.timezone.clone())
+        .map(TimezoneEntry::location_key)
         .collect::<Vec<_>>();
 
     if current_order != desired_order && state.active_time_entry.is_none() {
@@ -2022,7 +2024,7 @@ fn should_focus_summary_time_entry(
         && active_time_entry.is_none()
 }
 
-fn remove_timezone_entry(state_handle: &Rc<RefCell<PopupState>>, timezone_name: &str) {
+fn remove_timezone_entry(state_handle: &Rc<RefCell<PopupState>>, entry: &TimezoneEntry) {
     let config_manager = {
         let state = state_handle.borrow();
         if state.config.timezones.len() <= 1 {
@@ -2032,7 +2034,7 @@ fn remove_timezone_entry(state_handle: &Rc<RefCell<PopupState>>, timezone_name: 
         state.config_manager.clone()
     };
 
-    match config_manager.remove_timezone(timezone_name) {
+    match config_manager.remove_location(&entry.timezone, Some(&entry.label)) {
         Ok(config) => {
             let mut state = state_handle.borrow_mut();
             refresh_config_state(&mut state, config);
@@ -2131,14 +2133,18 @@ fn merge_search_results(
     remote_results: &[TimezoneSearchResult],
     limit: usize,
 ) -> Vec<TimezoneSearchResult> {
-    let mut seen_timezones = HashSet::new();
+    let mut seen_locations = HashSet::new();
     let mut results: Vec<TimezoneSearchResult> = Vec::new();
     for result in local_results.iter().chain(remote_results.iter()) {
-        if !seen_timezones.insert(result.timezone.clone()) {
-            if let Some(existing) = results
-                .iter_mut()
-                .find(|existing| existing.timezone == result.timezone)
-            {
+        let identity = (
+            result.timezone.clone(),
+            TimezoneResolver::normalize(&result.title),
+        );
+        if !seen_locations.insert(identity.clone()) {
+            if let Some(existing) = results.iter_mut().find(|existing| {
+                existing.timezone == result.timezone
+                    && TimezoneResolver::normalize(&existing.title) == identity.1
+            }) {
                 if existing.latitude.is_none() && result.latitude.is_some() {
                     existing.latitude = result.latitude;
                     existing.longitude = result.longitude;
@@ -2667,7 +2673,7 @@ fn add_timezone(
             .config
             .timezones
             .iter()
-            .any(|entry| entry.timezone == timezone_name)
+            .any(|entry| entry.matches_location(timezone_name, label))
         {
             set_status(
                 &state,
@@ -3771,8 +3777,8 @@ mod tests {
     use super::{
         build_timeline_items, first_location_segment, format_timeline_zone_text,
         layout_map_location_markers, lng_lat_to_map_coordinates, map_coordinates_to_lng_lat,
-        merge_zone_tab_coordinates, parse_zone_tab_coordinate, read_card_row_width,
-        read_card_title, read_entry_count, screen_mode_for_read_entry_count,
+        merge_search_results, merge_zone_tab_coordinates, parse_zone_tab_coordinate,
+        read_card_row_width, read_card_title, read_entry_count, screen_mode_for_read_entry_count,
         search_result_subtitle, should_focus_summary_time_entry, sort_read_entries_by_time,
         summary_search_result, timeline_entries, timeline_side_hours,
         timeline_tick_relative_minutes, visible_read_entries, ActiveTimeEntry, MapCoordinate,
@@ -3856,6 +3862,47 @@ mod tests {
         let visible = visible_read_entries(&entries, "America/Cancun");
 
         assert!(visible.is_empty());
+    }
+
+    #[test]
+    fn visible_read_entries_keeps_a_second_place_in_the_local_timezone() {
+        let mut new_york = entry("America/New_York");
+        new_york.label = "New York".to_string();
+        let mut boston = entry("America/New_York");
+        boston.label = "Boston".to_string();
+
+        let entries = vec![new_york, boston];
+        let visible = visible_read_entries(&entries, "America/New_York");
+
+        assert_eq!(visible.len(), 1);
+        assert_eq!(visible[0].label, "Boston");
+        assert_eq!(read_entry_count(&entries, "America/New_York"), 1);
+    }
+
+    #[test]
+    fn merged_search_results_keep_distinct_places_in_one_timezone() {
+        let new_york = TimezoneSearchResult {
+            timezone: "America/New_York".to_string(),
+            title: "New York".to_string(),
+            subtitle: String::new(),
+            latitude: Some(40.7128),
+            longitude: Some(-74.0060),
+            open_meteo_attribution: false,
+        };
+        let boston = TimezoneSearchResult {
+            timezone: "America/New_York".to_string(),
+            title: "Boston, Massachusetts, United States".to_string(),
+            subtitle: String::new(),
+            latitude: Some(42.3601),
+            longitude: Some(-71.0589),
+            open_meteo_attribution: true,
+        };
+
+        let results = merge_search_results(&[new_york], &[boston], 8);
+
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].title, "New York");
+        assert_eq!(results[1].title, "Boston, Massachusetts, United States");
     }
 
     #[test]

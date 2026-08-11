@@ -127,22 +127,24 @@ fn clock_from_entry(
         relative_label: relative_label(relative_minutes),
         latitude: entry.latitude,
         longitude: entry.longitude,
-        pinned: config.pinned_timezone.as_deref() == Some(entry.timezone.as_str()),
+        pinned: config.is_pinned(entry),
     }
 }
 
-fn local_entry(config: &AppConfig, local_timezone: &str) -> TimezoneEntry {
-    config
+fn local_entry(config: &AppConfig, local_timezone: &str) -> (Option<usize>, TimezoneEntry) {
+    let index = config
         .timezones
         .iter()
-        .find(|entry| entry.timezone == local_timezone)
-        .cloned()
+        .position(|entry| entry.timezone == local_timezone);
+    let entry = index
+        .map(|index| config.timezones[index].clone())
         .unwrap_or_else(|| TimezoneEntry {
             timezone: local_timezone.to_string(),
             label: friendly_timezone_name(local_timezone),
             latitude: None,
             longitude: None,
-        })
+        });
+    (index, entry)
 }
 
 fn timeline_items(summary: &QuattroClock, clocks: &[QuattroClock]) -> Vec<QuattroTimelineItem> {
@@ -223,7 +225,7 @@ pub fn build_snapshot(
     local_timezone: &str,
     time_format: &str,
 ) -> QuattroSnapshot {
-    let summary_entry = local_entry(config, local_timezone);
+    let (summary_entry_index, summary_entry) = local_entry(config, local_timezone);
     let summary = clock_from_entry(
         &summary_entry,
         config,
@@ -235,7 +237,9 @@ pub fn build_snapshot(
     let mut entries = config
         .timezones
         .iter()
-        .filter(|entry| entry.timezone != local_timezone)
+        .enumerate()
+        .filter(|(index, _)| Some(*index) != summary_entry_index)
+        .map(|(_, entry)| entry)
         .collect::<Vec<_>>();
     entries.sort_by(|left, right| {
         wall_clock_delta_minutes(reference_utc, local_timezone, &left.timezone)
@@ -258,7 +262,7 @@ pub fn build_snapshot(
         local_timezone: local_timezone.to_string(),
         time_format: time_format.to_string(),
         configured_count: config.timezones.len(),
-        pinned_timezone: config.pinned_timezone.clone(),
+        pinned_timezone: config.pinned_entry().map(|entry| entry.timezone.clone()),
         summary,
         clocks,
         timeline,
@@ -268,7 +272,7 @@ pub fn build_snapshot(
 #[cfg(test)]
 mod tests {
     use super::build_snapshot;
-    use crate::config::{AppConfig, TimezoneEntry};
+    use crate::config::{AppConfig, LocationKey, TimezoneEntry};
     use chrono::{TimeZone, Utc};
 
     fn entry(timezone: &str, label: &str) -> TimezoneEntry {
@@ -288,7 +292,10 @@ mod tests {
                 entry("America/Cancun", "Local"),
                 entry("America/Vancouver", "Vancouver"),
             ],
-            pinned_timezone: Some("Europe/Paris".to_string()),
+            pinned_location: Some(LocationKey {
+                timezone: "Europe/Paris".to_string(),
+                label: "Rennes".to_string(),
+            }),
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
@@ -310,7 +317,7 @@ mod tests {
                 entry("America/Cancun", "Local"),
                 entry("Asia/Kolkata", "Delhi"),
             ],
-            pinned_timezone: None,
+            pinned_location: None,
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 8, 11, 23, 45, 0).unwrap();
@@ -322,6 +329,29 @@ mod tests {
     }
 
     #[test]
+    fn snapshot_keeps_a_second_place_in_the_local_timezone() {
+        let config = AppConfig {
+            timezones: vec![
+                entry("America/New_York", "New York"),
+                entry("America/New_York", "Boston"),
+            ],
+            pinned_location: Some(LocationKey {
+                timezone: "America/New_York".to_string(),
+                label: "Boston".to_string(),
+            }),
+            disable_open_meteo_geolocation: false,
+        };
+        let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
+
+        let snapshot = build_snapshot(&config, now, "America/New_York", "24h");
+
+        assert_eq!(snapshot.summary.title, "New York");
+        assert_eq!(snapshot.clocks.len(), 1);
+        assert_eq!(snapshot.clocks[0].title, "Boston");
+        assert!(snapshot.clocks[0].pinned);
+    }
+
+    #[test]
     fn timeline_alternates_dense_hourly_offsets_across_two_lanes() {
         let config = AppConfig {
             timezones: vec![
@@ -330,7 +360,7 @@ mod tests {
                 entry("America/Cancun", "Local"),
                 entry("America/New_York", "New York"),
             ],
-            pinned_timezone: None,
+            pinned_location: None,
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();

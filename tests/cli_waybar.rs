@@ -22,7 +22,7 @@ fn generic_install_detects_waybar_and_preserves_existing_locations() {
     let user_config_path = home.join(".config/omarchy-world-clock/config.json");
     let omarchy_path = sandbox.path().join("omarchy-3");
     let existing_user_config = r#"{
-  "version": 5,
+  "version": 6,
   "timezones": [
     {
       "timezone": "UTC",
@@ -349,4 +349,97 @@ fn quattro_backend_commands_snapshot_convert_search_and_pin() {
         serde_json::from_str(&fs::read_to_string(config_path).expect("read config"))
             .expect("parse config");
     assert!(config.get("pinned_timezone").is_none());
+}
+
+#[test]
+fn quattro_backend_keeps_distinct_places_that_share_a_timezone() {
+    let sandbox = tempfile::tempdir().expect("create sandbox");
+    let config_path = sandbox.path().join("config.json");
+    fs::write(
+        &config_path,
+        r#"{
+  "version": 5,
+  "timezones": [
+    { "timezone": "UTC", "label": "Home" },
+    {
+      "timezone": "America/New_York",
+      "label": "New York",
+      "latitude": 40.7128,
+      "longitude": -74.0060
+    }
+  ]
+}
+"#,
+    )
+    .expect("write config");
+    let binary = env!("CARGO_BIN_EXE_omarchy-world-clock");
+    let boston_label = "Boston, Massachusetts, United States";
+
+    let add = Command::new(binary)
+        .args([
+            "add",
+            "America/New_York",
+            "--label",
+            boston_label,
+            "--latitude",
+            "42.3601",
+            "--longitude",
+            "-71.0589",
+        ])
+        .env("OMARCHY_WORLD_CLOCK_CONFIG", &config_path)
+        .status()
+        .expect("add Boston");
+    assert!(add.success(), "Boston should coexist with New York");
+
+    let pin = Command::new(binary)
+        .args(["pin", "America/New_York", "--label", boston_label])
+        .env("OMARCHY_WORLD_CLOCK_CONFIG", &config_path)
+        .status()
+        .expect("pin Boston");
+    assert!(pin.success());
+
+    let snapshot = Command::new(binary)
+        .args(["snapshot", "--at", "2026-08-11T11:05:00Z"])
+        .env("OMARCHY_WORLD_CLOCK_CONFIG", &config_path)
+        .output()
+        .expect("render snapshot");
+    assert!(snapshot.status.success());
+    let snapshot: serde_json::Value =
+        serde_json::from_slice(&snapshot.stdout).expect("parse snapshot");
+    let same_zone = snapshot["clocks"]
+        .as_array()
+        .expect("clock list")
+        .iter()
+        .filter(|clock| clock["timezone"] == "America/New_York")
+        .collect::<Vec<_>>();
+    assert_eq!(same_zone.len(), 2);
+    assert!(same_zone
+        .iter()
+        .any(|clock| clock["label"] == boston_label && clock["pinned"] == true));
+    assert!(same_zone
+        .iter()
+        .any(|clock| clock["label"] == "New York" && clock["pinned"] == false));
+
+    let remove = Command::new(binary)
+        .args(["remove", "America/New_York", "--label", boston_label])
+        .env("OMARCHY_WORLD_CLOCK_CONFIG", &config_path)
+        .status()
+        .expect("remove Boston");
+    assert!(remove.success());
+
+    let snapshot = Command::new(binary)
+        .arg("snapshot")
+        .env("OMARCHY_WORLD_CLOCK_CONFIG", &config_path)
+        .output()
+        .expect("render updated snapshot");
+    let snapshot: serde_json::Value =
+        serde_json::from_slice(&snapshot.stdout).expect("parse updated snapshot");
+    let same_zone = snapshot["clocks"]
+        .as_array()
+        .expect("clock list")
+        .iter()
+        .filter(|clock| clock["timezone"] == "America/New_York")
+        .collect::<Vec<_>>();
+    assert_eq!(same_zone.len(), 1);
+    assert_eq!(same_zone[0]["label"], "New York");
 }

@@ -405,10 +405,16 @@ fn module_payload_from_config_with_time_format(
     time_format: &str,
 ) -> ModulePayload {
     let anchor = zoned_datetime(now, local_timezone);
+    let local_entry_index = config
+        .timezones
+        .iter()
+        .position(|entry| entry.timezone == local_timezone);
     let mut entries = config
         .timezones
         .iter()
-        .filter(|entry| entry.timezone != local_timezone)
+        .enumerate()
+        .filter(|(index, _)| Some(*index) != local_entry_index)
+        .map(|(_, entry)| entry)
         .collect::<Vec<_>>();
     entries.sort_by(|left, right| {
         let left_zoned = zoned_datetime(now, &left.timezone);
@@ -435,12 +441,7 @@ fn module_payload_from_config_with_time_format(
         })
         .collect();
 
-    let pinned_entry = config.pinned_timezone.as_deref().and_then(|timezone| {
-        config
-            .timezones
-            .iter()
-            .find(|entry| entry.timezone == timezone)
-    });
+    let pinned_entry = config.pinned_entry();
     let pinned_time = pinned_entry
         .map(|entry| format_display_time(&zoned_datetime(now, &entry.timezone), time_format));
     let pinned_label = pinned_entry.map(TimezoneEntry::read_card_title);
@@ -469,7 +470,7 @@ mod tests {
         module_payload_from_config_with_time_format, patch_config_text, patch_style_text,
         unpatch_config_text, unpatch_style_text,
     };
-    use crate::config::{AppConfig, TimezoneEntry};
+    use crate::config::{AppConfig, LocationKey, TimezoneEntry};
     use chrono::{TimeZone, Utc};
 
     const WAYBAR_CONFIG: &str = r#"{
@@ -549,7 +550,7 @@ mod tests {
                     longitude: None,
                 },
             ],
-            pinned_timezone: None,
+            pinned_location: None,
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 4, 16, 20, 26, 0).unwrap();
@@ -600,7 +601,7 @@ mod tests {
                     longitude: None,
                 },
             ],
-            pinned_timezone: None,
+            pinned_location: None,
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 4, 18, 5, 5, 0).unwrap();
@@ -639,7 +640,7 @@ mod tests {
                     longitude: None,
                 },
             ],
-            pinned_timezone: None,
+            pinned_location: None,
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 4, 18, 5, 5, 0).unwrap();
@@ -660,7 +661,7 @@ mod tests {
     fn module_payload_shows_empty_state() {
         let config = AppConfig {
             timezones: Vec::new(),
-            pinned_timezone: None,
+            pinned_location: None,
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 4, 17, 12, 0, 0).unwrap();
@@ -688,7 +689,10 @@ mod tests {
                     longitude: None,
                 },
             ],
-            pinned_timezone: Some("Europe/Paris".to_string()),
+            pinned_location: Some(LocationKey {
+                timezone: "Europe/Paris".to_string(),
+                label: "Home".to_string(),
+            }),
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();

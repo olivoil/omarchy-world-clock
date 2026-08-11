@@ -461,7 +461,7 @@ fn main() -> Result<()> {
                 optional_f64(&remaining_args, "--longitude")?,
             )?;
             if updated.timezones.len() == before.timezones.len() {
-                bail!("timezone is invalid or already configured: {timezone}");
+                bail!("location is invalid or already configured: {timezone}");
             }
         }
         "remove" => {
@@ -472,13 +472,19 @@ fn main() -> Result<()> {
             if manager.load()?.timezones.len() <= 1 {
                 bail!("keep at least one timezone in World Clock");
             }
-            manager.remove_timezone(timezone)?;
+            manager.remove_location(
+                timezone,
+                optional_flag(&remaining_args, "--label")?.as_deref(),
+            )?;
         }
         "pin" => {
             let timezone = remaining_args
                 .first()
                 .ok_or_else(|| anyhow::anyhow!("missing timezone to pin"))?;
-            ConfigManager::new(None).set_pinned_timezone(Some(timezone))?;
+            ConfigManager::new(None).set_pinned_location(
+                Some(timezone),
+                optional_flag(&remaining_args, "--label")?.as_deref(),
+            )?;
         }
         "unpin" => {
             ConfigManager::new(None).set_pinned_timezone(None)?;

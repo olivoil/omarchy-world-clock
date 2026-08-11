@@ -348,8 +348,11 @@ Example:
 
 ```json
 {
-  "version": 5,
-  "pinned_timezone": "Europe/Paris",
+  "version": 6,
+  "pinned_location": {
+    "timezone": "Europe/Paris",
+    "label": "Rennes"
+  },
   "timezones": [
     {
       "timezone": "America/Cancun",

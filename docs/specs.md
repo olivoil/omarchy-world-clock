@@ -81,15 +81,18 @@ Persisted settings:
 - configured timezone entries
 - optional display labels
 - optional latitude and longitude for map placement
-- optional pinned timezone
+- optional pinned location
 - optional Open-Meteo geocoding opt-out
 
 Expected config shape:
 
 ```json
 {
-  "version": 5,
-  "pinned_timezone": "Europe/Paris",
+  "version": 6,
+  "pinned_location": {
+    "timezone": "Europe/Paris",
+    "label": "Rennes"
+  },
   "timezones": [
     {
       "timezone": "America/Cancun",
@@ -110,11 +113,13 @@ Expected config shape:
 Persistence rules:
 
 - timezone names are canonicalized before being stored
-- duplicate timezone entries are not allowed
+- distinct places may share a timezone
+- duplicate places, identified by canonical timezone and normalized label, are
+  not allowed
 - saved order is preserved
 - empty labels are allowed and display as friendly timezone names
 - invalid coordinates are dropped
-- `pinned_timezone` must name a configured entry
+- `pinned_location` must match a configured entry
 - removing the pinned entry clears the pin
 - `disable_open_meteo_geolocation` defaults to `false`
 - `disable_open_meteo_geolocation` is only persisted when true
@@ -209,14 +214,15 @@ Search behavior:
   characters
 - remote place search is skipped when `disable_open_meteo_geolocation` is true
 - remote results are canonicalized to valid supported timezones
-- duplicate visible results are collapsed by canonical timezone
+- duplicate visible results are collapsed by canonical timezone and normalized
+  place label
 - Open-Meteo-sourced results show inline attribution next to the result metadata
 
 Add behavior:
 
-- selecting a visible result adds that timezone to the list
+- selecting a visible result adds that place to the list
 - pressing Enter adds the first matching result or the exact timezone
-- adding a timezone that already exists shows an error instead of duplicating it
+- adding a place that already exists shows an error instead of duplicating it
 - after a successful add, the panel stays ready for another search
 
 ## Map Behavior
@@ -269,13 +275,15 @@ Open-Meteo requirements reflected in the product:
 ## Pin Behavior
 
 - Edit mode offers `PIN` on each non-local location.
-- Pinning a different card replaces the previous pin; only one timezone can be
+- Pinning a different card replaces the previous pin; only one location can be
   pinned.
 - The pinned time follows the system's 12/24-hour format and updates on minute
   boundaries.
-- The pinned timezone is stored by canonical timezone identifier, so changing
-  the system timezone while traveling does not change the saved home clock.
-- `UNPIN`, removing the pinned timezone, or normalizing an invalid pin returns
+- The pin stores both the canonical timezone and place label, so places such as
+  Boston and New York remain independently addressable even though they share a
+  timezone. Changing the system timezone while traveling does not change the
+  saved home clock.
+- `UNPIN`, removing the pinned location, or normalizing an invalid pin returns
   the bar entry to its icon-only state.
 
 ## Empty State

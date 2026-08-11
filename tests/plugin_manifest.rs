@@ -43,14 +43,32 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("readonly property int maxClocks: 9"));
     assert!(panel.contains("source: Qt.resolvedUrl(\"../assets/world-map.png\")"));
     assert!(panel.contains("backendCommand, \"locate\""));
+    assert!(panel.contains("id: searchResultOverlay"));
+    assert!(panel.contains(
+        "height: Math.min(root.searchResults.length * Style.space(48), mapCanvas.height)"
+    ));
+    assert!(panel.contains("id: searchResultList"));
+    assert!(panel.contains("name === \"pin\" || name === \"remove\""));
+    assert!(panel.contains("result.label !== null && result.label !== undefined"));
     assert!(panel.contains("id: timelineTickRepeater"));
     assert!(panel.contains("function focusSummaryEditor()"));
+    assert!(panel.contains("function focusAddField()"));
+    assert!(panel.contains("addField.forceActiveFocus(Qt.ShortcutFocusReason)"));
+    assert!(panel.contains("if (mode === \"add\")"));
     assert!(panel.contains("if (root.mode === \"read\") root.focusSummaryEditor()"));
     assert!(panel.contains("Qt.callLater(function()"));
+    assert!(panel.contains("readonly property string currentLocationTitle"));
+    assert!(panel.contains("readonly property string currentTimezoneMetadata"));
+    assert!(
+        panel.contains("root.mode === \"add\" ? \"Add a Location\" : root.currentLocationTitle")
+    );
+    assert!(panel.contains("text: root.currentTimezoneMetadata"));
     assert!(panel.contains("id: clockRows"));
     assert!(panel.contains("anchors.horizontalCenter: parent.horizontalCenter"));
     assert!(panel.contains("anchors.leftMargin: Style.space(10)"));
-    assert!(!panel.contains("id: clockCard"));
+    assert!(panel.contains("id: clockSurface"));
+    assert!(panel.contains("color: Style.normalFillFor(root.contentForeground, Color.accent)"));
+    assert!(panel.contains("radius: Style.cornerRadius"));
 
     assert!(qml.contains("function editCurrentTime()"));
     assert!(qml.contains("function edit(): void { root.editCurrentTime() }"));

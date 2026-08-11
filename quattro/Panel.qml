@@ -51,6 +51,16 @@ Panel {
   readonly property var clocks: snapshot && Array.isArray(snapshot.clocks) ? snapshot.clocks : []
   readonly property var timeline: snapshot && Array.isArray(snapshot.timeline) ? snapshot.timeline : []
   readonly property var summary: snapshot && snapshot.summary ? snapshot.summary : ({ time: "--:--", title: "", timezone: "", day: "", notation: "" })
+  readonly property string currentLocationTitle: {
+    var title = String(summary.title || summary.label || "").trim()
+    return title || "World Clock"
+  }
+  readonly property string currentTimezoneMetadata: {
+    var timezone = String(summary.timezone || "").trim()
+    var notation = String(summary.notation || "").trim().toUpperCase()
+    if (timezone && notation) return timezone + "  ·  " + notation
+    return timezone || notation
+  }
   readonly property int maxClocks: 9
   readonly property bool canRemove: Number(snapshot.configured_count || 0) > 1
   readonly property bool canAdd: clocks.length < maxClocks
@@ -94,11 +104,19 @@ Panel {
     Qt.callLater(root.focusSummaryEditor)
   }
 
+  function focusAddField() {
+    Qt.callLater(function() {
+      if (!opened || mode !== "add" || !canAdd) return
+      addField.forceActiveFocus(Qt.ShortcutFocusReason)
+      addField.selectAll()
+    })
+  }
+
   function openAdd() {
     mode = "add"
     controller.show()
     refresh()
-    Qt.callLater(addField.forceActiveFocus)
+    focusAddField()
   }
 
   function close() {
@@ -187,9 +205,11 @@ Panel {
     actionName = name
     var command = [backendCommand, name]
     if (name !== "unpin") command.push(String(timezone || ""))
-    if (name === "add" && result) {
-      command.push("--label", String(result.title || ""))
-      if (result.latitude !== null && result.latitude !== undefined
+    if ((name === "add" || name === "pin" || name === "remove") && result) {
+      var actionLabel = result.label !== null && result.label !== undefined
+        ? result.label : result.title
+      command.push("--label", String(actionLabel || ""))
+      if (name === "add" && result.latitude !== null && result.latitude !== undefined
           && result.longitude !== null && result.longitude !== undefined) {
         command.push("--latitude", String(result.latitude))
         command.push("--longitude", String(result.longitude))
@@ -200,11 +220,11 @@ Panel {
   }
 
   function togglePin(clock) {
-    runAction(clock.pinned ? "unpin" : "pin", clock.timezone, null)
+    runAction(clock.pinned ? "unpin" : "pin", clock.timezone, clock)
   }
 
   function removeClock(clock) {
-    if (canRemove) runAction("remove", clock.timezone, null)
+    if (canRemove) runAction("remove", clock.timezone, clock)
   }
 
   function scheduleSearch() {
@@ -366,7 +386,9 @@ Panel {
 
   onOpenedChanged: if (opened) refresh()
   onModeChanged: {
-    if (mode !== "add") {
+    if (mode === "add") {
+      focusAddField()
+    } else {
       mapSelection = null
       mapClickPending = false
     }
@@ -519,7 +541,7 @@ Panel {
       onTabRequested: function(direction) { root.switchPanel(direction) }
       onReturnRequested: {
         if (root.mode === "read") root.focusSummaryEditor()
-        else if (root.mode === "add") addField.forceActiveFocus()
+        else if (root.mode === "add") root.focusAddField()
       }
       onTextKey: function(text) {
         if (text === "a" || text === "A") root.mode = "add"
@@ -567,7 +589,7 @@ Panel {
             Text {
               id: headerTitle
               anchors.centerIn: parent
-              text: root.mode === "add" ? "Add a Location" : "World Clock"
+              text: root.mode === "add" ? "Add a Location" : root.currentLocationTitle
               color: root.contentForeground
               font.family: root.contentFontFamily
               font.pixelSize: Style.font.title
@@ -642,11 +664,10 @@ Panel {
               }
 
               Text {
-                anchors.top: summaryInput.bottom
-                anchors.topMargin: Style.space(7)
-                anchors.horizontalCenter: parent.horizontalCenter
-                text: String(root.summary.title || root.summary.label || "").toUpperCase()
-                  + (root.summary.notation ? "  ·  " + String(root.summary.notation).toUpperCase() : "")
+              anchors.top: summaryInput.bottom
+              anchors.topMargin: Style.space(7)
+              anchors.horizontalCenter: parent.horizontalCenter
+              text: root.currentTimezoneMetadata
                 color: Qt.darker(root.contentForeground, 1.45)
                 font.family: root.contentFontFamily
                 font.pixelSize: Style.font.bodySmall
@@ -778,15 +799,6 @@ Panel {
               }
             }
 
-            Rectangle {
-              visible: root.clocks.length > 0
-              anchors.horizontalCenter: parent.horizontalCenter
-              width: parent.width - Style.space(36)
-              height: Style.spacing.hairline
-              color: root.contentForeground
-              opacity: 0.12
-            }
-
             Column {
               id: clockRows
               anchors.horizontalCenter: parent.horizontalCenter
@@ -820,6 +832,13 @@ Panel {
                         root.clocks[clockRow.startIndex + index]
                       width: clockRow.cellWidth
                       height: clockRow.height
+
+                      Rectangle {
+                        id: clockSurface
+                        anchors.fill: parent
+                        radius: Style.cornerRadius
+                        color: Style.normalFillFor(root.contentForeground, Color.accent)
+                      }
 
                       Column {
                         anchors.fill: parent
@@ -968,57 +987,6 @@ Panel {
               font.pixelSize: Style.font.body
             }
 
-            Column {
-              visible: root.searchResults.length > 0
-              anchors.horizontalCenter: parent.horizontalCenter
-              width: addField.width
-              spacing: 0
-
-              Repeater {
-                model: root.searchResults
-
-                Button {
-                  id: resultButton
-                  required property var modelData
-                  width: parent.width
-                  height: Style.space(48)
-                  enabled: root.canAdd && !actionProcess.running
-                  leftAlign: true
-                  text: ""
-                  onClicked: root.runAction("add", resultButton.modelData.timezone, resultButton.modelData)
-
-                  Column {
-                    anchors.left: parent.left
-                    anchors.leftMargin: Style.spacing.rowPaddingX
-                    anchors.right: parent.right
-                    anchors.rightMargin: Style.spacing.rowPaddingX
-                    anchors.verticalCenter: parent.verticalCenter
-                    spacing: Style.space(2)
-
-                    Text {
-                      width: parent.width
-                      text: resultButton.modelData.title
-                      color: root.contentForeground
-                      font.family: root.contentFontFamily
-                      font.pixelSize: Style.font.body
-                      font.bold: true
-                      elide: Text.ElideRight
-                    }
-
-                    Text {
-                      width: parent.width
-                      text: resultButton.modelData.subtitle
-                        + (resultButton.modelData.open_meteo_attribution ? "  ·  Open-Meteo" : "")
-                      color: Qt.darker(root.contentForeground, 1.5)
-                      font.family: root.contentFontFamily
-                      font.pixelSize: Style.font.caption
-                      elide: Text.ElideRight
-                    }
-                  }
-                }
-              }
-            }
-
             Item {
               id: mapCanvas
               visible: root.canAdd
@@ -1030,6 +998,67 @@ Panel {
               Rectangle {
                 anchors.fill: parent
                 color: Style.normalFillFor(root.contentForeground, Color.accent)
+              }
+
+              Rectangle {
+                id: searchResultOverlay
+                visible: root.searchResults.length > 0
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.right: parent.right
+                height: Math.min(root.searchResults.length * Style.space(48), mapCanvas.height)
+                z: 3
+                color: Color.background
+                clip: true
+
+                ListView {
+                  id: searchResultList
+                  anchors.fill: parent
+                  model: root.searchResults
+                  boundsBehavior: Flickable.StopAtBounds
+                  interactive: contentHeight > height
+                  clip: true
+
+                  delegate: Button {
+                    id: resultButton
+                    required property var modelData
+                    width: searchResultList.width
+                    height: Style.space(48)
+                    enabled: root.canAdd && !actionProcess.running
+                    leftAlign: true
+                    text: ""
+                    onClicked: root.runAction("add", resultButton.modelData.timezone, resultButton.modelData)
+
+                    Column {
+                      anchors.left: parent.left
+                      anchors.leftMargin: Style.spacing.rowPaddingX
+                      anchors.right: parent.right
+                      anchors.rightMargin: Style.spacing.rowPaddingX
+                      anchors.verticalCenter: parent.verticalCenter
+                      spacing: Style.space(2)
+
+                      Text {
+                        width: parent.width
+                        text: resultButton.modelData.title
+                        color: root.contentForeground
+                        font.family: root.contentFontFamily
+                        font.pixelSize: Style.font.body
+                        font.bold: true
+                        elide: Text.ElideRight
+                      }
+
+                      Text {
+                        width: parent.width
+                        text: resultButton.modelData.subtitle
+                          + (resultButton.modelData.open_meteo_attribution ? "  ·  Open-Meteo" : "")
+                        color: Qt.darker(root.contentForeground, 1.5)
+                        font.family: root.contentFontFamily
+                        font.pixelSize: Style.font.caption
+                        elide: Text.ElideRight
+                      }
+                    }
+                  }
+                }
               }
 
               Image {

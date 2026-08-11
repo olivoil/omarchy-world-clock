@@ -2154,9 +2154,14 @@ fn update_screen_mode(state: &PopupState) {
     state.panel_title.set_text(&title);
 
     state.live_button.set_visible(!in_add);
+    // The pinned local summary may be the only configured entry, which puts
+    // the card-free popup in Add mode. Keep its unpin action in the header.
     state
         .summary_unpin_button
-        .set_visible(!in_add && summary_entry_is_pinned(&state.config, &state.local_timezone));
+        .set_visible(summary_entry_is_pinned(
+            &state.config,
+            &state.local_timezone,
+        ));
     state.edit_button.set_visible(!in_add);
     if in_edit {
         state.edit_button.add_css_class("active");
@@ -4001,6 +4006,16 @@ mod tests {
         assert!(!summary_entry_is_pinned(&config, "America/New_York"));
 
         config.pinned_location = Some(new_york.location_key());
+        assert!(summary_entry_is_pinned(&config, "America/New_York"));
+
+        config.timezones = vec![new_york];
+        assert_eq!(
+            screen_mode_for_read_entry_count(
+                PopupScreen::Read,
+                read_entry_count(&config.timezones, "America/New_York"),
+            ),
+            PopupScreen::Add
+        );
         assert!(summary_entry_is_pinned(&config, "America/New_York"));
     }
 

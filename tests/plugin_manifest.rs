@@ -57,6 +57,12 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("if (mode === \"add\")"));
     assert!(panel.contains("if (root.mode === \"read\") root.focusSummaryEditor()"));
     assert!(panel.contains("Qt.callLater(function()"));
+    assert!(panel.contains("property bool liveRefreshPending: false"));
+    assert!(panel.contains("if (manual !== true && timeEditorActive)"));
+    assert!(panel.contains("onDateChanged: root.requestLiveSnapshot()"));
+    assert!(panel.contains("Qt.callLater(root.flushLiveRefresh)"));
+    assert!(panel.contains("https://open-meteo.com/"));
+    assert!(panel.contains("onLinkActivated: function(link) { Qt.openUrlExternally(link) }"));
     assert!(panel.contains("readonly property string currentLocationTitle"));
     assert!(panel.contains("readonly property string currentTimezoneMetadata"));
     assert!(

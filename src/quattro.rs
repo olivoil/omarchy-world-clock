@@ -1,4 +1,4 @@
-use crate::config::{AppConfig, TimezoneEntry, TimezoneSearchResult};
+use crate::config::{place_coordinate, AppConfig, TimezoneEntry, TimezoneSearchResult};
 use crate::time::{
     format_display_time, format_timezone_notation, friendly_timezone_name, zoned_datetime,
 };
@@ -7,6 +7,7 @@ use serde::Serialize;
 use std::collections::BTreeMap;
 
 pub const SNAPSHOT_SCHEMA_VERSION: u64 = 1;
+const QUATTRO_CLOCK_LIMIT: usize = 9;
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct QuattroClock {
@@ -116,6 +117,9 @@ fn clock_from_entry(
 ) -> QuattroClock {
     let zoned = zoned_datetime(reference_utc, &entry.timezone);
     let relative_minutes = wall_clock_delta_minutes(reference_utc, local_timezone, &entry.timezone);
+    let (latitude, longitude) = place_coordinate(entry)
+        .map(|(latitude, longitude)| (Some(latitude), Some(longitude)))
+        .unwrap_or((None, None));
     QuattroClock {
         timezone: entry.timezone.clone(),
         label: entry.display_label(),
@@ -125,8 +129,8 @@ fn clock_from_entry(
         notation: format_timezone_notation(&zoned),
         relative_minutes,
         relative_label: relative_label(relative_minutes),
-        latitude: entry.latitude,
-        longitude: entry.longitude,
+        latitude,
+        longitude,
         pinned: config.is_pinned(entry),
     }
 }
@@ -252,6 +256,7 @@ pub fn build_snapshot(
     });
     let clocks = entries
         .into_iter()
+        .take(QUATTRO_CLOCK_LIMIT)
         .map(|entry| clock_from_entry(entry, config, reference_utc, local_timezone, time_format))
         .collect::<Vec<_>>();
     let timeline = timeline_items(&summary, &clocks);
@@ -349,6 +354,47 @@ mod tests {
         assert_eq!(snapshot.clocks.len(), 1);
         assert_eq!(snapshot.clocks[0].title, "Boston");
         assert!(snapshot.clocks[0].pinned);
+    }
+
+    #[test]
+    fn snapshot_populates_timezone_coordinates_when_the_config_has_none() {
+        let config = AppConfig {
+            timezones: vec![entry("America/New_York", "New York")],
+            pinned_location: None,
+            disable_open_meteo_geolocation: false,
+        };
+        let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
+
+        let snapshot = build_snapshot(&config, now, "America/New_York", "24h");
+
+        assert!(snapshot.summary.latitude.is_some());
+        assert!(snapshot.summary.longitude.is_some());
+    }
+
+    #[test]
+    fn snapshot_caps_saved_clocks_when_the_current_timezone_is_not_configured() {
+        let config = AppConfig {
+            timezones: vec![
+                entry("America/Vancouver", "Vancouver"),
+                entry("America/Los_Angeles", "Los Angeles"),
+                entry("America/Denver", "Denver"),
+                entry("America/Chicago", "Chicago"),
+                entry("America/New_York", "New York"),
+                entry("America/Halifax", "Halifax"),
+                entry("Europe/London", "London"),
+                entry("Europe/Paris", "Paris"),
+                entry("Asia/Kolkata", "Delhi"),
+                entry("Asia/Tokyo", "Tokyo"),
+            ],
+            pinned_location: None,
+            disable_open_meteo_geolocation: false,
+        };
+        let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
+
+        let snapshot = build_snapshot(&config, now, "America/Cancun", "24h");
+
+        assert_eq!(snapshot.configured_count, 10);
+        assert_eq!(snapshot.clocks.len(), 9);
     }
 
     #[test]

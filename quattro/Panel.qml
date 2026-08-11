@@ -31,6 +31,8 @@ Panel {
   property string mode: "read"
   property bool live: true
   property bool editorActive: false
+  property bool timeEditorActive: false
+  property bool liveRefreshPending: false
   property string statusText: ""
   property bool statusError: false
   property string actionName: ""
@@ -154,6 +156,10 @@ Panel {
   }
 
   function applySnapshot(raw, manual) {
+    if (manual !== true && timeEditorActive) {
+      liveRefreshPending = true
+      return
+    }
     try {
       var payload = JSON.parse(String(raw || ""))
       if (!payload || Number(payload.schema_version) !== 1 || !payload.summary)
@@ -176,6 +182,30 @@ Panel {
     snapshotProcess.running = true
   }
 
+  function requestLiveSnapshot() {
+    if (!live) {
+      liveRefreshPending = false
+      return
+    }
+    if (timeEditorActive || snapshotProcess.running) {
+      liveRefreshPending = true
+      return
+    }
+    liveRefreshPending = false
+    requestSnapshot("")
+  }
+
+  function flushLiveRefresh() {
+    if (!liveRefreshPending) return
+    if (!live) {
+      liveRefreshPending = false
+      return
+    }
+    if (timeEditorActive || snapshotProcess.running) return
+    liveRefreshPending = false
+    requestSnapshot("")
+  }
+
   function refresh() {
     var reference = !live && snapshot ? String(snapshot.reference_utc || "") : ""
     requestSnapshot(reference)
@@ -183,13 +213,15 @@ Panel {
 
   function returnToLive() {
     live = true
-    requestSnapshot("")
+    requestLiveSnapshot()
   }
 
   function convertFrom(timezone, value) {
     var text = String(value || "").trim()
     if (!text || convertProcess.running) return
     editorActive = false
+    timeEditorActive = false
+    liveRefreshPending = false
     convertProcess.command = [
       backendCommand,
       "convert",
@@ -269,6 +301,14 @@ Panel {
   function compactMapLabel(value) {
     var label = String(value || "")
     return label.length <= 18 ? label : label.slice(0, 15) + "…"
+  }
+
+  function escapeHtml(value) {
+    return String(value || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/\"/g, "&quot;")
   }
 
   function mapLabelWidth(label) {
@@ -385,6 +425,10 @@ Panel {
   }
 
   onOpenedChanged: if (opened) refresh()
+  onTimeEditorActiveChanged: {
+    if (!timeEditorActive && liveRefreshPending)
+      Qt.callLater(root.flushLiveRefresh)
+  }
   onModeChanged: {
     if (mode === "add") {
       focusAddField()
@@ -402,6 +446,7 @@ Panel {
     onExited: function(exitCode) {
       if (exitCode === 0) root.applySnapshot(snapshotOutput.text, !root.live)
       else root.setStatus("World Clock backend needs an update. Install omarchy-world-clock-bin.", true)
+      Qt.callLater(root.flushLiveRefresh)
     }
   }
 
@@ -516,7 +561,7 @@ Panel {
   SystemClock {
     id: minuteClock
     precision: SystemClock.Minutes
-    onDateChanged: if (root.live) root.requestSnapshot("")
+    onDateChanged: root.requestLiveSnapshot()
   }
 
   KeyboardPanel {
@@ -650,6 +695,7 @@ Panel {
                 onAccepted: root.convertFrom(root.summary.timezone, text)
                 onActiveFocusChanged: {
                   root.editorActive = activeFocus
+                  root.timeEditorActive = activeFocus
                   if (!activeFocus && text !== root.summary.time) text = root.summary.time
                 }
               }
@@ -926,6 +972,7 @@ Panel {
                           onAccepted: root.convertFrom(clockCell.clockData.timezone, text)
                           onActiveFocusChanged: {
                             root.editorActive = activeFocus
+                            root.timeEditorActive = activeFocus
                             if (!activeFocus && text !== clockCell.clockData.time)
                               text = clockCell.clockData.time
                           }
@@ -1049,12 +1096,16 @@ Panel {
 
                       Text {
                         width: parent.width
-                        text: resultButton.modelData.subtitle
-                          + (resultButton.modelData.open_meteo_attribution ? "  ·  Open-Meteo" : "")
+                        textFormat: Text.RichText
+                        text: root.escapeHtml(resultButton.modelData.subtitle)
+                          + (resultButton.modelData.open_meteo_attribution
+                            ? "  ·  <a href=\"https://open-meteo.com/\">Open-Meteo</a>" : "")
                         color: Qt.darker(root.contentForeground, 1.5)
+                        linkColor: root.contentForeground
                         font.family: root.contentFontFamily
                         font.pixelSize: Style.font.caption
                         elide: Text.ElideRight
+                        onLinkActivated: function(link) { Qt.openUrlExternally(link) }
                       }
                     }
                   }

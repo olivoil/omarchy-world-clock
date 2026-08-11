@@ -5,7 +5,7 @@ use chrono_tz::{Tz, TZ_VARIANTS};
 use regex::Regex;
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::env;
 use std::ffi::CStr;
 use std::fs::{self, OpenOptions};
@@ -604,6 +604,99 @@ fn sanitize_place_coordinate(
             (Some(latitude), Some(longitude))
         }
         _ => (None, None),
+    }
+}
+
+fn parse_iso6709_component(component: &str, degree_digits: usize) -> Option<f64> {
+    let sign = match component.chars().next()? {
+        '+' => 1.0,
+        '-' => -1.0,
+        _ => return None,
+    };
+    let digits = &component[1..];
+    if digits.len() != degree_digits + 2 && digits.len() != degree_digits + 4 {
+        return None;
+    }
+
+    let degrees = digits.get(..degree_digits)?.parse::<f64>().ok()?;
+    let minutes = digits
+        .get(degree_digits..degree_digits + 2)?
+        .parse::<f64>()
+        .ok()?;
+    let seconds = if digits.len() == degree_digits + 4 {
+        digits
+            .get(degree_digits + 2..degree_digits + 4)?
+            .parse::<f64>()
+            .ok()?
+    } else {
+        0.0
+    };
+
+    if minutes >= 60.0 || seconds >= 60.0 {
+        return None;
+    }
+
+    Some(sign * (degrees + minutes / 60.0 + seconds / 3600.0))
+}
+
+fn parse_zone_tab_coordinate(value: &str) -> Option<(f64, f64)> {
+    let longitude_start = value
+        .char_indices()
+        .skip(1)
+        .find_map(|(index, character)| matches!(character, '+' | '-').then_some(index))?;
+    let latitude = parse_iso6709_component(value.get(..longitude_start)?, 2)?;
+    let longitude = parse_iso6709_component(value.get(longitude_start..)?, 3)?;
+    Some((latitude, longitude))
+}
+
+fn merge_zone_tab_coordinates(coordinates: &mut BTreeMap<String, (f64, f64)>, text: &str) {
+    for (timezone_name, coordinate) in text.lines().filter_map(|line| {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            return None;
+        }
+        let mut columns = trimmed.split('\t');
+        let _country_codes = columns.next()?;
+        let coordinate_text = columns.next()?;
+        let timezone_name = columns.next()?;
+        let coordinate = parse_zone_tab_coordinate(coordinate_text)?;
+        Some((timezone_name.to_string(), coordinate))
+    }) {
+        coordinates.entry(timezone_name).or_insert(coordinate);
+    }
+}
+
+fn timezone_coordinate_lookup() -> &'static BTreeMap<String, (f64, f64)> {
+    static COORDINATES: OnceLock<BTreeMap<String, (f64, f64)>> = OnceLock::new();
+    COORDINATES.get_or_init(|| {
+        let mut coordinates = BTreeMap::new();
+        for root in zoneinfo_roots() {
+            for filename in ["zone1970.tab", "zone.tab"] {
+                let Ok(text) = fs::read_to_string(root.join(filename)) else {
+                    continue;
+                };
+                merge_zone_tab_coordinates(&mut coordinates, &text);
+            }
+        }
+        coordinates
+    })
+}
+
+/// Return a persisted place coordinate, falling back to the canonical
+/// timezone coordinate bundled with the system tzdata. This stays local and
+/// cheap enough for the native snapshot path; remote geocoding remains a
+/// search-only operation.
+pub fn place_coordinate(entry: &TimezoneEntry) -> Option<(f64, f64)> {
+    match sanitize_place_coordinate(entry.latitude, entry.longitude) {
+        (Some(latitude), Some(longitude)) => Some((latitude, longitude)),
+        _ => {
+            let coordinates = timezone_coordinate_lookup();
+            coordinates.get(&entry.timezone).copied().or_else(|| {
+                coordinates
+                    .get(&canonical_timezone_name(&entry.timezone))
+                    .copied()
+            })
+        }
     }
 }
 
@@ -1543,9 +1636,10 @@ fn unique_words(value: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        canonical_timezone_name, detect_system_time_format_with_paths, AppConfig, ConfigManager,
-        LocationKey, TimezoneEntry,
+        canonical_timezone_name, detect_system_time_format_with_paths, merge_zone_tab_coordinates,
+        parse_zone_tab_coordinate, AppConfig, ConfigManager, LocationKey, TimezoneEntry,
     };
+    use std::collections::BTreeMap;
     use std::fs;
     use tempfile::TempDir;
 
@@ -1805,6 +1899,35 @@ mod tests {
         let loaded = manager.load_with_local_timezone("UTC").unwrap();
         assert_eq!(loaded.timezones[1].latitude, Some(30.2672));
         assert_eq!(loaded.timezones[1].longitude, Some(-97.7431));
+    }
+
+    #[test]
+    fn zone_tab_coordinates_parse_minutes_and_seconds() {
+        let cancun = parse_zone_tab_coordinate("+2105-08646").unwrap();
+        assert!((cancun.0 - 21.0833).abs() < 0.001);
+        assert!((cancun.1 + 86.7667).abs() < 0.001);
+
+        let new_york = parse_zone_tab_coordinate("+404251-0740023").unwrap();
+        assert!((new_york.0 - 40.7142).abs() < 0.001);
+        assert!((new_york.1 + 74.0064).abs() < 0.001);
+    }
+
+    #[test]
+    fn zone_tab_coordinates_merge_missing_entries_without_overwriting() {
+        let primary = "US\t+404251-0740023\tAmerica/New_York\n";
+        let fallback = "US\t+4100-07500\tAmerica/New_York\nCA\t+4916-12307\tAmerica/Vancouver\n";
+        let mut coordinates = BTreeMap::new();
+
+        merge_zone_tab_coordinates(&mut coordinates, primary);
+        merge_zone_tab_coordinates(&mut coordinates, fallback);
+
+        let new_york = coordinates.get("America/New_York").unwrap();
+        assert!((new_york.0 - 40.7142).abs() < 0.001);
+        assert!((new_york.1 + 74.0064).abs() < 0.001);
+
+        let vancouver = coordinates.get("America/Vancouver").unwrap();
+        assert!((vancouver.0 - 49.2667).abs() < 0.001);
+        assert!((vancouver.1 + 123.1167).abs() < 0.001);
     }
 
     #[test]

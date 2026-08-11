@@ -213,6 +213,28 @@ fn quattro_shell_running() -> bool {
         .is_ok_and(|output| output.status.success())
 }
 
+fn call_quattro_panel(method: &str) -> Result<Option<String>> {
+    if !quattro_shell_running() {
+        return Ok(None);
+    }
+
+    let output = Command::new("omarchy-shell")
+        .args([QUATTRO_PLUGIN_ID, method])
+        .output()
+        .with_context(|| format!("failed to call the native World Clock {method} command"))?;
+    if !output.status.success() {
+        let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        if detail.is_empty() {
+            bail!("failed to call the native World Clock {method} command");
+        }
+        bail!("failed to call the native World Clock {method} command: {detail}");
+    }
+
+    Ok(Some(
+        String::from_utf8_lossy(&output.stdout).trim().to_string(),
+    ))
+}
+
 fn install_shell(args: &[String]) -> Result<()> {
     if !quattro_shell_running() {
         bail!("Omarchy shell is not running; start it before installing the Quattro plugin");
@@ -490,29 +512,40 @@ fn main() -> Result<()> {
             ConfigManager::new(None).set_pinned_timezone(None)?;
         }
         "open" => {
-            if !popup_running(&pid_path) {
+            if call_quattro_panel("open")?.is_none() && !popup_running(&pid_path) {
                 spawn_popup()?;
             }
         }
         "close" => {
-            let _ = kill_popup(&pid_path);
+            if call_quattro_panel("close")?.is_none() {
+                let _ = kill_popup(&pid_path);
+            }
         }
         "toggle" => {
-            if popup_running(&pid_path) {
-                let _ = kill_popup(&pid_path);
-            } else {
-                spawn_popup()?;
+            if call_quattro_panel("toggle")?.is_none() {
+                if popup_running(&pid_path) {
+                    let _ = kill_popup(&pid_path);
+                } else {
+                    spawn_popup()?;
+                }
             }
         }
         "status" => {
-            println!(
-                "{}",
-                if popup_running(&pid_path) {
-                    "open"
-                } else {
-                    "closed"
+            if let Some(status) = call_quattro_panel("status")? {
+                if !matches!(status.as_str(), "open" | "closed") {
+                    bail!("native World Clock returned an invalid status: {status}");
                 }
-            );
+                println!("{status}");
+            } else {
+                println!(
+                    "{}",
+                    if popup_running(&pid_path) {
+                        "open"
+                    } else {
+                        "closed"
+                    }
+                );
+            }
         }
         "popup" => {
             if popup_running(&pid_path) {

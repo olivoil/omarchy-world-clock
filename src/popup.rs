@@ -1,7 +1,7 @@
 use crate::config::{
-    all_timezones, detect_local_timezone, first_location_segment, place_coordinate,
-    system_time_format, AppConfig, ConfigManager, LocationKey, RemotePlaceSearch, TimezoneEntry,
-    TimezoneResolver, TimezoneSearchResult,
+    all_timezones, detect_local_timezone, first_location_segment, non_local_location_count,
+    place_coordinate, system_time_format, AppConfig, ConfigManager, LocationKey, RemotePlaceSearch,
+    TimezoneEntry, TimezoneResolver, TimezoneSearchResult, CLOCK_CARD_LIMIT,
 };
 use crate::layout::{
     load_monitor_reserved_space, load_window_gap, popup_surface_size, popup_top_margin,
@@ -139,7 +139,7 @@ const TIMELINE_LABEL_LANE_GAP: f64 = 8.0;
 const TIMELINE_MIN_SIDE_HOURS: i64 = 12;
 const TIMELINE_EDGE_HOUR_MARGIN: i64 = 1;
 const READ_CARD_COLUMNS: i32 = 3;
-const READ_CARD_LIMIT: usize = 9;
+const READ_CARD_LIMIT: usize = CLOCK_CARD_LIMIT;
 const READ_CARD_SPACING: i32 = 18;
 const READ_CARD_WIDTH: i32 =
     (READ_TIMELINE_WIDTH - (READ_CARD_SPACING * (READ_CARD_COLUMNS - 1))) / READ_CARD_COLUMNS;
@@ -406,9 +406,7 @@ fn time_entry_width_chars(time_format: &str) -> i32 {
 }
 
 fn read_entry_count(entries: &[TimezoneEntry], local_timezone: &str) -> usize {
-    entries.len().saturating_sub(usize::from(
-        entries.iter().any(|entry| entry.timezone == local_timezone),
-    ))
+    non_local_location_count(entries, local_timezone)
 }
 
 fn visible_read_entries(entries: &[TimezoneEntry], local_timezone: &str) -> Vec<TimezoneEntry> {

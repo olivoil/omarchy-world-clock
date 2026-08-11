@@ -19,6 +19,7 @@ use unicode_normalization::{char::is_combining_mark, UnicodeNormalization};
 
 pub const CONFIG_VERSION: u64 = 6;
 pub const LOCAL_TIMEZONE_MIGRATION_VERSION: u64 = 2;
+pub const CLOCK_CARD_LIMIT: usize = 9;
 
 const STANDARD_TZ_REGIONS: [&str; 10] = [
     "Africa",
@@ -89,6 +90,13 @@ impl LocationKey {
     pub fn matches(&self, entry: &TimezoneEntry) -> bool {
         entry.matches_location(&self.timezone, &self.label)
     }
+}
+
+pub fn non_local_location_count(entries: &[TimezoneEntry], local_timezone: &str) -> usize {
+    let local_timezone = canonical_timezone_name(local_timezone);
+    entries.len().saturating_sub(usize::from(
+        entries.iter().any(|entry| entry.timezone == local_timezone),
+    ))
 }
 
 impl AppConfig {
@@ -344,7 +352,25 @@ impl ConfigManager {
         latitude: Option<f64>,
         longitude: Option<f64>,
     ) -> anyhow::Result<AppConfig> {
-        let mut config = self.load()?;
+        let local_timezone = detect_local_timezone();
+        self.add_timezone_with_coordinate_for_local(
+            timezone_name,
+            label,
+            latitude,
+            longitude,
+            &local_timezone,
+        )
+    }
+
+    fn add_timezone_with_coordinate_for_local(
+        &self,
+        timezone_name: &str,
+        label: &str,
+        latitude: Option<f64>,
+        longitude: Option<f64>,
+        local_timezone: &str,
+    ) -> anyhow::Result<AppConfig> {
+        let mut config = self.load_with_local_timezone(local_timezone)?;
         let timezone_name = canonical_timezone_name(timezone_name);
         if timezone_name.is_empty() || !is_valid_timezone(&timezone_name) {
             return Ok(config);
@@ -363,6 +389,11 @@ impl ConfigManager {
                 longitude,
             });
             config = self.normalize_config(config);
+            if non_local_location_count(&config.timezones, local_timezone) > CLOCK_CARD_LIMIT {
+                anyhow::bail!(
+                    "World Clock can show up to {CLOCK_CARD_LIMIT} locations; remove one before adding another"
+                );
+            }
             self.save(&config)?;
         }
         Ok(config)
@@ -1637,7 +1668,8 @@ fn unique_words(value: &str) -> Vec<String> {
 mod tests {
     use super::{
         canonical_timezone_name, detect_system_time_format_with_paths, merge_zone_tab_coordinates,
-        parse_zone_tab_coordinate, AppConfig, ConfigManager, LocationKey, TimezoneEntry,
+        non_local_location_count, parse_zone_tab_coordinate, AppConfig, ConfigManager, LocationKey,
+        TimezoneEntry, CLOCK_CARD_LIMIT,
     };
     use std::collections::BTreeMap;
     use std::fs;
@@ -1899,6 +1931,92 @@ mod tests {
         let loaded = manager.load_with_local_timezone("UTC").unwrap();
         assert_eq!(loaded.timezones[1].latitude, Some(30.2672));
         assert_eq!(loaded.timezones[1].longitude, Some(-97.7431));
+    }
+
+    #[test]
+    fn add_timezone_enforces_the_non_local_card_limit_before_saving() {
+        let temp_dir = TempDir::new().unwrap();
+        let manager = manager_in(&temp_dir);
+        manager.load_with_local_timezone("UTC").unwrap();
+
+        let locations = [
+            ("America/Vancouver", "Vancouver"),
+            ("America/Denver", "Denver"),
+            ("America/Chicago", "Chicago"),
+            ("America/New_York", "New York"),
+            ("Europe/London", "London"),
+            ("Europe/Paris", "Paris"),
+            ("Asia/Kolkata", "New Delhi"),
+            ("Asia/Tokyo", "Tokyo"),
+            ("Australia/Sydney", "Sydney"),
+        ];
+        for (timezone, label) in locations {
+            manager
+                .add_timezone_with_coordinate_for_local(timezone, label, None, None, "UTC")
+                .unwrap();
+        }
+
+        let error = manager
+            .add_timezone_with_coordinate_for_local(
+                "Pacific/Auckland",
+                "Auckland",
+                None,
+                None,
+                "UTC",
+            )
+            .unwrap_err();
+        assert!(error.to_string().contains("up to 9 locations"));
+
+        let saved = manager.load_with_local_timezone("UTC").unwrap();
+        assert_eq!(
+            non_local_location_count(&saved.timezones, "UTC"),
+            CLOCK_CARD_LIMIT
+        );
+        assert!(!saved
+            .timezones
+            .iter()
+            .any(|entry| entry.label == "Auckland"));
+    }
+
+    #[test]
+    fn add_timezone_allows_the_local_summary_at_the_card_limit() {
+        let temp_dir = TempDir::new().unwrap();
+        let manager = manager_in(&temp_dir);
+        let timezones = [
+            "America/Vancouver",
+            "America/Denver",
+            "America/Chicago",
+            "America/New_York",
+            "Europe/London",
+            "Europe/Paris",
+            "Asia/Kolkata",
+            "Asia/Tokyo",
+            "Australia/Sydney",
+        ]
+        .into_iter()
+        .map(|timezone| TimezoneEntry {
+            timezone: timezone.to_string(),
+            label: String::new(),
+            latitude: None,
+            longitude: None,
+        })
+        .collect();
+        manager
+            .save(&AppConfig {
+                timezones,
+                pinned_location: None,
+                disable_open_meteo_geolocation: false,
+            })
+            .unwrap();
+
+        let updated = manager
+            .add_timezone_with_coordinate_for_local("UTC", "Home", None, None, "UTC")
+            .unwrap();
+        assert_eq!(updated.timezones.len(), CLOCK_CARD_LIMIT + 1);
+        assert_eq!(
+            non_local_location_count(&updated.timezones, "UTC"),
+            CLOCK_CARD_LIMIT
+        );
     }
 
     #[test]

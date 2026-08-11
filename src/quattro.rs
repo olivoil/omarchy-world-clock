@@ -1,4 +1,6 @@
-use crate::config::{place_coordinate, AppConfig, TimezoneEntry, TimezoneSearchResult};
+use crate::config::{
+    place_coordinate, AppConfig, TimezoneEntry, TimezoneSearchResult, CLOCK_CARD_LIMIT,
+};
 use crate::time::{
     format_display_time, format_timezone_notation, friendly_timezone_name, zoned_datetime,
 };
@@ -7,7 +9,7 @@ use serde::Serialize;
 use std::collections::BTreeMap;
 
 pub const SNAPSHOT_SCHEMA_VERSION: u64 = 1;
-const QUATTRO_CLOCK_LIMIT: usize = 9;
+const QUATTRO_CLOCK_LIMIT: usize = CLOCK_CARD_LIMIT;
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct QuattroClock {

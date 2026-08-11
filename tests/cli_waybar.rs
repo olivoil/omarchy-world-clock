@@ -223,6 +223,7 @@ fn popup_lifecycle_commands_report_closed_state_without_a_popup() {
     let status = Command::new(binary)
         .arg("status")
         .env("OMARCHY_WORLD_CLOCK_PID_PATH", &pid_path)
+        .env("PATH", "")
         .output()
         .expect("run status command");
     assert!(status.status.success());
@@ -231,6 +232,7 @@ fn popup_lifecycle_commands_report_closed_state_without_a_popup() {
     let close_status = Command::new(binary)
         .arg("close")
         .env("OMARCHY_WORLD_CLOCK_PID_PATH", &pid_path)
+        .env("PATH", "")
         .status()
         .expect("run close command");
     assert!(close_status.success());
@@ -244,6 +246,48 @@ fn popup_lifecycle_commands_report_closed_state_without_a_popup() {
         String::from_utf8_lossy(&version.stdout).trim(),
         env!("CARGO_PKG_VERSION")
     );
+}
+
+#[test]
+fn quattro_lifecycle_commands_use_native_shell_ipc() {
+    let sandbox = tempfile::tempdir().expect("create sandbox");
+    let stubs = sandbox.path().join("stubs");
+    let command_log = sandbox.path().join("commands.log");
+    let pid_path = sandbox.path().join("world-clock.pid");
+    fs::create_dir_all(&stubs).expect("create stub dir");
+    write_executable(
+        &stubs.join("omarchy-shell"),
+        "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$TEST_LOG\"\nif [ \"$1 $2\" = \"io.github.olivoil.world-clock status\" ]; then\n  printf 'open\\n'\nfi\n",
+    );
+    let binary = env!("CARGO_BIN_EXE_omarchy-world-clock");
+
+    for command in ["open", "toggle", "close"] {
+        let status = Command::new(binary)
+            .arg(command)
+            .env("OMARCHY_WORLD_CLOCK_PID_PATH", &pid_path)
+            .env("PATH", &stubs)
+            .env("TEST_LOG", &command_log)
+            .status()
+            .expect("run native lifecycle command");
+        assert!(status.success(), "native {command} command should succeed");
+    }
+
+    let status = Command::new(binary)
+        .arg("status")
+        .env("OMARCHY_WORLD_CLOCK_PID_PATH", &pid_path)
+        .env("PATH", &stubs)
+        .env("TEST_LOG", &command_log)
+        .output()
+        .expect("run native status command");
+    assert!(status.status.success());
+    assert_eq!(String::from_utf8_lossy(&status.stdout), "open\n");
+
+    let commands = fs::read_to_string(command_log).expect("read native command log");
+    assert_eq!(
+        commands,
+        "shell ping\nio.github.olivoil.world-clock open\nshell ping\nio.github.olivoil.world-clock toggle\nshell ping\nio.github.olivoil.world-clock close\nshell ping\nio.github.olivoil.world-clock status\n"
+    );
+    assert!(!pid_path.exists(), "native commands must not start GTK");
 }
 
 #[test]

@@ -55,6 +55,10 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("result.label !== null && result.label !== undefined"));
     assert!(panel.contains("id: timelineTickRepeater"));
     assert!(panel.contains("function focusSummaryEditor()"));
+    assert!(panel.contains("property bool snapshotLoaded: false"));
+    assert!(panel.contains("property bool summaryFocusPending: false"));
+    assert!(panel.contains("if (!snapshotLoaded)"));
+    assert!(panel.contains("if (summaryFocusPending) Qt.callLater(root.focusSummaryEditor)"));
     assert!(panel.contains("function focusAddField()"));
     assert!(panel.contains("addField.forceActiveFocus(Qt.ShortcutFocusReason)"));
     assert!(panel.contains("if (mode === \"add\")"));
@@ -65,6 +69,7 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("property int snapshotStateGeneration: 0"));
     assert!(panel.contains("property int convertActiveGeneration: -1"));
     assert!(panel.contains("property string invalidConversionSource: \"\""));
+    assert!(panel.contains("if (!snapshotLoaded || !timezoneName || !reference"));
     assert!(panel.contains("if (timeEditorActive)"));
     assert!(panel.contains("snapshotActiveGeneration === snapshotStateGeneration"));
     assert!(panel.contains("var manual = root.snapshotActiveReference !== \"\""));

@@ -27,6 +27,8 @@ Panel {
     clocks: [],
     timeline: []
   })
+  property bool snapshotLoaded: false
+  property bool summaryFocusPending: false
   property string mode: "read"
   property bool live: true
   property bool editorActive: false
@@ -95,7 +97,15 @@ Panel {
   }
 
   function focusSummaryEditor() {
-    if (mode !== "read") return
+    if (mode !== "read") {
+      summaryFocusPending = false
+      return
+    }
+    if (!snapshotLoaded) {
+      summaryFocusPending = true
+      return
+    }
+    summaryFocusPending = false
     // Return is emitted while PanelKeyCatcher is still dispatching the key.
     // Hand focus over on the next event-loop turn so the catcher cannot take
     // it straight back, then select the live time for immediate replacement.
@@ -134,6 +144,7 @@ Panel {
 
   function close() {
     mode = "read"
+    summaryFocusPending = false
     searchResults = []
     searchResultsQuery = ""
     searchSubmitQuery = ""
@@ -187,10 +198,12 @@ Panel {
       if (!payload || Number(payload.schema_version) !== 1 || !payload.summary)
         throw new Error("Unsupported snapshot")
       snapshot = payload
+      snapshotLoaded = true
       summaryInput.text = String(payload.summary.time || "--:--")
       if (manual !== true && live) live = true
       if (clocks.length === 0 && mode !== "add") mode = "add"
       clearStatus()
+      if (summaryFocusPending) Qt.callLater(root.focusSummaryEditor)
     } catch (error) {
       setStatus("World Clock backend returned invalid data.", true)
     }
@@ -270,16 +283,19 @@ Panel {
 
   function convertFrom(timezone, value, source) {
     var text = String(value || "").trim()
-    if (!text || convertProcess.running) return
+    var timezoneName = String(timezone || "").trim()
+    var reference = snapshot ? String(snapshot.reference_utc || "").trim() : ""
+    if (!snapshotLoaded || !timezoneName || !reference
+        || !text || convertProcess.running) return
     invalidateSnapshotRequests()
     convertActiveGeneration = snapshotStateGeneration
     convertActiveSource = String(source || "")
     convertProcess.command = [
       backendCommand,
       "convert",
-      "--timezone", String(timezone),
+      "--timezone", timezoneName,
       "--value", text,
-      "--base", String(snapshot.reference_utc || "")
+      "--base", reference
     ]
     convertProcess.running = true
   }
@@ -804,7 +820,7 @@ Panel {
                 font.pixelSize: Style.space(52)
                 font.bold: true
                 selectByMouse: true
-                enabled: root.mode === "read"
+                enabled: root.mode === "read" && root.snapshotLoaded
                 onAccepted: root.convertFrom(root.summary.timezone, text, conversionSource)
                 onTextEdited: root.clearConversionError(conversionSource)
                 onActiveFocusChanged: {
@@ -1090,7 +1106,7 @@ Panel {
                           font.pixelSize: Style.font.displayLarge
                           font.bold: true
                           selectByMouse: true
-                          enabled: root.mode === "read"
+                          enabled: root.mode === "read" && root.snapshotLoaded
                           onAccepted: root.convertFrom(
                             clockCell.clockData.timezone, text, conversionSource)
                           onTextEdited: root.clearConversionError(conversionSource)

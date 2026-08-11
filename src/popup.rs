@@ -449,18 +449,37 @@ fn can_add_location_at_limit(
         && canonical_timezone_name(candidate_timezone) == local_timezone
 }
 
-fn visible_read_entries(entries: &[TimezoneEntry], local_timezone: &str) -> Vec<TimezoneEntry> {
+fn visible_read_entries(
+    entries: &[TimezoneEntry],
+    local_timezone: &str,
+    pinned_location: Option<&LocationKey>,
+) -> Vec<TimezoneEntry> {
     let local_entry_index = entries
         .iter()
         .position(|entry| entry.timezone == local_timezone);
-    entries
+    let candidates = entries
         .iter()
         .enumerate()
         .filter(|(index, _)| Some(*index) != local_entry_index)
         .map(|(_, entry)| entry)
+        .collect::<Vec<_>>();
+    let mut visible = candidates
+        .iter()
         .take(READ_CARD_LIMIT)
-        .cloned()
-        .collect()
+        .map(|entry| (*entry).clone())
+        .collect::<Vec<_>>();
+
+    if let Some(pinned) = pinned_location {
+        if !visible.iter().any(|entry| pinned.matches(entry)) {
+            if let Some(pinned_entry) = candidates.iter().find(|entry| pinned.matches(entry)) {
+                if let Some(last) = visible.last_mut() {
+                    *last = (*pinned_entry).clone();
+                }
+            }
+        }
+    }
+
+    visible
 }
 
 fn sort_read_entries_by_time(
@@ -479,7 +498,11 @@ fn sort_read_entries_by_time(
 }
 
 fn read_entries(state: &PopupState) -> Vec<TimezoneEntry> {
-    let mut entries = visible_read_entries(&state.config.timezones, &state.local_timezone);
+    let mut entries = visible_read_entries(
+        &state.config.timezones,
+        &state.local_timezone,
+        state.config.pinned_location.as_ref(),
+    );
     sort_read_entries_by_time(&mut entries, state.reference_utc, &state.local_timezone);
     entries
 }
@@ -492,9 +515,10 @@ fn read_card_row_width(entry_count: usize) -> i32 {
 fn timeline_entries(
     entries: &[TimezoneEntry],
     local_timezone: &str,
+    pinned_location: Option<&LocationKey>,
     reference_utc: DateTime<Utc>,
 ) -> Vec<TimezoneEntry> {
-    let mut visible = visible_read_entries(entries, local_timezone);
+    let mut visible = visible_read_entries(entries, local_timezone, pinned_location);
     let local_entry = entries
         .iter()
         .find(|entry| entry.timezone == local_timezone)
@@ -983,13 +1007,14 @@ fn timeline_zone_tooltip(labels: &[String], entry_count: usize) -> Option<String
 fn build_timeline_items(
     entries: &[TimezoneEntry],
     local_timezone: &str,
+    pinned_location: Option<&LocationKey>,
     reference_utc: DateTime<Utc>,
     time_format: &str,
 ) -> Vec<TimelineItem> {
     let anchor = zoned_datetime(reference_utc, local_timezone);
     let mut groups = BTreeMap::<i64, TimelineGroupBuilder>::new();
 
-    for entry in timeline_entries(entries, local_timezone, reference_utc) {
+    for entry in timeline_entries(entries, local_timezone, pinned_location, reference_utc) {
         let zoned = zoned_datetime(reference_utc, &entry.timezone);
         let relative_minutes = timeline_relative_minutes(&anchor, &zoned);
         let abbreviation = format_timezone_notation(&zoned);
@@ -1942,6 +1967,7 @@ fn render_read_view(state: &mut PopupState) {
     let timeline_items = build_timeline_items(
         &state.config.timezones,
         &state.local_timezone,
+        state.config.pinned_location.as_ref(),
         state.reference_utc,
         &state.time_format,
     );
@@ -3422,6 +3448,7 @@ fn build_window(
         let timeline_items = build_timeline_items(
             &state.config.timezones,
             &state.local_timezone,
+            state.config.pinned_location.as_ref(),
             state.reference_utc,
             &state.time_format,
         );
@@ -3882,7 +3909,7 @@ mod tests {
             entry("Asia/Singapore"),
         ];
 
-        let visible = visible_read_entries(&entries, "America/Cancun");
+        let visible = visible_read_entries(&entries, "America/Cancun", None);
 
         assert_eq!(visible.len(), READ_CARD_LIMIT);
         assert!(visible
@@ -3896,6 +3923,28 @@ mod tests {
             visible.last().map(|entry| entry.timezone.as_str()),
             Some("Europe/London")
         );
+    }
+
+    #[test]
+    fn visible_read_entries_keeps_the_pin_inside_the_travel_cap() {
+        let entries = vec![
+            entry("America/Cancun"),
+            entry("Europe/Paris"),
+            entry("Asia/Tokyo"),
+            entry("Europe/Lisbon"),
+            entry("America/Los_Angeles"),
+            entry("America/New_York"),
+            entry("Asia/Kolkata"),
+            entry("Australia/Sydney"),
+            entry("Europe/Berlin"),
+            entry("Europe/London"),
+        ];
+        let pinned = entries.last().unwrap().location_key();
+
+        let visible = visible_read_entries(&entries, "Pacific/Auckland", Some(&pinned));
+
+        assert_eq!(visible.len(), READ_CARD_LIMIT);
+        assert!(visible.iter().any(|entry| pinned.matches(entry)));
     }
 
     #[test]
@@ -3959,7 +4008,7 @@ mod tests {
     fn visible_read_entries_does_not_fall_back_to_local_only_entry() {
         let entries = vec![entry("America/Cancun")];
 
-        let visible = visible_read_entries(&entries, "America/Cancun");
+        let visible = visible_read_entries(&entries, "America/Cancun", None);
 
         assert!(visible.is_empty());
     }
@@ -3972,7 +4021,7 @@ mod tests {
         boston.label = "Boston".to_string();
 
         let entries = vec![new_york, boston];
-        let visible = visible_read_entries(&entries, "America/New_York");
+        let visible = visible_read_entries(&entries, "America/New_York", None);
 
         assert_eq!(visible.len(), 1);
         assert_eq!(visible[0].label, "Boston");
@@ -4157,6 +4206,7 @@ mod tests {
         let timeline = timeline_entries(
             &entries,
             "America/Cancun",
+            None,
             Utc.with_ymd_and_hms(2026, 4, 18, 12, 0, 0).unwrap(),
         );
 
@@ -4172,6 +4222,7 @@ mod tests {
         let items = build_timeline_items(
             &entries,
             "America/Cancun",
+            None,
             Utc.with_ymd_and_hms(2026, 4, 18, 12, 0, 0).unwrap(),
             "24h",
         );
@@ -4211,6 +4262,7 @@ mod tests {
         let items = build_timeline_items(
             &[entry("Asia/Kolkata")],
             "America/Cancun",
+            None,
             Utc.with_ymd_and_hms(2026, 4, 18, 5, 5, 0).unwrap(),
             "24h",
         );

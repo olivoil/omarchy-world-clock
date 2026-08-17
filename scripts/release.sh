@@ -143,6 +143,8 @@ if [[ -n "$GIT_STATUS" ]]; then
   fi
 fi
 
+head_commit=$(git rev-parse HEAD)
+
 if [[ "$ALLOW_NON_DEFAULT_BRANCH" != true ]]; then
   remote_head=$(git ls-remote --symref origin HEAD 2>/dev/null | awk '$1 == "ref:" { sub("refs/heads/", "", $2); print $2; exit }')
   release_branch=${OMARCHY_WORLD_CLOCK_RELEASE_BRANCH:-$remote_head}
@@ -155,7 +157,6 @@ if [[ "$ALLOW_NON_DEFAULT_BRANCH" != true ]]; then
     exit 1
   fi
 
-  head_commit=$(git rev-parse HEAD)
   remote_commit=$(git ls-remote --exit-code origin "refs/heads/$release_branch" 2>/dev/null | awk 'NR == 1 { print $1 }' || true)
   if [[ -z "$remote_commit" || "$head_commit" != "$remote_commit" ]]; then
     printf 'Local %s is not aligned with origin/%s.\n' "$release_branch" "$release_branch" >&2
@@ -166,10 +167,23 @@ fi
 
 if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
   tag_commit=$(git rev-list -n 1 "$TAG")
-  head_commit=$(git rev-parse HEAD)
   if [[ "$tag_commit" != "$head_commit" ]]; then
     printf 'Tag %s already exists but does not point at HEAD.\n' "$TAG" >&2
     printf 'Check out that tag, or choose a new release tag.\n' >&2
+    exit 1
+  fi
+fi
+
+REMOTE_TAG_EXISTS=false
+remote_tag_commit=$(git ls-remote --exit-code origin "refs/tags/$TAG^{}" 2>/dev/null | awk 'NR == 1 { print $1 }' || true)
+if [[ -z "$remote_tag_commit" ]]; then
+  remote_tag_commit=$(git ls-remote --exit-code origin "refs/tags/$TAG" 2>/dev/null | awk 'NR == 1 { print $1 }' || true)
+fi
+if [[ -n "$remote_tag_commit" ]]; then
+  REMOTE_TAG_EXISTS=true
+  if [[ "$remote_tag_commit" != "$head_commit" ]]; then
+    printf 'Remote tag %s already exists but does not point at HEAD.\n' "$TAG" >&2
+    printf 'Choose a new release version instead of replacing a published tag.\n' >&2
     exit 1
   fi
 fi
@@ -229,11 +243,6 @@ fi
 LOCAL_TAG_EXISTS=false
 if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
   LOCAL_TAG_EXISTS=true
-fi
-
-REMOTE_TAG_EXISTS=false
-if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
-  REMOTE_TAG_EXISTS=true
 fi
 
 GITHUB_RELEASE_EXISTS=false

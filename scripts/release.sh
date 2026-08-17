@@ -106,7 +106,7 @@ if [[ -n "$NOTES_FILE" && ! -f "$NOTES_FILE" ]]; then
   exit 2
 fi
 
-for command_name in awk cargo gh git grep head rustc sed sha256sum tar; do
+for command_name in awk cargo gh git grep head rustc sed sha256sum sort tar; do
   if ! command -v "$command_name" >/dev/null 2>&1; then
     printf 'Missing required command: %s\n' "$command_name" >&2
     exit 1
@@ -143,11 +143,11 @@ if [[ -n "$GIT_STATUS" ]]; then
   fi
 fi
 
-git fetch --tags origin
+head_commit=$(git rev-parse HEAD)
 
 if [[ "$ALLOW_NON_DEFAULT_BRANCH" != true ]]; then
-  remote_head=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null || true)
-  release_branch=${OMARCHY_WORLD_CLOCK_RELEASE_BRANCH:-${remote_head#origin/}}
+  remote_head=$(git ls-remote --symref origin HEAD 2>/dev/null | awk '$1 == "ref:" { sub("refs/heads/", "", $2); print $2; exit }')
+  release_branch=${OMARCHY_WORLD_CLOCK_RELEASE_BRANCH:-$remote_head}
   release_branch=${release_branch:-master}
   current_branch=$(git branch --show-current)
 
@@ -157,8 +157,7 @@ if [[ "$ALLOW_NON_DEFAULT_BRANCH" != true ]]; then
     exit 1
   fi
 
-  head_commit=$(git rev-parse HEAD)
-  remote_commit=$(git rev-parse "origin/$release_branch" 2>/dev/null || true)
+  remote_commit=$(git ls-remote --exit-code origin "refs/heads/$release_branch" 2>/dev/null | awk 'NR == 1 { print $1 }' || true)
   if [[ -z "$remote_commit" || "$head_commit" != "$remote_commit" ]]; then
     printf 'Local %s is not aligned with origin/%s.\n' "$release_branch" "$release_branch" >&2
     printf 'Push or pull before releasing so the release tag points at the public branch tip.\n' >&2
@@ -168,10 +167,31 @@ fi
 
 if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
   tag_commit=$(git rev-list -n 1 "$TAG")
-  head_commit=$(git rev-parse HEAD)
   if [[ "$tag_commit" != "$head_commit" ]]; then
     printf 'Tag %s already exists but does not point at HEAD.\n' "$TAG" >&2
     printf 'Check out that tag, or choose a new release tag.\n' >&2
+    exit 1
+  fi
+fi
+
+REMOTE_TAG_EXISTS=false
+if ! remote_version_tag_refs=$(git ls-remote --tags origin 'refs/tags/v[0-9]*' 2>/dev/null); then
+  printf 'Could not read release tags from origin.\n' >&2
+  exit 1
+fi
+remote_tag_commit=$(
+  printf '%s\n' "$remote_version_tag_refs" |
+    awk -v tag_ref="refs/tags/$TAG" '
+      $2 == tag_ref { direct = $1 }
+      $2 == tag_ref "^{}" { peeled = $1 }
+      END { if (peeled != "") print peeled; else if (direct != "") print direct }
+    '
+)
+if [[ -n "$remote_tag_commit" ]]; then
+  REMOTE_TAG_EXISTS=true
+  if [[ "$remote_tag_commit" != "$head_commit" ]]; then
+    printf 'Remote tag %s already exists but does not point at HEAD.\n' "$TAG" >&2
+    printf 'Choose a new release version instead of replacing a published tag.\n' >&2
     exit 1
   fi
 fi
@@ -207,10 +227,41 @@ tar -C "$STAGING" -czf "$ARCHIVE" omarchy-world-clock LICENSE
 sha256sum "$ARCHIVE" >"$CHECKSUM"
 
 if [[ -z "$NOTES_FILE" ]]; then
-  previous_tag=$(git tag --merged HEAD --sort=-version:refname 'v[0-9]*' | grep -vx "$TAG" | head -n 1 || true)
+  previous_tag=
+  previous_tag_commit=
+  has_previous_tag_candidate=false
+  while IFS= read -r candidate_tag; do
+    [[ -z "$candidate_tag" || "$candidate_tag" == "$TAG" ]] && continue
+    has_previous_tag_candidate=true
+    candidate_tag_commit=$(
+      printf '%s\n' "$remote_version_tag_refs" |
+        awk -v tag_ref="refs/tags/$candidate_tag" '
+          $2 == tag_ref { direct = $1 }
+          $2 == tag_ref "^{}" { peeled = $1 }
+          END { if (peeled != "") print peeled; else if (direct != "") print direct }
+        '
+    )
+    if ! git cat-file -e "$candidate_tag_commit^{commit}" 2>/dev/null; then
+      continue
+    fi
+    if git merge-base --is-ancestor "$candidate_tag_commit" HEAD; then
+      previous_tag=$candidate_tag
+      previous_tag_commit=$candidate_tag_commit
+      break
+    fi
+  done < <(
+    printf '%s\n' "$remote_version_tag_refs" |
+      awk '{ sub(/^refs\/tags\//, "", $2); sub(/\^\{\}$/, "", $2); print $2 }' |
+      sort -Vru
+  )
+
   if [[ -n "$previous_tag" ]]; then
-    commit_range="$previous_tag..HEAD"
+    commit_range="$previous_tag_commit..HEAD"
     commits_title="Commits since $previous_tag"
+  elif [[ "$has_previous_tag_candidate" == true ]]; then
+    printf 'No previous remote release tag is reachable in the local history.\n' >&2
+    printf 'Release from a full clone so generated notes have a reliable commit range.\n' >&2
+    exit 1
   else
     commit_range="HEAD"
     commits_title="Commits"
@@ -231,11 +282,6 @@ fi
 LOCAL_TAG_EXISTS=false
 if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
   LOCAL_TAG_EXISTS=true
-fi
-
-REMOTE_TAG_EXISTS=false
-if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
-  REMOTE_TAG_EXISTS=true
 fi
 
 GITHUB_RELEASE_EXISTS=false

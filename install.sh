@@ -21,6 +21,9 @@ LEGACY_WRAPPER_PATH=${OMARCHY_WORLD_CLOCK_LEGACY_WRAPPER:-"$BIN_DIR/omarchy-worl
 RELEASE_REPO=${OMARCHY_WORLD_CLOCK_RELEASE_REPO:-"olivoil/omarchy-world-clock"}
 RELEASE_VERSION=${OMARCHY_WORLD_CLOCK_VERSION:-"latest"}
 RELEASE_DOWNLOAD_URL=${OMARCHY_WORLD_CLOCK_DOWNLOAD_URL:-""}
+PLUGIN_REVISION_OVERRIDE=${OMARCHY_WORLD_CLOCK_PLUGIN_REVISION:-""}
+PLUGIN_ID=io.github.olivoil.world-clock
+PLUGIN_PATH="$HOME/.config/omarchy/plugins/$PLUGIN_ID"
 INSTALL_MODE=release
 TARGET=${OMARCHY_WORLD_CLOCK_TARGET:-""}
 
@@ -38,6 +41,8 @@ Environment:
   OMARCHY_WORLD_CLOCK_RELEASE_REPO  GitHub repo that owns releases (default: $RELEASE_REPO).
   OMARCHY_WORLD_CLOCK_DOWNLOAD_URL  Exact archive URL override.
   OMARCHY_WORLD_CLOCK_TARGET        Target asset override.
+  OMARCHY_WORLD_CLOCK_PLUGIN_REVISION
+                                      Exact plugin git tag or commit override.
   OMARCHY_WORLD_CLOCK_SKIP_RUNTIME_DEPS
                                       Set to 1 to skip Arch runtime package install.
 EOF
@@ -199,6 +204,61 @@ check_runtime_libraries() {
   exit 1
 }
 
+resolve_plugin_revision() {
+  local revision version
+
+  if [[ -n "$PLUGIN_REVISION_OVERRIDE" ]]; then
+    revision=$PLUGIN_REVISION_OVERRIDE
+  elif [[ "$INSTALL_MODE" == "source" ]] &&
+    revision=$(git -C "$REPO_ROOT" rev-parse --verify HEAD 2>/dev/null); then
+    :
+  elif [[ "$RELEASE_VERSION" != "latest" ]]; then
+    revision=$RELEASE_VERSION
+  else
+    version=$("$WRAPPER_PATH" version)
+    version=${version#v}
+    revision="v$version"
+  fi
+
+  if [[ -z "$revision" || "$revision" == -* ]]; then
+    printf 'Could not determine a valid World Clock plugin revision.\n' >&2
+    exit 1
+  fi
+  printf '%s' "$revision"
+}
+
+pin_installed_plugin_revision() {
+  local revision=$1
+  local current target changed=0
+
+  [[ -e "$PLUGIN_PATH" ]] || return 0
+  if [[ ! -e "$PLUGIN_PATH/.git" ]]; then
+    printf 'Cannot pin non-git World Clock plugin at %s to %s.\n' "$PLUGIN_PATH" "$revision" >&2
+    exit 1
+  fi
+
+  current=$(git -C "$PLUGIN_PATH" rev-parse --verify HEAD)
+  target=$(git -C "$PLUGIN_PATH" rev-parse --verify "${revision}^{commit}" 2>/dev/null || true)
+  if [[ -z "$target" ]]; then
+    git -C "$PLUGIN_PATH" fetch --quiet -- origin "$revision"
+    target=$(git -C "$PLUGIN_PATH" rev-parse --verify FETCH_HEAD)
+  fi
+  if ! git -C "$PLUGIN_PATH" cat-file -e "${target}:manifest.json" 2>/dev/null; then
+    printf 'World Clock %s predates the Quattro plugin; removing the incompatible native plugin.\n' "$revision"
+    omarchy plugin remove "$PLUGIN_ID" --yes
+    return 0
+  fi
+  if [[ "$current" != "$target" ]]; then
+    git -C "$PLUGIN_PATH" checkout --quiet --detach "$target"
+    changed=1
+  fi
+
+  omarchy plugin validate "$PLUGIN_PATH"
+  if (( changed )) && command -v omarchy-shell >/dev/null 2>&1; then
+    omarchy-shell shell rescanPlugins >/dev/null
+  fi
+}
+
 mkdir -p "$PREFIX/bin" "$BIN_DIR"
 install_arch_runtime_dependencies
 
@@ -220,12 +280,19 @@ chmod +x "$WRAPPER_PATH"
 
 check_runtime_libraries
 
-"$WRAPPER_PATH" install \
+PLUGIN_REVISION=$(resolve_plugin_revision)
+INSTALL_ARGS=(install \
   --shell-config "$SHELL_CONFIG" \
   --waybar-config "$WAYBAR_CONFIG" \
   --waybar-style "$WAYBAR_STYLE" \
   --command-path "$WRAPPER_PATH" \
-  --user-config "$USER_CONFIG"
+  --user-config "$USER_CONFIG" \
+  --plugin-revision "$PLUGIN_REVISION")
+if [[ "$INSTALL_MODE" == "source" ]] && git -C "$REPO_ROOT" rev-parse --verify HEAD >/dev/null 2>&1; then
+  INSTALL_ARGS+=(--plugin-url "$REPO_ROOT")
+fi
+"$WRAPPER_PATH" "${INSTALL_ARGS[@]}"
+pin_installed_plugin_revision "$PLUGIN_REVISION"
 
 rm -f "$LEGACY_WRAPPER_PATH"
 rm -rf "$LEGACY_PREFIX"

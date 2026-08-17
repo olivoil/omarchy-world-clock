@@ -11,16 +11,21 @@ Releases are published from a local machine with `scripts/release.sh`.
    git pull --ff-only
    ```
 
-2. Update the package version in `Cargo.toml`.
+2. Update the package version in `Cargo.toml` and the Quattro plugin version in
+   `manifest.json`.
 
    ```toml
    version = "0.1.1"
    ```
 
+   ```json
+   "version": "0.1.1"
+   ```
+
 3. Commit and push the version bump and release changes.
 
    ```bash
-   git add Cargo.toml Cargo.lock
+   git add Cargo.toml Cargo.lock manifest.json
    git commit -m "Release v0.1.1"
    git push
    ```
@@ -97,7 +102,8 @@ The release script:
 - runs `scripts/ci.sh` unless `--skip-tests` is passed
 
 `scripts/ci.sh` runs formatting, Clippy, Rust tests, and the shell installer
-tests.
+tests. On an Omarchy workstation it also validates the plugin manifest and
+QML against the installed shell.
 
 `--dry-run` keeps the publish steps read-only. If the working tree is dirty, the
 dry run still builds and reports the planned actions, but marks the real publish

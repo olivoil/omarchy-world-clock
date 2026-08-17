@@ -6,7 +6,9 @@ To add it to your current user's Omarchy bar, run:
 
   omarchy-world-clock install
 
-This detects the Omarchy 4 shell or the legacy Omarchy 3 Waybar automatically.
+On Omarchy 4 this installs the native Quattro plugin after the calendar clock
+and migrates the old command widget. On Omarchy 3 it installs the legacy Waybar
+module.
 
 This is an unofficial Omarchy integration.
 EOF

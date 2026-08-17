@@ -5,10 +5,10 @@ use chrono_tz::{Tz, TZ_VARIANTS};
 use regex::Regex;
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::env;
 use std::ffi::CStr;
-use std::fs::{self, OpenOptions};
+use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -17,8 +17,9 @@ use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use unicode_normalization::{char::is_combining_mark, UnicodeNormalization};
 
-pub const CONFIG_VERSION: u64 = 4;
+pub const CONFIG_VERSION: u64 = 6;
 pub const LOCAL_TIMEZONE_MIGRATION_VERSION: u64 = 2;
+pub const CLOCK_CARD_LIMIT: usize = 9;
 
 const STANDARD_TZ_REGIONS: [&str; 10] = [
     "Africa",
@@ -36,7 +37,21 @@ const STANDARD_TZ_REGIONS: [&str; 10] = [
 #[derive(Debug, Clone, PartialEq)]
 pub struct AppConfig {
     pub timezones: Vec<TimezoneEntry>,
+    pub pinned_location: Option<LocationKey>,
     pub disable_open_meteo_geolocation: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AddLocationOutcome {
+    pub config: AppConfig,
+    pub added: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LocationKey {
+    pub timezone: String,
+    #[serde(default)]
+    pub label: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -62,6 +77,46 @@ impl TimezoneEntry {
     pub fn read_card_title(&self) -> String {
         first_location_segment(&self.display_label())
     }
+
+    pub fn location_key(&self) -> LocationKey {
+        LocationKey {
+            timezone: self.timezone.clone(),
+            label: self.label.clone(),
+        }
+    }
+
+    pub fn matches_location(&self, timezone: &str, label: &str) -> bool {
+        self.timezone == canonical_timezone_name(timezone)
+            && normalized_location_label(&self.timezone, &self.label)
+                == normalized_location_label(timezone, label)
+    }
+}
+
+impl LocationKey {
+    pub fn matches(&self, entry: &TimezoneEntry) -> bool {
+        entry.matches_location(&self.timezone, &self.label)
+    }
+}
+
+pub fn non_local_location_count(entries: &[TimezoneEntry], local_timezone: &str) -> usize {
+    let local_timezone = canonical_timezone_name(local_timezone);
+    entries.len().saturating_sub(usize::from(
+        entries.iter().any(|entry| entry.timezone == local_timezone),
+    ))
+}
+
+impl AppConfig {
+    pub fn pinned_entry(&self) -> Option<&TimezoneEntry> {
+        self.pinned_location
+            .as_ref()
+            .and_then(|location| self.timezones.iter().find(|entry| location.matches(entry)))
+    }
+
+    pub fn is_pinned(&self, entry: &TimezoneEntry) -> bool {
+        self.pinned_location
+            .as_ref()
+            .is_some_and(|location| location.matches(entry))
+    }
 }
 
 pub fn first_location_segment(label: &str) -> String {
@@ -74,7 +129,17 @@ pub fn first_location_segment(label: &str) -> String {
         .to_string()
 }
 
-#[derive(Debug, Clone, PartialEq)]
+fn normalized_location_label(timezone: &str, label: &str) -> String {
+    let label = label.trim();
+    let effective_label = if label.is_empty() {
+        friendly_timezone_name(&canonical_timezone_name(timezone))
+    } else {
+        label.to_string()
+    };
+    TimezoneResolver::normalize(&effective_label)
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct TimezoneSearchResult {
     pub timezone: String,
     pub title: String,
@@ -160,6 +225,9 @@ struct RawConfig {
     #[allow(dead_code)]
     version: Option<u64>,
     timezones: Option<Vec<RawTimezoneEntry>>,
+    pinned_location: Option<LocationKey>,
+    // v5 and earlier identified the pin only by timezone.
+    pinned_timezone: Option<String>,
     disable_open_meteo_geolocation: Option<bool>,
 }
 
@@ -167,6 +235,8 @@ struct RawConfig {
 struct StoredConfig<'a> {
     version: u64,
     timezones: &'a [TimezoneEntry],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pinned_location: Option<&'a LocationKey>,
     #[serde(skip_serializing_if = "is_false")]
     disable_open_meteo_geolocation: bool,
 }
@@ -174,6 +244,16 @@ struct StoredConfig<'a> {
 #[derive(Debug, Clone)]
 pub struct ConfigManager {
     path: PathBuf,
+}
+
+struct ConfigFileLock {
+    file: File,
+}
+
+impl Drop for ConfigFileLock {
+    fn drop(&mut self) {
+        let _ = self.file.unlock();
+    }
 }
 
 impl ConfigManager {
@@ -193,10 +273,18 @@ impl ConfigManager {
     }
 
     fn load_with_local_timezone(&self, local_timezone: &str) -> anyhow::Result<AppConfig> {
-        if !self.path.exists() {
-            let config = self.default_config(local_timezone);
-            self.save(&config)?;
+        let (config, needs_write) = self.read_config(local_timezone)?;
+        if !needs_write {
             return Ok(config);
+        }
+
+        let _lock = self.lock_config()?;
+        self.load_unlocked(local_timezone)
+    }
+
+    fn read_config(&self, local_timezone: &str) -> anyhow::Result<(AppConfig, bool)> {
+        if !self.path.exists() {
+            return Ok((self.default_config(local_timezone), true));
         }
 
         let text = fs::read_to_string(&self.path)
@@ -205,22 +293,73 @@ impl ConfigManager {
             .with_context(|| format!("failed to parse {}", self.path.display()))?;
         let config = self.config_from_raw(raw, local_timezone);
         let normalized_text = self.serialize(&config)?;
-        if text != normalized_text {
-            self.write_atomically(&normalized_text)?;
+        Ok((config, text != normalized_text))
+    }
+
+    fn load_unlocked(&self, local_timezone: &str) -> anyhow::Result<AppConfig> {
+        let (config, needs_write) = self.read_config(local_timezone)?;
+        if needs_write {
+            self.save_unlocked(&config)?;
         }
         Ok(config)
     }
 
     pub fn save(&self, config: &AppConfig) -> anyhow::Result<()> {
+        let _lock = self.lock_config()?;
+        self.save_unlocked(config)
+    }
+
+    fn save_unlocked(&self, config: &AppConfig) -> anyhow::Result<()> {
         let normalized = self.normalize_config(config.clone());
         let text = self.serialize(&normalized)?;
         self.write_atomically(&text)
+    }
+
+    fn lock_config(&self) -> anyhow::Result<ConfigFileLock> {
+        if let Some(parent) = self.path.parent() {
+            fs::create_dir_all(parent).with_context(|| {
+                format!("failed to create config directory {}", parent.display())
+            })?;
+        }
+
+        let mut lock_path = self.path.as_os_str().to_os_string();
+        lock_path.push(".lock");
+        let lock_path = PathBuf::from(lock_path);
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&lock_path)
+            .with_context(|| format!("failed to open config lock {}", lock_path.display()))?;
+        file.lock()
+            .with_context(|| format!("failed to lock config {}", self.path.display()))?;
+        Ok(ConfigFileLock { file })
+    }
+
+    fn mutate_with_local_timezone<F>(
+        &self,
+        local_timezone: &str,
+        mutate: F,
+    ) -> anyhow::Result<(AppConfig, bool)>
+    where
+        F: FnOnce(&mut AppConfig) -> anyhow::Result<bool>,
+    {
+        let _lock = self.lock_config()?;
+        let mut config = self.load_unlocked(local_timezone)?;
+        let changed = mutate(&mut config)?;
+        if changed {
+            config = self.normalize_config(config);
+            self.save_unlocked(&config)?;
+        }
+        Ok((config, changed))
     }
 
     fn serialize(&self, config: &AppConfig) -> anyhow::Result<String> {
         let payload = StoredConfig {
             version: CONFIG_VERSION,
             timezones: &config.timezones,
+            pinned_location: config.pinned_location.as_ref(),
             disable_open_meteo_geolocation: config.disable_open_meteo_geolocation,
         };
         let text = serde_json::to_string_pretty(&payload)?;
@@ -277,7 +416,9 @@ impl ConfigManager {
     }
 
     pub fn add_timezone(&self, timezone_name: &str, label: &str) -> anyhow::Result<AppConfig> {
-        self.add_timezone_with_coordinate(timezone_name, label, None, None)
+        Ok(self
+            .add_timezone_with_coordinate(timezone_name, label, None, None)?
+            .config)
     }
 
     pub fn add_timezone_with_coordinate(
@@ -286,46 +427,148 @@ impl ConfigManager {
         label: &str,
         latitude: Option<f64>,
         longitude: Option<f64>,
-    ) -> anyhow::Result<AppConfig> {
-        let mut config = self.load()?;
-        let timezone_name = canonical_timezone_name(timezone_name);
-        if timezone_name.is_empty() || !is_valid_timezone(&timezone_name) {
-            return Ok(config);
-        }
+    ) -> anyhow::Result<AddLocationOutcome> {
+        let local_timezone = detect_local_timezone();
+        self.add_timezone_with_coordinate_for_local(
+            timezone_name,
+            label,
+            latitude,
+            longitude,
+            &local_timezone,
+        )
+    }
 
-        if !config
-            .timezones
-            .iter()
-            .any(|entry| entry.timezone == timezone_name)
-        {
-            let (latitude, longitude) = sanitize_place_coordinate(latitude, longitude);
+    fn add_timezone_with_coordinate_for_local(
+        &self,
+        timezone_name: &str,
+        label: &str,
+        latitude: Option<f64>,
+        longitude: Option<f64>,
+        local_timezone: &str,
+    ) -> anyhow::Result<AddLocationOutcome> {
+        let timezone_name = canonical_timezone_name(timezone_name);
+        let label = label.trim().to_string();
+        let (latitude, longitude) = sanitize_place_coordinate(latitude, longitude);
+        let (config, added) = self.mutate_with_local_timezone(local_timezone, move |config| {
+            if timezone_name.is_empty() || !is_valid_timezone(&timezone_name) {
+                return Ok(false);
+            }
+
+            if config
+                .timezones
+                .iter()
+                .any(|entry| entry.matches_location(&timezone_name, &label))
+            {
+                return Ok(false);
+            }
+
             config.timezones.push(TimezoneEntry {
                 timezone: timezone_name,
-                label: label.trim().to_string(),
+                label,
                 latitude,
                 longitude,
             });
-            config = self.normalize_config(config);
-            self.save(&config)?;
-        }
-        Ok(config)
+            if non_local_location_count(&config.timezones, local_timezone) > CLOCK_CARD_LIMIT {
+                anyhow::bail!(
+                    "World Clock can show up to {CLOCK_CARD_LIMIT} locations; remove one before adding another"
+                );
+            }
+            Ok(true)
+        })?;
+        Ok(AddLocationOutcome { config, added })
     }
 
     pub fn remove_timezone(&self, timezone_name: &str) -> anyhow::Result<AppConfig> {
-        let mut config = self.load()?;
+        self.remove_location(timezone_name, None)
+    }
+
+    pub fn remove_location(
+        &self,
+        timezone_name: &str,
+        label: Option<&str>,
+    ) -> anyhow::Result<AppConfig> {
+        let local_timezone = detect_local_timezone();
         let timezone_name = canonical_timezone_name(timezone_name);
-        config
-            .timezones
-            .retain(|entry| entry.timezone != timezone_name);
-        config = self.normalize_config(config);
-        self.save(&config)?;
-        Ok(config)
+        let label = label.map(str::to_string);
+        self.mutate_with_local_timezone(&local_timezone, move |config| {
+            let matches = config
+                .timezones
+                .iter()
+                .filter(|entry| {
+                    entry.timezone == timezone_name
+                        && label
+                            .as_deref()
+                            .is_none_or(|label| entry.matches_location(&timezone_name, label))
+                })
+                .count();
+            if matches == 0 {
+                anyhow::bail!("location is not in the World Clock list: {timezone_name}");
+            }
+            if matches > 1 {
+                anyhow::bail!("multiple locations use {timezone_name}; specify a location label");
+            }
+            if config.timezones.len() <= 1 {
+                anyhow::bail!("keep at least one timezone in World Clock");
+            }
+            config.timezones.retain(|entry| {
+                entry.timezone != timezone_name
+                    || label
+                        .as_deref()
+                        .is_some_and(|label| !entry.matches_location(&timezone_name, label))
+            });
+            Ok(true)
+        })
+        .map(|(config, _)| config)
+    }
+
+    pub fn set_pinned_timezone(&self, timezone_name: Option<&str>) -> anyhow::Result<AppConfig> {
+        self.set_pinned_location(timezone_name, None)
+    }
+
+    pub fn set_pinned_location(
+        &self,
+        timezone_name: Option<&str>,
+        label: Option<&str>,
+    ) -> anyhow::Result<AppConfig> {
+        let local_timezone = detect_local_timezone();
+        let timezone_name = timezone_name.map(canonical_timezone_name);
+        let label = label.map(str::to_string);
+        self.mutate_with_local_timezone(&local_timezone, move |config| {
+            config.pinned_location = match timezone_name {
+                None => None,
+                Some(ref timezone_name) => {
+                    let matches = config
+                        .timezones
+                        .iter()
+                        .filter(|entry| {
+                            entry.timezone == *timezone_name
+                                && label.as_deref().is_none_or(|label| {
+                                    entry.matches_location(timezone_name, label)
+                                })
+                        })
+                        .collect::<Vec<_>>();
+                    if matches.is_empty() {
+                        anyhow::bail!("location is not in the World Clock list: {timezone_name}");
+                    }
+                    if matches.len() > 1 {
+                        anyhow::bail!(
+                            "multiple locations use {timezone_name}; specify a location label"
+                        );
+                    }
+                    Some(matches[0].location_key())
+                }
+            };
+            Ok(true)
+        })
+        .map(|(config, _)| config)
     }
 
     fn config_from_raw(&self, raw: RawConfig, local_timezone: &str) -> AppConfig {
         let RawConfig {
             version,
             timezones,
+            pinned_location,
+            pinned_timezone,
             disable_open_meteo_geolocation,
         } = raw;
         let config_version = version.unwrap_or(1);
@@ -336,7 +579,11 @@ impl ConfigManager {
             let Some(entry) = self.parse_entry(raw_entry) else {
                 continue;
             };
-            if seen.insert(entry.timezone.clone()) {
+            let identity = (
+                entry.timezone.clone(),
+                normalized_location_label(&entry.timezone, &entry.label),
+            );
+            if seen.insert(identity) {
                 entries.push(entry);
             }
         }
@@ -345,7 +592,10 @@ impl ConfigManager {
             let local_timezone = canonical_timezone_name(local_timezone);
             if !local_timezone.is_empty()
                 && is_valid_timezone(&local_timezone)
-                && seen.insert(local_timezone.clone())
+                && seen.insert((
+                    local_timezone.clone(),
+                    normalized_location_label(&local_timezone, ""),
+                ))
             {
                 entries.insert(
                     0,
@@ -359,8 +609,17 @@ impl ConfigManager {
             }
         }
 
+        let pinned_location = pinned_location.or_else(|| {
+            let pinned_timezone = canonical_timezone_name(pinned_timezone.as_deref()?);
+            entries
+                .iter()
+                .find(|entry| entry.timezone == pinned_timezone)
+                .map(TimezoneEntry::location_key)
+        });
+
         self.normalize_config(AppConfig {
             timezones: entries,
+            pinned_location,
             disable_open_meteo_geolocation: disable_open_meteo_geolocation.unwrap_or(false),
         })
     }
@@ -391,15 +650,17 @@ impl ConfigManager {
     }
 
     fn normalize_config(&self, config: AppConfig) -> AppConfig {
+        let pinned_location = config.pinned_location;
         let mut seen = HashSet::new();
         let mut timezones = Vec::new();
 
         for entry in config.timezones {
             let timezone = canonical_timezone_name(&entry.timezone);
-            if timezone.is_empty()
-                || !is_valid_timezone(&timezone)
-                || !seen.insert(timezone.clone())
-            {
+            let identity = (
+                timezone.clone(),
+                normalized_location_label(&timezone, &entry.label),
+            );
+            if timezone.is_empty() || !is_valid_timezone(&timezone) || !seen.insert(identity) {
                 continue;
             }
 
@@ -414,8 +675,16 @@ impl ConfigManager {
             timezones.push(normalized);
         }
 
+        let pinned_location = pinned_location.and_then(|pinned| {
+            timezones
+                .iter()
+                .find(|entry| pinned.matches(entry))
+                .map(TimezoneEntry::location_key)
+        });
+
         AppConfig {
             timezones,
+            pinned_location,
             disable_open_meteo_geolocation: config.disable_open_meteo_geolocation,
         }
     }
@@ -435,6 +704,7 @@ impl ConfigManager {
 
         AppConfig {
             timezones,
+            pinned_location: None,
             disable_open_meteo_geolocation: false,
         }
     }
@@ -456,6 +726,99 @@ fn sanitize_place_coordinate(
             (Some(latitude), Some(longitude))
         }
         _ => (None, None),
+    }
+}
+
+fn parse_iso6709_component(component: &str, degree_digits: usize) -> Option<f64> {
+    let sign = match component.chars().next()? {
+        '+' => 1.0,
+        '-' => -1.0,
+        _ => return None,
+    };
+    let digits = &component[1..];
+    if digits.len() != degree_digits + 2 && digits.len() != degree_digits + 4 {
+        return None;
+    }
+
+    let degrees = digits.get(..degree_digits)?.parse::<f64>().ok()?;
+    let minutes = digits
+        .get(degree_digits..degree_digits + 2)?
+        .parse::<f64>()
+        .ok()?;
+    let seconds = if digits.len() == degree_digits + 4 {
+        digits
+            .get(degree_digits + 2..degree_digits + 4)?
+            .parse::<f64>()
+            .ok()?
+    } else {
+        0.0
+    };
+
+    if minutes >= 60.0 || seconds >= 60.0 {
+        return None;
+    }
+
+    Some(sign * (degrees + minutes / 60.0 + seconds / 3600.0))
+}
+
+fn parse_zone_tab_coordinate(value: &str) -> Option<(f64, f64)> {
+    let longitude_start = value
+        .char_indices()
+        .skip(1)
+        .find_map(|(index, character)| matches!(character, '+' | '-').then_some(index))?;
+    let latitude = parse_iso6709_component(value.get(..longitude_start)?, 2)?;
+    let longitude = parse_iso6709_component(value.get(longitude_start..)?, 3)?;
+    Some((latitude, longitude))
+}
+
+fn merge_zone_tab_coordinates(coordinates: &mut BTreeMap<String, (f64, f64)>, text: &str) {
+    for (timezone_name, coordinate) in text.lines().filter_map(|line| {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            return None;
+        }
+        let mut columns = trimmed.split('\t');
+        let _country_codes = columns.next()?;
+        let coordinate_text = columns.next()?;
+        let timezone_name = columns.next()?;
+        let coordinate = parse_zone_tab_coordinate(coordinate_text)?;
+        Some((timezone_name.to_string(), coordinate))
+    }) {
+        coordinates.entry(timezone_name).or_insert(coordinate);
+    }
+}
+
+fn timezone_coordinate_lookup() -> &'static BTreeMap<String, (f64, f64)> {
+    static COORDINATES: OnceLock<BTreeMap<String, (f64, f64)>> = OnceLock::new();
+    COORDINATES.get_or_init(|| {
+        let mut coordinates = BTreeMap::new();
+        for root in zoneinfo_roots() {
+            for filename in ["zone1970.tab", "zone.tab"] {
+                let Ok(text) = fs::read_to_string(root.join(filename)) else {
+                    continue;
+                };
+                merge_zone_tab_coordinates(&mut coordinates, &text);
+            }
+        }
+        coordinates
+    })
+}
+
+/// Return a persisted place coordinate, falling back to the canonical
+/// timezone coordinate bundled with the system tzdata. This stays local and
+/// cheap enough for the native snapshot path; remote geocoding remains a
+/// search-only operation.
+pub fn place_coordinate(entry: &TimezoneEntry) -> Option<(f64, f64)> {
+    match sanitize_place_coordinate(entry.latitude, entry.longitude) {
+        (Some(latitude), Some(longitude)) => Some((latitude, longitude)),
+        _ => {
+            let coordinates = timezone_coordinate_lookup();
+            coordinates.get(&entry.timezone).copied().or_else(|| {
+                coordinates
+                    .get(&canonical_timezone_name(&entry.timezone))
+                    .copied()
+            })
+        }
     }
 }
 
@@ -937,10 +1300,10 @@ impl TimezoneResolver {
         });
 
         let mut results = Vec::new();
-        let mut seen_timezones = HashSet::new();
+        let mut seen_locations = HashSet::new();
 
         for (_, _, _, alias) in alias_scored {
-            if !seen_timezones.insert(alias.timezone.clone()) {
+            if !seen_locations.insert((alias.timezone.clone(), Self::normalize(&alias.alias))) {
                 continue;
             }
             let Some(record) = self.direct_lookup_record(&alias.timezone) else {
@@ -965,7 +1328,7 @@ impl TimezoneResolver {
         }
 
         for (_, _, _, record) in scored {
-            if !seen_timezones.insert(record.timezone.clone()) {
+            if !seen_locations.insert((record.timezone.clone(), Self::normalize(&record.city))) {
                 continue;
             }
             let abbreviation_text = if record.abbreviations.is_empty() {
@@ -1297,21 +1660,24 @@ impl RemotePlaceSearch {
         };
 
         let mut results = Vec::new();
-        let mut seen_timezones = HashSet::new();
+        let mut seen_locations = HashSet::new();
         for item in payload.results.unwrap_or_default() {
             let Some(raw_timezone) = item.timezone.as_deref() else {
                 continue;
             };
 
             let timezone_name = canonical_timezone_name(raw_timezone.trim());
-            if !self.zones.contains(&timezone_name) || !seen_timezones.insert(timezone_name.clone())
-            {
+            if !self.zones.contains(&timezone_name) {
                 continue;
             }
 
             let Some(title) = Self::format_title(&item) else {
                 continue;
             };
+            if !seen_locations.insert((timezone_name.clone(), TimezoneResolver::normalize(&title)))
+            {
+                continue;
+            }
 
             let mut subtitle_parts = vec![timezone_name.clone()];
             let location_summary = Self::format_location_summary(&item);
@@ -1392,10 +1758,15 @@ fn unique_words(value: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        canonical_timezone_name, detect_system_time_format_with_paths, AppConfig, ConfigManager,
-        TimezoneEntry,
+        canonical_timezone_name, detect_system_time_format_with_paths, merge_zone_tab_coordinates,
+        non_local_location_count, parse_zone_tab_coordinate, AppConfig, ConfigManager, LocationKey,
+        TimezoneEntry, CLOCK_CARD_LIMIT,
     };
+    use std::collections::BTreeMap;
     use std::fs;
+    use std::sync::mpsc;
+    use std::thread;
+    use std::time::Duration;
     use tempfile::TempDir;
 
     fn manager_in(temp_dir: &TempDir) -> ConfigManager {
@@ -1417,6 +1788,7 @@ mod tests {
                     latitude: None,
                     longitude: None,
                 }],
+                pinned_location: None,
                 disable_open_meteo_geolocation: false,
             }
         );
@@ -1490,7 +1862,7 @@ mod tests {
         fs::write(
             &path,
             r#"{
-  "version": 4,
+  "version": 6,
   "timezones": [
     {
       "timezone": "UTC",
@@ -1546,7 +1918,7 @@ mod tests {
         assert!(!rewritten.contains("\"locked\""));
         assert!(!rewritten.contains("\"sort_mode\""));
         assert!(!rewritten.contains("\"time_format\""));
-        assert!(rewritten.contains("\"version\": 4"));
+        assert!(rewritten.contains("\"version\": 6"));
     }
 
     #[test]
@@ -1603,11 +1975,32 @@ mod tests {
         manager.load_with_local_timezone("UTC").unwrap();
 
         let updated = manager.add_timezone("Asia/Tokyo", "Tokyo").unwrap();
-        let duplicated = manager.add_timezone("Asia/Tokyo", "Ignored").unwrap();
+        let duplicated = manager.add_timezone("Asia/Tokyo", "Tokyo").unwrap();
 
         assert_eq!(updated.timezones.len(), 2);
         assert_eq!(duplicated.timezones.len(), 2);
         assert_eq!(duplicated.timezones[1].label, "Tokyo");
+    }
+
+    #[test]
+    fn distinct_places_can_share_a_timezone() {
+        let temp_dir = TempDir::new().unwrap();
+        let manager = manager_in(&temp_dir);
+        manager.load_with_local_timezone("UTC").unwrap();
+
+        manager
+            .add_timezone("America/New_York", "New York")
+            .unwrap();
+        let updated = manager
+            .add_timezone("America/New_York", "Boston, Massachusetts, United States")
+            .unwrap();
+
+        assert_eq!(updated.timezones.len(), 3);
+        assert_eq!(updated.timezones[1].label, "New York");
+        assert_eq!(
+            updated.timezones[2].label,
+            "Boston, Massachusetts, United States"
+        );
     }
 
     #[test]
@@ -1625,13 +2018,203 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(updated.timezones[1].label, "Austin");
-        assert_eq!(updated.timezones[1].latitude, Some(30.2672));
-        assert_eq!(updated.timezones[1].longitude, Some(-97.7431));
+        assert!(updated.added);
+        assert_eq!(updated.config.timezones[1].label, "Austin");
+        assert_eq!(updated.config.timezones[1].latitude, Some(30.2672));
+        assert_eq!(updated.config.timezones[1].longitude, Some(-97.7431));
+
+        let duplicate = manager
+            .add_timezone_with_coordinate(
+                "America/Chicago",
+                "Austin",
+                Some(30.2672),
+                Some(-97.7431),
+            )
+            .unwrap();
+        assert!(!duplicate.added);
 
         let loaded = manager.load_with_local_timezone("UTC").unwrap();
         assert_eq!(loaded.timezones[1].latitude, Some(30.2672));
         assert_eq!(loaded.timezones[1].longitude, Some(-97.7431));
+    }
+
+    #[test]
+    fn add_timezone_enforces_the_non_local_card_limit_before_saving() {
+        let temp_dir = TempDir::new().unwrap();
+        let manager = manager_in(&temp_dir);
+        manager.load_with_local_timezone("UTC").unwrap();
+
+        let locations = [
+            ("America/Vancouver", "Vancouver"),
+            ("America/Denver", "Denver"),
+            ("America/Chicago", "Chicago"),
+            ("America/New_York", "New York"),
+            ("Europe/London", "London"),
+            ("Europe/Paris", "Paris"),
+            ("Asia/Kolkata", "New Delhi"),
+            ("Asia/Tokyo", "Tokyo"),
+            ("Australia/Sydney", "Sydney"),
+        ];
+        for (timezone, label) in locations {
+            manager
+                .add_timezone_with_coordinate_for_local(timezone, label, None, None, "UTC")
+                .unwrap();
+        }
+
+        let error = manager
+            .add_timezone_with_coordinate_for_local(
+                "Pacific/Auckland",
+                "Auckland",
+                None,
+                None,
+                "UTC",
+            )
+            .unwrap_err();
+        assert!(error.to_string().contains("up to 9 locations"));
+
+        let saved = manager.load_with_local_timezone("UTC").unwrap();
+        assert_eq!(
+            non_local_location_count(&saved.timezones, "UTC"),
+            CLOCK_CARD_LIMIT
+        );
+        assert!(!saved
+            .timezones
+            .iter()
+            .any(|entry| entry.label == "Auckland"));
+    }
+
+    #[test]
+    fn add_timezone_allows_the_local_summary_at_the_card_limit() {
+        let temp_dir = TempDir::new().unwrap();
+        let manager = manager_in(&temp_dir);
+        let timezones = [
+            "America/Vancouver",
+            "America/Denver",
+            "America/Chicago",
+            "America/New_York",
+            "Europe/London",
+            "Europe/Paris",
+            "Asia/Kolkata",
+            "Asia/Tokyo",
+            "Australia/Sydney",
+        ]
+        .into_iter()
+        .map(|timezone| TimezoneEntry {
+            timezone: timezone.to_string(),
+            label: String::new(),
+            latitude: None,
+            longitude: None,
+        })
+        .collect();
+        manager
+            .save(&AppConfig {
+                timezones,
+                pinned_location: None,
+                disable_open_meteo_geolocation: false,
+            })
+            .unwrap();
+
+        let updated = manager
+            .add_timezone_with_coordinate_for_local("UTC", "Home", None, None, "UTC")
+            .unwrap();
+        assert!(updated.added);
+        assert_eq!(updated.config.timezones.len(), CLOCK_CARD_LIMIT + 1);
+        assert_eq!(
+            non_local_location_count(&updated.config.timezones, "UTC"),
+            CLOCK_CARD_LIMIT
+        );
+    }
+
+    #[test]
+    fn config_mutation_lock_serializes_read_modify_write_transactions() {
+        let temp_dir = TempDir::new().unwrap();
+        let manager = manager_in(&temp_dir);
+        manager.load_with_local_timezone("UTC").unwrap();
+
+        let first_manager = manager.clone();
+        let (first_entered_tx, first_entered_rx) = mpsc::channel();
+        let (release_first_tx, release_first_rx) = mpsc::channel();
+        let first = thread::spawn(move || {
+            first_manager
+                .mutate_with_local_timezone("UTC", move |config| {
+                    first_entered_tx.send(()).unwrap();
+                    release_first_rx.recv().unwrap();
+                    config.timezones.push(TimezoneEntry {
+                        timezone: "Asia/Tokyo".to_string(),
+                        label: "Tokyo".to_string(),
+                        latitude: None,
+                        longitude: None,
+                    });
+                    Ok(true)
+                })
+                .unwrap();
+        });
+        first_entered_rx
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap();
+
+        let second_manager = manager.clone();
+        let (second_entered_tx, second_entered_rx) = mpsc::channel();
+        let second = thread::spawn(move || {
+            second_manager
+                .mutate_with_local_timezone("UTC", move |config| {
+                    second_entered_tx.send(()).unwrap();
+                    config.timezones.push(TimezoneEntry {
+                        timezone: "Europe/Paris".to_string(),
+                        label: "Paris".to_string(),
+                        latitude: None,
+                        longitude: None,
+                    });
+                    Ok(true)
+                })
+                .unwrap();
+        });
+
+        assert!(
+            second_entered_rx
+                .recv_timeout(Duration::from_millis(100))
+                .is_err(),
+            "the second mutation entered while the first held the config lock"
+        );
+        release_first_tx.send(()).unwrap();
+        first.join().unwrap();
+        second_entered_rx
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap();
+        second.join().unwrap();
+
+        let saved = manager.load_with_local_timezone("UTC").unwrap();
+        assert!(saved.timezones.iter().any(|entry| entry.label == "Tokyo"));
+        assert!(saved.timezones.iter().any(|entry| entry.label == "Paris"));
+    }
+
+    #[test]
+    fn zone_tab_coordinates_parse_minutes_and_seconds() {
+        let cancun = parse_zone_tab_coordinate("+2105-08646").unwrap();
+        assert!((cancun.0 - 21.0833).abs() < 0.001);
+        assert!((cancun.1 + 86.7667).abs() < 0.001);
+
+        let new_york = parse_zone_tab_coordinate("+404251-0740023").unwrap();
+        assert!((new_york.0 - 40.7142).abs() < 0.001);
+        assert!((new_york.1 + 74.0064).abs() < 0.001);
+    }
+
+    #[test]
+    fn zone_tab_coordinates_merge_missing_entries_without_overwriting() {
+        let primary = "US\t+404251-0740023\tAmerica/New_York\n";
+        let fallback = "US\t+4100-07500\tAmerica/New_York\nCA\t+4916-12307\tAmerica/Vancouver\n";
+        let mut coordinates = BTreeMap::new();
+
+        merge_zone_tab_coordinates(&mut coordinates, primary);
+        merge_zone_tab_coordinates(&mut coordinates, fallback);
+
+        let new_york = coordinates.get("America/New_York").unwrap();
+        assert!((new_york.0 - 40.7142).abs() < 0.001);
+        assert!((new_york.1 + 74.0064).abs() < 0.001);
+
+        let vancouver = coordinates.get("America/Vancouver").unwrap();
+        assert!((vancouver.0 - 49.2667).abs() < 0.001);
+        assert!((vancouver.1 + 123.1167).abs() < 0.001);
     }
 
     #[test]
@@ -1644,5 +2227,52 @@ mod tests {
         let updated = manager.remove_timezone("Asia/Tokyo").unwrap();
         assert_eq!(updated.timezones.len(), 1);
         assert_eq!(updated.timezones[0].timezone, "UTC");
+
+        let error = manager.remove_timezone("UTC").unwrap_err();
+        assert!(error.to_string().contains("keep at least one timezone"));
+    }
+
+    #[test]
+    fn pinned_timezone_round_trips_and_can_be_cleared() {
+        let temp_dir = TempDir::new().unwrap();
+        let manager = manager_in(&temp_dir);
+        manager.load_with_local_timezone("UTC").unwrap();
+        manager.add_timezone("Asia/Tokyo", "Tokyo").unwrap();
+
+        let pinned = manager.set_pinned_timezone(Some("Asia/Tokyo")).unwrap();
+        assert_eq!(
+            pinned.pinned_location,
+            Some(LocationKey {
+                timezone: "Asia/Tokyo".to_string(),
+                label: "Tokyo".to_string(),
+            })
+        );
+        assert_eq!(manager.load_with_local_timezone("UTC").unwrap(), pinned);
+
+        let cleared = manager.set_pinned_timezone(None).unwrap();
+        assert_eq!(cleared.pinned_location, None);
+    }
+
+    #[test]
+    fn removing_or_normalizing_a_missing_timezone_clears_the_pin() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("config.json");
+        fs::write(
+            &path,
+            r#"{
+  "version": 5,
+  "pinned_timezone": "Asia/Tokyo",
+  "timezones": [
+    { "timezone": "UTC", "label": "Home" },
+    { "timezone": "Asia/Tokyo", "label": "Tokyo" }
+  ]
+}
+"#,
+        )
+        .unwrap();
+        let manager = ConfigManager::new(Some(path));
+
+        let removed = manager.remove_timezone("Asia/Tokyo").unwrap();
+        assert_eq!(removed.pinned_location, None);
     }
 }

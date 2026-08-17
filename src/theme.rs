@@ -379,7 +379,7 @@ button.card-control-button:hover {{
   border-color: {icon_button_hover_border};
 }}
 
-button.card-hover-delete {{
+button.card-floating-control {{
   min-width: 36px;
   min-height: 36px;
   padding: 0;
@@ -387,7 +387,7 @@ button.card-hover-delete {{
   box-shadow: 0 10px 22px {card_shadow};
 }}
 
-button.card-hover-delete image {{
+button.card-floating-control image {{
   color: {foreground};
 }}
 

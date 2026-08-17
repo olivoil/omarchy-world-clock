@@ -1,6 +1,8 @@
 use crate::config::{
-    all_timezones, detect_local_timezone, first_location_segment, system_time_format, AppConfig,
-    ConfigManager, RemotePlaceSearch, TimezoneEntry, TimezoneResolver, TimezoneSearchResult,
+    all_timezones, canonical_timezone_name, detect_local_timezone, first_location_segment,
+    non_local_location_count, place_coordinate, system_time_format, AppConfig, ConfigManager,
+    LocationKey, RemotePlaceSearch, TimezoneEntry, TimezoneResolver, TimezoneSearchResult,
+    CLOCK_CARD_LIMIT,
 };
 use crate::layout::{
     load_monitor_reserved_space, load_window_gap, popup_surface_size, popup_top_margin,
@@ -38,7 +40,7 @@ enum PopupScreen {
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum ActiveTimeEntry {
     Summary,
-    ReadCard(String),
+    ReadCard(LocationKey),
 }
 
 #[derive(Clone)]
@@ -51,6 +53,7 @@ struct ReadCardWidgets {
     timezone_label: gtk::Label,
     delta_label: gtk::Label,
     controls: gtk::Box,
+    pin_button: gtk::Button,
     remove_button: gtk::Button,
     dirty: Rc<Cell<bool>>,
     suppress_changes: Rc<Cell<bool>>,
@@ -77,6 +80,7 @@ struct PopupState {
     content_stack: gtk::Stack,
     panel_title: gtk::Label,
     live_button: gtk::Button,
+    summary_unpin_button: gtk::Button,
     edit_button: gtk::Button,
     add_button: gtk::Button,
     cancel_button: gtk::Button,
@@ -138,7 +142,7 @@ const TIMELINE_LABEL_LANE_GAP: f64 = 8.0;
 const TIMELINE_MIN_SIDE_HOURS: i64 = 12;
 const TIMELINE_EDGE_HOUR_MARGIN: i64 = 1;
 const READ_CARD_COLUMNS: i32 = 3;
-const READ_CARD_LIMIT: usize = 9;
+const READ_CARD_LIMIT: usize = CLOCK_CARD_LIMIT;
 const READ_CARD_SPACING: i32 = 18;
 const READ_CARD_WIDTH: i32 =
     (READ_TIMELINE_WIDTH - (READ_CARD_SPACING * (READ_CARD_COLUMNS - 1))) / READ_CARD_COLUMNS;
@@ -294,11 +298,6 @@ const WORLD_LANDMASSES: [&[(f64, f64)]; 6] = [
     GREENLAND_POINTS,
 ];
 const MAP_LEGEND_LABELS: [&str; 7] = ["-12", "-8", "-4", "+0", "+4", "+8", "+12"];
-const ZONE_TAB_PATHS: [&str; 2] = [
-    "/usr/share/zoneinfo/zone1970.tab",
-    "/usr/share/zoneinfo/zone.tab",
-];
-
 impl Drop for PidGuard {
     fn drop(&mut self) {
         let _ = fs::remove_file(&self.path);
@@ -410,19 +409,77 @@ fn time_entry_width_chars(time_format: &str) -> i32 {
 }
 
 fn read_entry_count(entries: &[TimezoneEntry], local_timezone: &str) -> usize {
-    entries
-        .iter()
-        .filter(|entry| entry.timezone != local_timezone)
-        .count()
+    non_local_location_count(entries, local_timezone)
 }
 
-fn visible_read_entries(entries: &[TimezoneEntry], local_timezone: &str) -> Vec<TimezoneEntry> {
-    entries
+fn local_timezone_is_configured(entries: &[TimezoneEntry], local_timezone: &str) -> bool {
+    let local_timezone = canonical_timezone_name(local_timezone);
+    !local_timezone.is_empty() && entries.iter().any(|entry| entry.timezone == local_timezone)
+}
+
+fn add_controls_available(entries: &[TimezoneEntry], local_timezone: &str) -> bool {
+    let read_entry_count = read_entry_count(entries, local_timezone);
+    if read_entry_count < READ_CARD_LIMIT {
+        return true;
+    }
+    if read_entry_count > READ_CARD_LIMIT {
+        return false;
+    }
+
+    let local_timezone = canonical_timezone_name(local_timezone);
+    !local_timezone.is_empty() && !local_timezone_is_configured(entries, &local_timezone)
+}
+
+fn can_add_location_at_limit(
+    entries: &[TimezoneEntry],
+    local_timezone: &str,
+    candidate_timezone: &str,
+) -> bool {
+    let read_entry_count = read_entry_count(entries, local_timezone);
+    if read_entry_count < READ_CARD_LIMIT {
+        return true;
+    }
+    if read_entry_count > READ_CARD_LIMIT {
+        return false;
+    }
+
+    let local_timezone = canonical_timezone_name(local_timezone);
+    !local_timezone.is_empty()
+        && !local_timezone_is_configured(entries, &local_timezone)
+        && canonical_timezone_name(candidate_timezone) == local_timezone
+}
+
+fn visible_read_entries(
+    entries: &[TimezoneEntry],
+    local_timezone: &str,
+    pinned_location: Option<&LocationKey>,
+) -> Vec<TimezoneEntry> {
+    let local_entry_index = entries
         .iter()
-        .filter(|entry| entry.timezone != local_timezone)
+        .position(|entry| entry.timezone == local_timezone);
+    let candidates = entries
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| Some(*index) != local_entry_index)
+        .map(|(_, entry)| entry)
+        .collect::<Vec<_>>();
+    let mut visible = candidates
+        .iter()
         .take(READ_CARD_LIMIT)
-        .cloned()
-        .collect()
+        .map(|entry| (*entry).clone())
+        .collect::<Vec<_>>();
+
+    if let Some(pinned) = pinned_location {
+        if !visible.iter().any(|entry| pinned.matches(entry)) {
+            if let Some(pinned_entry) = candidates.iter().find(|entry| pinned.matches(entry)) {
+                if let Some(last) = visible.last_mut() {
+                    *last = (*pinned_entry).clone();
+                }
+            }
+        }
+    }
+
+    visible
 }
 
 fn sort_read_entries_by_time(
@@ -441,7 +498,11 @@ fn sort_read_entries_by_time(
 }
 
 fn read_entries(state: &PopupState) -> Vec<TimezoneEntry> {
-    let mut entries = visible_read_entries(&state.config.timezones, &state.local_timezone);
+    let mut entries = visible_read_entries(
+        &state.config.timezones,
+        &state.local_timezone,
+        state.config.pinned_location.as_ref(),
+    );
     sort_read_entries_by_time(&mut entries, state.reference_utc, &state.local_timezone);
     entries
 }
@@ -454,22 +515,21 @@ fn read_card_row_width(entry_count: usize) -> i32 {
 fn timeline_entries(
     entries: &[TimezoneEntry],
     local_timezone: &str,
+    pinned_location: Option<&LocationKey>,
     reference_utc: DateTime<Utc>,
 ) -> Vec<TimezoneEntry> {
-    let mut visible = visible_read_entries(entries, local_timezone);
-    if !visible.iter().any(|entry| entry.timezone == local_timezone) {
-        let local_entry = entries
-            .iter()
-            .find(|entry| entry.timezone == local_timezone)
-            .cloned()
-            .unwrap_or(TimezoneEntry {
-                timezone: local_timezone.to_string(),
-                label: String::new(),
-                latitude: None,
-                longitude: None,
-            });
-        visible.push(local_entry);
-    }
+    let mut visible = visible_read_entries(entries, local_timezone, pinned_location);
+    let local_entry = entries
+        .iter()
+        .find(|entry| entry.timezone == local_timezone)
+        .cloned()
+        .unwrap_or(TimezoneEntry {
+            timezone: local_timezone.to_string(),
+            label: String::new(),
+            latitude: None,
+            longitude: None,
+        });
+    visible.push(local_entry);
     sort_read_entries_by_time(&mut visible, reference_utc, local_timezone);
     visible
 }
@@ -482,15 +542,49 @@ fn set_entry_error(entry: &gtk::Entry, enabled: bool) {
     }
 }
 
+fn read_card_control_availability(screen_mode: PopupScreen, can_remove: bool) -> (bool, bool) {
+    let visible = matches!(screen_mode, PopupScreen::Edit);
+    (visible, visible && can_remove)
+}
+
+fn summary_entry_is_pinned(config: &AppConfig, local_timezone: &str) -> bool {
+    let local_timezone = canonical_timezone_name(local_timezone);
+    config
+        .timezones
+        .iter()
+        .find(|entry| entry.timezone == local_timezone)
+        .is_some_and(|entry| config.is_pinned(entry))
+}
+
 fn set_read_card_controls(state: &PopupState) {
     let can_remove = state.config.timezones.len() > 1;
-    let show_card_controls = can_remove && matches!(state.screen_mode, PopupScreen::Edit);
+    let (show_card_controls, remove_sensitive) =
+        read_card_control_availability(state.screen_mode, can_remove);
     for card in &state.read_cards {
+        let pinned = state.config.is_pinned(&card.entry);
+        card.timezone_label.set_visible(!show_card_controls);
+        card.title
+            .set_margin_end(if show_card_controls { 84 } else { 0 });
         card.controls.set_visible(show_card_controls);
         card.controls
             .set_opacity(if show_card_controls { 1.0 } else { 0.0 });
         card.controls.set_sensitive(show_card_controls);
-        card.remove_button.set_sensitive(show_card_controls);
+        card.pin_button.set_sensitive(show_card_controls);
+        if pinned {
+            card.pin_button.add_css_class("active");
+            card.pin_button
+                .set_tooltip_text(Some("Remove this time from the bar."));
+        } else {
+            card.pin_button.remove_css_class("active");
+            card.pin_button
+                .set_tooltip_text(Some("Keep this time visible in the bar."));
+        }
+        card.remove_button.set_sensitive(remove_sensitive);
+        card.remove_button.set_tooltip_text(Some(if can_remove {
+            "Remove timezone."
+        } else {
+            "Keep at least one timezone in the popup."
+        }));
     }
 }
 
@@ -526,12 +620,15 @@ fn active_entry_is_summary(active_entry: Option<&ActiveTimeEntry>) -> bool {
     matches!(active_entry, Some(ActiveTimeEntry::Summary))
 }
 
-fn active_entry_is_read_card(active_entry: Option<&ActiveTimeEntry>, timezone: &str) -> bool {
-    matches!(active_entry, Some(ActiveTimeEntry::ReadCard(active_timezone)) if active_timezone == timezone)
+fn active_entry_is_read_card(
+    active_entry: Option<&ActiveTimeEntry>,
+    entry: &TimezoneEntry,
+) -> bool {
+    matches!(active_entry, Some(ActiveTimeEntry::ReadCard(location)) if location.matches(entry))
 }
 
-fn read_card_editing(state: &PopupState, timezone: &str) -> bool {
-    active_entry_is_read_card(state.active_time_entry.as_ref(), timezone)
+fn read_card_editing(state: &PopupState, entry: &TimezoneEntry) -> bool {
+    active_entry_is_read_card(state.active_time_entry.as_ref(), entry)
 }
 
 fn read_time_cursor_editing(state: &PopupState) -> bool {
@@ -910,13 +1007,14 @@ fn timeline_zone_tooltip(labels: &[String], entry_count: usize) -> Option<String
 fn build_timeline_items(
     entries: &[TimezoneEntry],
     local_timezone: &str,
+    pinned_location: Option<&LocationKey>,
     reference_utc: DateTime<Utc>,
     time_format: &str,
 ) -> Vec<TimelineItem> {
     let anchor = zoned_datetime(reference_utc, local_timezone);
     let mut groups = BTreeMap::<i64, TimelineGroupBuilder>::new();
 
-    for entry in timeline_entries(entries, local_timezone, reference_utc) {
+    for entry in timeline_entries(entries, local_timezone, pinned_location, reference_utc) {
         let zoned = zoned_datetime(reference_utc, &entry.timezone);
         let relative_minutes = timeline_relative_minutes(&anchor, &zoned);
         let abbreviation = format_timezone_notation(&zoned);
@@ -1074,83 +1172,6 @@ fn read_summary_editing(state: &PopupState) -> bool {
     active_entry_is_summary(state.active_time_entry.as_ref())
 }
 
-fn parse_iso6709_component(component: &str, degree_digits: usize) -> Option<f64> {
-    let sign = match component.chars().next()? {
-        '+' => 1.0,
-        '-' => -1.0,
-        _ => return None,
-    };
-    let digits = &component[1..];
-    if digits.len() != degree_digits + 2 && digits.len() != degree_digits + 4 {
-        return None;
-    }
-
-    let degrees = digits.get(..degree_digits)?.parse::<f64>().ok()?;
-    let minutes = digits
-        .get(degree_digits..degree_digits + 2)?
-        .parse::<f64>()
-        .ok()?;
-    let seconds = if digits.len() == degree_digits + 4 {
-        digits
-            .get(degree_digits + 2..degree_digits + 4)?
-            .parse::<f64>()
-            .ok()?
-    } else {
-        0.0
-    };
-
-    if minutes >= 60.0 || seconds >= 60.0 {
-        return None;
-    }
-
-    Some(sign * (degrees + minutes / 60.0 + seconds / 3600.0))
-}
-
-fn parse_zone_tab_coordinate(value: &str) -> Option<MapCoordinate> {
-    let longitude_start = value
-        .char_indices()
-        .skip(1)
-        .find_map(|(index, character)| matches!(character, '+' | '-').then_some(index))?;
-    let latitude = parse_iso6709_component(value.get(..longitude_start)?, 2)?;
-    let longitude = parse_iso6709_component(value.get(longitude_start..)?, 3)?;
-
-    Some(MapCoordinate {
-        latitude,
-        longitude,
-    })
-}
-
-fn merge_zone_tab_coordinates(coordinates: &mut BTreeMap<String, MapCoordinate>, text: &str) {
-    for (timezone_name, coordinate) in text.lines().filter_map(|line| {
-        let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            return None;
-        }
-        let mut columns = trimmed.split('\t');
-        let _country_codes = columns.next()?;
-        let coordinate_text = columns.next()?;
-        let timezone_name = columns.next()?;
-        let coordinate = parse_zone_tab_coordinate(coordinate_text)?;
-        Some((timezone_name.to_string(), coordinate))
-    }) {
-        coordinates.entry(timezone_name).or_insert(coordinate);
-    }
-}
-
-fn timezone_coordinate_lookup() -> &'static BTreeMap<String, MapCoordinate> {
-    static COORDINATES: OnceLock<BTreeMap<String, MapCoordinate>> = OnceLock::new();
-    COORDINATES.get_or_init(|| {
-        let mut coordinates = BTreeMap::new();
-        for path in ZONE_TAB_PATHS {
-            let Ok(text) = fs::read_to_string(path) else {
-                continue;
-            };
-            merge_zone_tab_coordinates(&mut coordinates, &text);
-        }
-        coordinates
-    })
-}
-
 fn resolver_coordinate_for_entry(
     resolver: &TimezoneResolver,
     entry: &TimezoneEntry,
@@ -1163,14 +1184,16 @@ fn resolver_coordinate_for_entry(
 }
 
 fn map_location_markers(state: &PopupState) -> Vec<MapLocationMarker> {
-    let coordinates = timezone_coordinate_lookup();
     state
         .config
         .timezones
         .iter()
         .filter_map(|entry| {
-            entry_place_coordinate(entry)
-                .or_else(|| coordinates.get(&entry.timezone).copied())
+            place_coordinate(entry)
+                .map(|(latitude, longitude)| MapCoordinate {
+                    latitude,
+                    longitude,
+                })
                 .or_else(|| resolver_coordinate_for_entry(&state.resolver, entry))
                 .map(|coordinate| MapLocationMarker {
                     label: read_card_title(entry),
@@ -1201,10 +1224,6 @@ fn coordinate_from_pair(latitude: Option<f64>, longitude: Option<f64>) -> Option
 
 fn search_result_coordinate(result: &TimezoneSearchResult) -> Option<MapCoordinate> {
     coordinate_from_pair(result.latitude, result.longitude)
-}
-
-fn entry_place_coordinate(entry: &TimezoneEntry) -> Option<MapCoordinate> {
-    coordinate_from_pair(entry.latitude, entry.longitude)
 }
 
 fn lng_lat_to_map_coordinates(
@@ -1710,16 +1729,16 @@ fn build_read_card(entry: &TimezoneEntry, time_format: &str) -> ReadCardWidgets 
     time_group.append(&footer);
     card.append(&time_group);
 
-    let controls = gtk::Box::new(Orientation::Horizontal, 0);
+    let controls = gtk::Box::new(Orientation::Horizontal, 8);
     controls.set_halign(Align::Start);
     controls.set_valign(Align::Start);
-    controls.set_size_request(36, 36);
+    controls.set_size_request(80, 36);
     controls.set_overflow(gtk::Overflow::Visible);
     card_shell.connect_get_child_position(|overlay, _| {
         Some(gdk::Rectangle::new(
-            (overlay.allocated_width() - 22).max(0),
+            (overlay.allocated_width() - 66).max(0),
             4,
-            36,
+            80,
             36,
         ))
     });
@@ -1727,10 +1746,18 @@ fn build_read_card(entry: &TimezoneEntry, time_format: &str) -> ReadCardWidgets 
     card_shell.set_measure_overlay(&controls, false);
     card_shell.set_clip_overlay(&controls, false);
 
+    let pin_button = gtk::Button::from_icon_name("view-pin-symbolic");
+    pin_button.add_css_class("icon-button");
+    pin_button.add_css_class("card-control-button");
+    pin_button.add_css_class("card-floating-control");
+    pin_button.set_size_request(36, 36);
+    pin_button.set_tooltip_text(Some("Keep this time visible in the bar."));
+    controls.append(&pin_button);
+
     let remove_button = gtk::Button::from_icon_name("edit-delete-symbolic");
     remove_button.add_css_class("icon-button");
     remove_button.add_css_class("card-control-button");
-    remove_button.add_css_class("card-hover-delete");
+    remove_button.add_css_class("card-floating-control");
     remove_button.add_css_class("destructive");
     remove_button.set_size_request(36, 36);
     remove_button.set_tooltip_text(Some("Remove timezone."));
@@ -1745,6 +1772,7 @@ fn build_read_card(entry: &TimezoneEntry, time_format: &str) -> ReadCardWidgets 
         timezone_label,
         delta_label,
         controls,
+        pin_button,
         remove_button,
         dirty: Rc::new(Cell::new(false)),
         suppress_changes: Rc::new(Cell::new(false)),
@@ -1775,13 +1803,13 @@ fn rebuild_read_cards(state: &mut PopupState, entries: &[TimezoneEntry]) {
                 state_handle,
                 &widgets.time_entry,
                 entry.timezone.clone(),
-                ActiveTimeEntry::ReadCard(entry.timezone.clone()),
+                ActiveTimeEntry::ReadCard(entry.location_key()),
                 widgets.dirty.clone(),
                 widgets.suppress_changes.clone(),
             );
 
             let state_for_cursor = state_handle.clone();
-            let timezone_for_cursor = entry.timezone.clone();
+            let entry_for_cursor = entry.clone();
             let time_entry_for_cursor = widgets.time_entry.clone();
             widgets
                 .time_cursor_area
@@ -1789,7 +1817,7 @@ fn rebuild_read_cards(state: &mut PopupState, entries: &[TimezoneEntry]) {
                     let Ok(state) = state_for_cursor.try_borrow() else {
                         return;
                     };
-                    if read_card_editing(&state, &timezone_for_cursor) {
+                    if read_card_editing(&state, &entry_for_cursor) {
                         draw_read_time_cursor(
                             area,
                             context,
@@ -1801,7 +1829,7 @@ fn rebuild_read_cards(state: &mut PopupState, entries: &[TimezoneEntry]) {
                 });
 
             let state_for_cursor_change = state_handle.clone();
-            let active_entry_for_cursor_change = ActiveTimeEntry::ReadCard(entry.timezone.clone());
+            let active_entry_for_cursor_change = ActiveTimeEntry::ReadCard(entry.location_key());
             let suppress_changes_for_cursor_change = widgets.suppress_changes.clone();
             widgets.time_entry.connect_changed(move |_| {
                 reset_read_time_cursor_blink_for_entry(
@@ -1812,8 +1840,7 @@ fn rebuild_read_cards(state: &mut PopupState, entries: &[TimezoneEntry]) {
             });
 
             let state_for_cursor_position = state_handle.clone();
-            let active_entry_for_cursor_position =
-                ActiveTimeEntry::ReadCard(entry.timezone.clone());
+            let active_entry_for_cursor_position = ActiveTimeEntry::ReadCard(entry.location_key());
             let suppress_changes_for_cursor_position = widgets.suppress_changes.clone();
             widgets.time_entry.connect_cursor_position_notify(move |_| {
                 reset_read_time_cursor_blink_for_entry(
@@ -1824,8 +1851,7 @@ fn rebuild_read_cards(state: &mut PopupState, entries: &[TimezoneEntry]) {
             });
 
             let state_for_cursor_selection = state_handle.clone();
-            let active_entry_for_cursor_selection =
-                ActiveTimeEntry::ReadCard(entry.timezone.clone());
+            let active_entry_for_cursor_selection = ActiveTimeEntry::ReadCard(entry.location_key());
             let suppress_changes_for_cursor_selection = widgets.suppress_changes.clone();
             widgets.time_entry.connect_selection_bound_notify(move |_| {
                 reset_read_time_cursor_blink_for_entry(
@@ -1836,9 +1862,15 @@ fn rebuild_read_cards(state: &mut PopupState, entries: &[TimezoneEntry]) {
             });
 
             let state_for_remove = state_handle.clone();
-            let timezone_name_for_remove = entry.timezone.clone();
+            let entry_for_remove = entry.clone();
             widgets.remove_button.connect_clicked(move |_| {
-                remove_timezone_entry(&state_for_remove, &timezone_name_for_remove);
+                remove_timezone_entry(&state_for_remove, &entry_for_remove);
+            });
+
+            let state_for_pin = state_handle.clone();
+            let entry_for_pin = entry.clone();
+            widgets.pin_button.connect_clicked(move |_| {
+                toggle_pinned_timezone_entry(&state_for_pin, &entry_for_pin);
             });
         }
 
@@ -1857,11 +1889,11 @@ fn update_read_cards(
     let current_order = state
         .read_cards
         .iter()
-        .map(|card| card.entry.timezone.clone())
+        .map(|card| card.entry.location_key())
         .collect::<Vec<_>>();
     let desired_order = entries
         .iter()
-        .map(|entry| entry.timezone.clone())
+        .map(TimezoneEntry::location_key)
         .collect::<Vec<_>>();
 
     if current_order != desired_order && state.active_time_entry.is_none() {
@@ -1892,7 +1924,7 @@ fn update_read_cards(
             .set_text(&relative_time_label(anchor, &zoned));
         configure_manual_time_entry(&card.time_entry, &time_format);
 
-        if active_entry_is_read_card(active_time_entry.as_ref(), &entry.timezone) {
+        if active_entry_is_read_card(active_time_entry.as_ref(), entry) {
             continue;
         }
 
@@ -1935,6 +1967,7 @@ fn render_read_view(state: &mut PopupState) {
     let timeline_items = build_timeline_items(
         &state.config.timezones,
         &state.local_timezone,
+        state.config.pinned_location.as_ref(),
         state.reference_utc,
         &state.time_format,
     );
@@ -1992,7 +2025,7 @@ fn render_read_view(state: &mut PopupState) {
 }
 
 fn can_add_more_locations(state: &PopupState) -> bool {
-    read_entry_count(&state.config.timezones, &state.local_timezone) < READ_CARD_LIMIT
+    add_controls_available(&state.config.timezones, &state.local_timezone)
 }
 
 fn screen_mode_for_read_entry_count(
@@ -2022,7 +2055,7 @@ fn should_focus_summary_time_entry(
         && active_time_entry.is_none()
 }
 
-fn remove_timezone_entry(state_handle: &Rc<RefCell<PopupState>>, timezone_name: &str) {
+fn remove_timezone_entry(state_handle: &Rc<RefCell<PopupState>>, entry: &TimezoneEntry) {
     let config_manager = {
         let state = state_handle.borrow();
         if state.config.timezones.len() <= 1 {
@@ -2032,7 +2065,7 @@ fn remove_timezone_entry(state_handle: &Rc<RefCell<PopupState>>, timezone_name: 
         state.config_manager.clone()
     };
 
-    match config_manager.remove_timezone(timezone_name) {
+    match config_manager.remove_location(&entry.timezone, Some(&entry.label)) {
         Ok(config) => {
             let mut state = state_handle.borrow_mut();
             refresh_config_state(&mut state, config);
@@ -2042,6 +2075,35 @@ fn remove_timezone_entry(state_handle: &Rc<RefCell<PopupState>>, timezone_name: 
             set_status(&state, &error.to_string(), true);
         }
     }
+}
+
+fn persist_pinned_timezone_entry(
+    state_handle: &Rc<RefCell<PopupState>>,
+    entry: Option<&TimezoneEntry>,
+) {
+    let config_manager = state_handle.borrow().config_manager.clone();
+    let result = match entry {
+        Some(entry) => {
+            config_manager.set_pinned_location(Some(&entry.timezone), Some(&entry.label))
+        }
+        None => config_manager.set_pinned_timezone(None),
+    };
+
+    match result {
+        Ok(config) => {
+            let mut state = state_handle.borrow_mut();
+            refresh_config_state(&mut state, config);
+        }
+        Err(error) => {
+            let state = state_handle.borrow();
+            set_status(&state, &error.to_string(), true);
+        }
+    }
+}
+
+fn toggle_pinned_timezone_entry(state_handle: &Rc<RefCell<PopupState>>, entry: &TimezoneEntry) {
+    let pinned = state_handle.borrow().config.is_pinned(entry);
+    persist_pinned_timezone_entry(state_handle, (!pinned).then_some(entry));
 }
 
 fn sync_map_hover_card(state: &PopupState) {
@@ -2092,6 +2154,14 @@ fn update_screen_mode(state: &PopupState) {
     state.panel_title.set_text(&title);
 
     state.live_button.set_visible(!in_add);
+    // The pinned local summary may be the only configured entry, which puts
+    // the card-free popup in Add mode. Keep its unpin action in the header.
+    state
+        .summary_unpin_button
+        .set_visible(summary_entry_is_pinned(
+            &state.config,
+            &state.local_timezone,
+        ));
     state.edit_button.set_visible(!in_add);
     if in_edit {
         state.edit_button.add_css_class("active");
@@ -2131,14 +2201,18 @@ fn merge_search_results(
     remote_results: &[TimezoneSearchResult],
     limit: usize,
 ) -> Vec<TimezoneSearchResult> {
-    let mut seen_timezones = HashSet::new();
+    let mut seen_locations = HashSet::new();
     let mut results: Vec<TimezoneSearchResult> = Vec::new();
     for result in local_results.iter().chain(remote_results.iter()) {
-        if !seen_timezones.insert(result.timezone.clone()) {
-            if let Some(existing) = results
-                .iter_mut()
-                .find(|existing| existing.timezone == result.timezone)
-            {
+        let identity = (
+            result.timezone.clone(),
+            TimezoneResolver::normalize(&result.title),
+        );
+        if !seen_locations.insert(identity.clone()) {
+            if let Some(existing) = results.iter_mut().find(|existing| {
+                existing.timezone == result.timezone
+                    && TimezoneResolver::normalize(&existing.title) == identity.1
+            }) {
                 if existing.latitude.is_none() && result.latitude.is_some() {
                     existing.latitude = result.latitude;
                     existing.longitude = result.longitude;
@@ -2300,11 +2374,11 @@ fn refresh_config_state(state: &mut PopupState, config: AppConfig) {
         .as_ref()
         .is_some_and(|active_entry| match active_entry {
             ActiveTimeEntry::Summary => false,
-            ActiveTimeEntry::ReadCard(timezone) => !state
+            ActiveTimeEntry::ReadCard(location) => !state
                 .config
                 .timezones
                 .iter()
-                .any(|entry| entry.timezone == *timezone),
+                .any(|entry| location.matches(entry)),
         })
     {
         state.editing_timezone = None;
@@ -2667,7 +2741,7 @@ fn add_timezone(
             .config
             .timezones
             .iter()
-            .any(|entry| entry.timezone == timezone_name)
+            .any(|entry| entry.matches_location(timezone_name, label))
         {
             set_status(
                 &state,
@@ -2677,7 +2751,11 @@ fn add_timezone(
             return;
         }
 
-        if read_entry_count(&state.config.timezones, &state.local_timezone) >= READ_CARD_LIMIT {
+        if !can_add_location_at_limit(
+            &state.config.timezones,
+            &state.local_timezone,
+            timezone_name,
+        ) {
             set_status(
                 &state,
                 &format!(
@@ -2691,13 +2769,23 @@ fn add_timezone(
 
     let config_manager = state_handle.borrow().config_manager.clone();
     match config_manager.add_timezone_with_coordinate(timezone_name, label, latitude, longitude) {
-        Ok(config) => {
+        Ok(outcome) => {
+            if !outcome.added {
+                let mut state = state_handle.borrow_mut();
+                refresh_config_state(&mut state, outcome.config);
+                set_status(
+                    &state,
+                    &format!("{display_name} is already in the list."),
+                    true,
+                );
+                return;
+            }
             debug_popup_event(&format!(
                 "add_timezone success timezone={timezone_name} label={display_name}"
             ));
             let (add_entry, add_map_area) = {
                 let mut state = state_handle.borrow_mut();
-                refresh_config_state(&mut state, config);
+                refresh_config_state(&mut state, outcome.config);
                 clear_search_results(&mut state);
                 (state.add_entry.clone(), state.add_map_area.clone())
             };
@@ -2777,18 +2865,20 @@ fn manual_entry_for_source(
             state.read_summary_dirty.get(),
             ManualEntryTarget::Summary,
         )),
-        ActiveTimeEntry::ReadCard(active_timezone) if active_timezone == timezone_name => state
-            .read_cards
-            .iter()
-            .enumerate()
-            .find(|(_, card)| card.entry.timezone == timezone_name)
-            .map(|(index, card)| {
-                (
-                    card.time_entry.text().to_string(),
-                    card.dirty.get(),
-                    ManualEntryTarget::Card(index),
-                )
-            }),
+        ActiveTimeEntry::ReadCard(active_location) if active_location.timezone == timezone_name => {
+            state
+                .read_cards
+                .iter()
+                .enumerate()
+                .find(|(_, card)| active_location.matches(&card.entry))
+                .map(|(index, card)| {
+                    (
+                        card.time_entry.text().to_string(),
+                        card.dirty.get(),
+                        ManualEntryTarget::Card(index),
+                    )
+                })
+        }
         _ => None,
     }
 }
@@ -2799,7 +2889,7 @@ fn active_entry_matches_manual_target(state: &PopupState, target: ManualEntryTar
         ManualEntryTarget::Card(index) => state
             .read_cards
             .get(index)
-            .is_some_and(|card| read_card_editing(state, &card.entry.timezone)),
+            .is_some_and(|card| read_card_editing(state, &card.entry)),
     }
 }
 
@@ -2962,6 +3052,14 @@ fn build_window(
     live_button.add_css_class("icon-button");
     live_button.set_valign(Align::Center);
     header_start.append(&live_button);
+
+    let summary_unpin_button = gtk::Button::from_icon_name("view-pin-symbolic");
+    summary_unpin_button.add_css_class("icon-button");
+    summary_unpin_button.add_css_class("active");
+    summary_unpin_button.set_valign(Align::Center);
+    summary_unpin_button.set_visible(false);
+    summary_unpin_button.set_tooltip_text(Some("Remove this time from the bar."));
+    header_start.append(&summary_unpin_button);
 
     let cancel_button = gtk::Button::from_icon_name("go-previous-symbolic");
     cancel_button.add_css_class("icon-button");
@@ -3260,6 +3358,7 @@ fn build_window(
         content_stack: content_stack.clone(),
         panel_title: title.clone(),
         live_button: live_button.clone(),
+        summary_unpin_button: summary_unpin_button.clone(),
         edit_button: edit_button.clone(),
         add_button: add_button.clone(),
         cancel_button: cancel_button.clone(),
@@ -3354,6 +3453,7 @@ fn build_window(
         let timeline_items = build_timeline_items(
             &state.config.timezones,
             &state.local_timezone,
+            state.config.pinned_location.as_ref(),
             state.reference_utc,
             &state.time_format,
         );
@@ -3484,6 +3584,11 @@ fn build_window(
     let state_for_now = state.clone();
     live_button.connect_clicked(move |_| {
         reset_live_now(&state_for_now);
+    });
+
+    let state_for_summary_unpin = state.clone();
+    summary_unpin_button.connect_clicked(move |_| {
+        persist_pinned_timezone_entry(&state_for_summary_unpin, None);
     });
 
     let state_for_add_screen = state.clone();
@@ -3769,20 +3874,20 @@ pub fn run_popup(pid_path: &Path, config_path: Option<PathBuf>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_timeline_items, first_location_segment, format_timeline_zone_text,
+        active_entry_is_read_card, add_controls_available, build_timeline_items,
+        can_add_location_at_limit, first_location_segment, format_timeline_zone_text,
         layout_map_location_markers, lng_lat_to_map_coordinates, map_coordinates_to_lng_lat,
-        merge_zone_tab_coordinates, parse_zone_tab_coordinate, read_card_row_width,
-        read_card_title, read_entry_count, screen_mode_for_read_entry_count,
-        search_result_subtitle, should_focus_summary_time_entry, sort_read_entries_by_time,
+        merge_search_results, read_card_control_availability, read_card_row_width, read_card_title,
+        read_entry_count, screen_mode_for_read_entry_count, search_result_subtitle,
+        should_focus_summary_time_entry, sort_read_entries_by_time, summary_entry_is_pinned,
         summary_search_result, timeline_entries, timeline_side_hours,
         timeline_tick_relative_minutes, visible_read_entries, ActiveTimeEntry, MapCoordinate,
         MapLocationMarker, PopupScreen, READ_CARD_COLUMNS, READ_CARD_LIMIT, READ_CARD_SPACING,
         READ_CARD_WIDTH,
     };
-    use crate::config::{TimezoneEntry, TimezoneSearchResult};
+    use crate::config::{AppConfig, LocationKey, TimezoneEntry, TimezoneSearchResult};
     use crate::time::zoned_datetime;
     use chrono::{TimeZone, Utc};
-    use std::collections::BTreeMap;
 
     fn entry(timezone: &str) -> TimezoneEntry {
         TimezoneEntry {
@@ -3809,7 +3914,7 @@ mod tests {
             entry("Asia/Singapore"),
         ];
 
-        let visible = visible_read_entries(&entries, "America/Cancun");
+        let visible = visible_read_entries(&entries, "America/Cancun", None);
 
         assert_eq!(visible.len(), READ_CARD_LIMIT);
         assert!(visible
@@ -3823,6 +3928,28 @@ mod tests {
             visible.last().map(|entry| entry.timezone.as_str()),
             Some("Europe/London")
         );
+    }
+
+    #[test]
+    fn visible_read_entries_keeps_the_pin_inside_the_travel_cap() {
+        let entries = vec![
+            entry("America/Cancun"),
+            entry("Europe/Paris"),
+            entry("Asia/Tokyo"),
+            entry("Europe/Lisbon"),
+            entry("America/Los_Angeles"),
+            entry("America/New_York"),
+            entry("Asia/Kolkata"),
+            entry("Australia/Sydney"),
+            entry("Europe/Berlin"),
+            entry("Europe/London"),
+        ];
+        let pinned = entries.last().unwrap().location_key();
+
+        let visible = visible_read_entries(&entries, "Pacific/Auckland", Some(&pinned));
+
+        assert_eq!(visible.len(), READ_CARD_LIMIT);
+        assert!(visible.iter().any(|entry| pinned.matches(entry)));
     }
 
     #[test]
@@ -3850,12 +3977,108 @@ mod tests {
     }
 
     #[test]
+    fn edit_mode_keeps_pin_controls_available_when_remove_is_disabled() {
+        assert_eq!(
+            read_card_control_availability(PopupScreen::Edit, false),
+            (true, false)
+        );
+        assert_eq!(
+            read_card_control_availability(PopupScreen::Read, true),
+            (false, false)
+        );
+    }
+
+    #[test]
+    fn summary_unpin_matches_the_exact_local_location() {
+        let mut new_york = entry("America/New_York");
+        new_york.label = "New York".to_string();
+        let mut boston = entry("America/New_York");
+        boston.label = "Boston".to_string();
+        let mut config = AppConfig {
+            timezones: vec![new_york.clone(), boston.clone()],
+            pinned_location: Some(LocationKey {
+                timezone: boston.timezone.clone(),
+                label: boston.label.clone(),
+            }),
+            disable_open_meteo_geolocation: false,
+        };
+
+        assert!(!summary_entry_is_pinned(&config, "America/New_York"));
+
+        config.pinned_location = Some(new_york.location_key());
+        assert!(summary_entry_is_pinned(&config, "America/New_York"));
+
+        config.timezones = vec![new_york];
+        assert_eq!(
+            screen_mode_for_read_entry_count(
+                PopupScreen::Read,
+                read_entry_count(&config.timezones, "America/New_York"),
+            ),
+            PopupScreen::Add
+        );
+        assert!(summary_entry_is_pinned(&config, "America/New_York"));
+    }
+
+    #[test]
     fn visible_read_entries_does_not_fall_back_to_local_only_entry() {
         let entries = vec![entry("America/Cancun")];
 
-        let visible = visible_read_entries(&entries, "America/Cancun");
+        let visible = visible_read_entries(&entries, "America/Cancun", None);
 
         assert!(visible.is_empty());
+    }
+
+    #[test]
+    fn visible_read_entries_keeps_a_second_place_in_the_local_timezone() {
+        let mut new_york = entry("America/New_York");
+        new_york.label = "New York".to_string();
+        let mut boston = entry("America/New_York");
+        boston.label = "Boston".to_string();
+
+        let entries = vec![new_york, boston];
+        let visible = visible_read_entries(&entries, "America/New_York", None);
+
+        assert_eq!(visible.len(), 1);
+        assert_eq!(visible[0].label, "Boston");
+        assert_eq!(read_entry_count(&entries, "America/New_York"), 1);
+    }
+
+    #[test]
+    fn active_read_card_identity_distinguishes_places_in_one_timezone() {
+        let mut new_york = entry("America/New_York");
+        new_york.label = "New York".to_string();
+        let mut boston = entry("America/New_York");
+        boston.label = "Boston".to_string();
+        let active = ActiveTimeEntry::ReadCard(boston.location_key());
+
+        assert!(!active_entry_is_read_card(Some(&active), &new_york));
+        assert!(active_entry_is_read_card(Some(&active), &boston));
+    }
+
+    #[test]
+    fn merged_search_results_keep_distinct_places_in_one_timezone() {
+        let new_york = TimezoneSearchResult {
+            timezone: "America/New_York".to_string(),
+            title: "New York".to_string(),
+            subtitle: String::new(),
+            latitude: Some(40.7128),
+            longitude: Some(-74.0060),
+            open_meteo_attribution: false,
+        };
+        let boston = TimezoneSearchResult {
+            timezone: "America/New_York".to_string(),
+            title: "Boston, Massachusetts, United States".to_string(),
+            subtitle: String::new(),
+            latitude: Some(42.3601),
+            longitude: Some(-71.0589),
+            open_meteo_attribution: true,
+        };
+
+        let results = merge_search_results(&[new_york], &[boston], 8);
+
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].title, "New York");
+        assert_eq!(results[1].title, "Boston, Massachusetts, United States");
     }
 
     #[test]
@@ -3874,6 +4097,50 @@ mod tests {
         let entries = vec![entry("America/Cancun")];
 
         assert_eq!(read_entry_count(&entries, "America/Cancun"), 0);
+    }
+
+    #[test]
+    fn add_controls_allow_only_the_missing_local_summary_at_the_card_limit() {
+        let entries = vec![
+            entry("America/Vancouver"),
+            entry("America/Denver"),
+            entry("America/Chicago"),
+            entry("America/New_York"),
+            entry("Europe/London"),
+            entry("Europe/Paris"),
+            entry("Asia/Kolkata"),
+            entry("Asia/Tokyo"),
+            entry("Australia/Sydney"),
+        ];
+
+        assert!(add_controls_available(&entries, "America/Cancun"));
+        assert!(can_add_location_at_limit(
+            &entries,
+            "America/Cancun",
+            "America/Cancun"
+        ));
+        assert!(!can_add_location_at_limit(
+            &entries,
+            "America/Cancun",
+            "Pacific/Auckland"
+        ));
+
+        let mut with_local_summary = entries;
+        with_local_summary.push(entry("America/Cancun"));
+        assert!(!add_controls_available(
+            &with_local_summary,
+            "America/Cancun"
+        ));
+
+        let mut over_limit = with_local_summary;
+        over_limit.push(entry("Pacific/Auckland"));
+        over_limit.retain(|entry| entry.timezone != "America/Cancun");
+        assert!(!add_controls_available(&over_limit, "America/Cancun"));
+        assert!(!can_add_location_at_limit(
+            &over_limit,
+            "America/Cancun",
+            "America/Cancun"
+        ));
     }
 
     #[test]
@@ -3954,6 +4221,7 @@ mod tests {
         let timeline = timeline_entries(
             &entries,
             "America/Cancun",
+            None,
             Utc.with_ymd_and_hms(2026, 4, 18, 12, 0, 0).unwrap(),
         );
 
@@ -3969,6 +4237,7 @@ mod tests {
         let items = build_timeline_items(
             &entries,
             "America/Cancun",
+            None,
             Utc.with_ymd_and_hms(2026, 4, 18, 12, 0, 0).unwrap(),
             "24h",
         );
@@ -4008,6 +4277,7 @@ mod tests {
         let items = build_timeline_items(
             &[entry("Asia/Kolkata")],
             "America/Cancun",
+            None,
             Utc.with_ymd_and_hms(2026, 4, 18, 5, 5, 0).unwrap(),
             "24h",
         );
@@ -4117,35 +4387,6 @@ mod tests {
         let bottom_right = map_coordinates_to_lng_lat(900.0, 450.0, 900.0, 450.0).unwrap();
         assert!(bottom_right.0 > 179.9);
         assert!(bottom_right.1 < -89.9);
-    }
-
-    #[test]
-    fn zone_tab_coordinates_parse_minutes_and_seconds() {
-        let cancun = parse_zone_tab_coordinate("+2105-08646").unwrap();
-        assert!((cancun.latitude - 21.0833).abs() < 0.001);
-        assert!((cancun.longitude + 86.7667).abs() < 0.001);
-
-        let new_york = parse_zone_tab_coordinate("+404251-0740023").unwrap();
-        assert!((new_york.latitude - 40.7142).abs() < 0.001);
-        assert!((new_york.longitude + 74.0064).abs() < 0.001);
-    }
-
-    #[test]
-    fn zone_tab_coordinates_merge_missing_entries_without_overwriting() {
-        let primary = "US\t+404251-0740023\tAmerica/New_York\n";
-        let fallback = "US\t+4100-07500\tAmerica/New_York\nCA\t+4916-12307\tAmerica/Vancouver\n";
-        let mut coordinates = BTreeMap::new();
-
-        merge_zone_tab_coordinates(&mut coordinates, primary);
-        merge_zone_tab_coordinates(&mut coordinates, fallback);
-
-        let new_york = coordinates.get("America/New_York").unwrap();
-        assert!((new_york.latitude - 40.7142).abs() < 0.001);
-        assert!((new_york.longitude + 74.0064).abs() < 0.001);
-
-        let vancouver = coordinates.get("America/Vancouver").unwrap();
-        assert!((vancouver.latitude - 49.2667).abs() < 0.001);
-        assert!((vancouver.longitude + 123.1167).abs() < 0.001);
     }
 
     #[test]

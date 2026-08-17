@@ -1,4 +1,6 @@
-use crate::config::{detect_local_timezone, system_time_format, AppConfig, ConfigManager};
+use crate::config::{
+    detect_local_timezone, system_time_format, AppConfig, ConfigManager, TimezoneEntry,
+};
 use crate::runtime::popup_running;
 use crate::time::{format_display_time, zoned_datetime};
 use anyhow::{anyhow, bail, Result};
@@ -23,6 +25,10 @@ pub struct ModulePayload {
     pub text: String,
     pub class: String,
     pub tooltip: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pinned_time: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pinned_label: Option<String>,
 }
 
 fn modules_center_regex() -> &'static Regex {
@@ -399,10 +405,16 @@ fn module_payload_from_config_with_time_format(
     time_format: &str,
 ) -> ModulePayload {
     let anchor = zoned_datetime(now, local_timezone);
+    let local_entry_index = config
+        .timezones
+        .iter()
+        .position(|entry| entry.timezone == local_timezone);
     let mut entries = config
         .timezones
         .iter()
-        .filter(|entry| entry.timezone != local_timezone)
+        .enumerate()
+        .filter(|(index, _)| Some(*index) != local_entry_index)
+        .map(|(_, entry)| entry)
         .collect::<Vec<_>>();
     entries.sort_by(|left, right| {
         let left_zoned = zoned_datetime(now, &left.timezone);
@@ -429,14 +441,25 @@ fn module_payload_from_config_with_time_format(
         })
         .collect();
 
+    let pinned_entry = config.pinned_entry();
+    let pinned_time = pinned_entry
+        .map(|entry| format_display_time(&zoned_datetime(now, &entry.timezone), time_format));
+    let pinned_label = pinned_entry.map(TimezoneEntry::read_card_title);
+    let text = pinned_time
+        .as_ref()
+        .map(|time| format!("{MODULE_ICON}  {time}"))
+        .unwrap_or_else(|| MODULE_ICON.to_string());
+
     ModulePayload {
-        text: MODULE_ICON.to_string(),
+        text,
         class: if popup_active { "active" } else { "inactive" }.to_string(),
         tooltip: if rows.is_empty() {
             "No additional timezones yet.".to_string()
         } else {
             format_tooltip_clock_rows(&rows).join("\n")
         },
+        pinned_time,
+        pinned_label,
     }
 }
 
@@ -447,7 +470,7 @@ mod tests {
         module_payload_from_config_with_time_format, patch_config_text, patch_style_text,
         unpatch_config_text, unpatch_style_text,
     };
-    use crate::config::{AppConfig, TimezoneEntry};
+    use crate::config::{AppConfig, LocationKey, TimezoneEntry};
     use chrono::{TimeZone, Utc};
 
     const WAYBAR_CONFIG: &str = r#"{
@@ -527,6 +550,7 @@ mod tests {
                     longitude: None,
                 },
             ],
+            pinned_location: None,
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 4, 16, 20, 26, 0).unwrap();
@@ -577,6 +601,7 @@ mod tests {
                     longitude: None,
                 },
             ],
+            pinned_location: None,
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 4, 18, 5, 5, 0).unwrap();
@@ -615,6 +640,7 @@ mod tests {
                     longitude: None,
                 },
             ],
+            pinned_location: None,
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 4, 18, 5, 5, 0).unwrap();
@@ -635,6 +661,7 @@ mod tests {
     fn module_payload_shows_empty_state() {
         let config = AppConfig {
             timezones: Vec::new(),
+            pinned_location: None,
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 4, 17, 12, 0, 0).unwrap();
@@ -643,6 +670,44 @@ mod tests {
 
         assert_eq!(payload.tooltip, "No additional timezones yet.");
         assert_eq!(payload.class, "inactive");
+    }
+
+    #[test]
+    fn module_payload_places_the_pinned_timezone_time_beside_the_icon() {
+        let config = AppConfig {
+            timezones: vec![
+                TimezoneEntry {
+                    timezone: "America/Cancun".to_string(),
+                    label: "Local".to_string(),
+                    latitude: None,
+                    longitude: None,
+                },
+                TimezoneEntry {
+                    timezone: "Europe/Paris".to_string(),
+                    label: "Home".to_string(),
+                    latitude: None,
+                    longitude: None,
+                },
+            ],
+            pinned_location: Some(LocationKey {
+                timezone: "Europe/Paris".to_string(),
+                label: "Home".to_string(),
+            }),
+            disable_open_meteo_geolocation: false,
+        };
+        let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
+
+        let payload = module_payload_from_config_with_time_format(
+            &config,
+            now,
+            "America/Cancun",
+            false,
+            "24h",
+        );
+
+        assert_eq!(payload.text, "  13:05");
+        assert_eq!(payload.pinned_time.as_deref(), Some("13:05"));
+        assert_eq!(payload.pinned_label.as_deref(), Some("Home"));
     }
 
     #[test]

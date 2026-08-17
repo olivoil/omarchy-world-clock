@@ -143,11 +143,9 @@ if [[ -n "$GIT_STATUS" ]]; then
   fi
 fi
 
-git fetch --tags origin
-
 if [[ "$ALLOW_NON_DEFAULT_BRANCH" != true ]]; then
-  remote_head=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null || true)
-  release_branch=${OMARCHY_WORLD_CLOCK_RELEASE_BRANCH:-${remote_head#origin/}}
+  remote_head=$(git ls-remote --symref origin HEAD 2>/dev/null | awk '$1 == "ref:" { sub("refs/heads/", "", $2); print $2; exit }')
+  release_branch=${OMARCHY_WORLD_CLOCK_RELEASE_BRANCH:-$remote_head}
   release_branch=${release_branch:-master}
   current_branch=$(git branch --show-current)
 
@@ -158,7 +156,7 @@ if [[ "$ALLOW_NON_DEFAULT_BRANCH" != true ]]; then
   fi
 
   head_commit=$(git rev-parse HEAD)
-  remote_commit=$(git rev-parse "origin/$release_branch" 2>/dev/null || true)
+  remote_commit=$(git ls-remote --exit-code origin "refs/heads/$release_branch" 2>/dev/null | awk 'NR == 1 { print $1 }' || true)
   if [[ -z "$remote_commit" || "$head_commit" != "$remote_commit" ]]; then
     printf 'Local %s is not aligned with origin/%s.\n' "$release_branch" "$release_branch" >&2
     printf 'Push or pull before releasing so the release tag points at the public branch tip.\n' >&2

@@ -1732,12 +1732,13 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let manager = manager_in(&temp_dir);
         let loaded = manager.load_with_local_timezone("UTC").unwrap();
+        let utc = canonical_timezone_name("UTC");
 
         assert_eq!(
             loaded,
             AppConfig {
                 timezones: vec![TimezoneEntry {
-                    timezone: "UTC".to_string(),
+                    timezone: utc,
                     label: String::new(),
                     latitude: None,
                     longitude: None,
@@ -1756,12 +1757,13 @@ mod tests {
 
         let manager = ConfigManager::new(Some(path));
         let loaded = manager.load_with_local_timezone("UTC").unwrap();
+        let utc = canonical_timezone_name("UTC");
 
         assert_eq!(
             loaded.timezones,
             vec![
                 TimezoneEntry {
-                    timezone: "UTC".to_string(),
+                    timezone: utc,
                     label: String::new(),
                     latitude: None,
                     longitude: None,
@@ -1813,28 +1815,25 @@ mod tests {
 
         let temp_dir = TempDir::new().unwrap();
         let path = temp_dir.path().join("config.json");
-        fs::write(
-            &path,
-            r#"{
-  "version": 6,
-  "timezones": [
-    {
-      "timezone": "UTC",
-      "label": ""
-    }
-  ]
-}
-"#,
-        )
-        .unwrap();
+        let manager = ConfigManager::new(Some(path.clone()));
+        let expected = AppConfig {
+            timezones: vec![TimezoneEntry {
+                timezone: canonical_timezone_name("UTC"),
+                label: String::new(),
+                latitude: None,
+                longitude: None,
+            }],
+            pinned_location: None,
+            disable_open_meteo_geolocation: false,
+        };
+        fs::write(&path, manager.serialize(&expected).unwrap()).unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o444)).unwrap();
         fs::set_permissions(temp_dir.path(), fs::Permissions::from_mode(0o555)).unwrap();
 
-        let manager = ConfigManager::new(Some(path));
         let loaded = manager.load_with_local_timezone("UTC").unwrap();
 
         fs::set_permissions(temp_dir.path(), fs::Permissions::from_mode(0o755)).unwrap();
-        assert_eq!(loaded.timezones.len(), 1);
+        assert_eq!(loaded, expected);
     }
 
     #[test]
@@ -2164,7 +2163,10 @@ mod tests {
 
         let updated = manager.remove_timezone("Asia/Tokyo").unwrap();
         assert_eq!(updated.timezones.len(), 1);
-        assert_eq!(updated.timezones[0].timezone, "UTC");
+        assert_eq!(
+            updated.timezones[0].timezone,
+            canonical_timezone_name("UTC")
+        );
 
         let error = manager.remove_timezone("UTC").unwrap_err();
         assert!(error.to_string().contains("keep at least one timezone"));

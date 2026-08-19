@@ -968,14 +968,6 @@ pub fn detect_local_timezone() -> String {
     "UTC".to_string()
 }
 
-pub fn waybar_clock_config_paths() -> Vec<PathBuf> {
-    vec![
-        home_dir().join(".config/waybar/config.jsonc"),
-        home_dir().join(".config/waybar/config"),
-        home_dir().join(".local/share/omarchy/config/waybar/config.jsonc"),
-    ]
-}
-
 pub fn omarchy_shell_config_paths() -> Vec<PathBuf> {
     let omarchy_root = env::var_os("OMARCHY_PATH")
         .map(PathBuf::from)
@@ -1022,38 +1014,6 @@ pub fn load_omarchy_shell_clock_format(paths: Option<&[PathBuf]>) -> Option<Stri
     None
 }
 
-fn waybar_clock_format_regex() -> &'static Regex {
-    static REGEX: OnceLock<Regex> = OnceLock::new();
-    REGEX.get_or_init(|| {
-        Regex::new(r#""clock"\s*:\s*\{[\s\S]*?"format"\s*:\s*"(?P<format>(?:\\.|[^"\\])*)""#)
-            .expect("valid regex")
-    })
-}
-
-pub fn load_waybar_clock_format(paths: Option<&[PathBuf]>) -> Option<String> {
-    let candidates = paths
-        .map(|paths| paths.to_vec())
-        .unwrap_or_else(waybar_clock_config_paths);
-    let pattern = waybar_clock_format_regex();
-
-    for path in candidates {
-        let Ok(contents) = fs::read_to_string(path) else {
-            continue;
-        };
-        let Some(captures) = pattern.captures(&contents) else {
-            continue;
-        };
-        let raw_format = captures.name("format")?.as_str();
-        let wrapped = format!("\"{raw_format}\"");
-        if let Ok(decoded) = serde_json::from_str::<String>(&wrapped) {
-            return Some(decoded);
-        }
-        return Some(raw_format.to_string());
-    }
-
-    None
-}
-
 fn infer_time_format_inner(clock_format: &str) -> Option<&'static str> {
     if ["%I", "%l", "%p", "%P", "%r"]
         .iter()
@@ -1093,12 +1053,6 @@ fn locale_format(item: libc::nl_item) -> Option<String> {
 
 pub fn detect_system_time_format_with_paths(paths: Option<&[PathBuf]>) -> String {
     if let Some(clock_format) = load_omarchy_shell_clock_format(paths) {
-        if let Some(inferred) = infer_time_format_inner(&clock_format) {
-            return inferred.to_string();
-        }
-    }
-
-    if let Some(clock_format) = load_waybar_clock_format(paths) {
         if let Some(inferred) = infer_time_format_inner(&clock_format) {
             return inferred.to_string();
         }
@@ -1919,22 +1873,6 @@ mod tests {
         assert!(!rewritten.contains("\"sort_mode\""));
         assert!(!rewritten.contains("\"time_format\""));
         assert!(rewritten.contains("\"version\": 6"));
-    }
-
-    #[test]
-    fn detects_system_time_format_from_waybar_clock() {
-        let temp_dir = TempDir::new().unwrap();
-        let path = temp_dir.path().join("config.jsonc");
-        fs::write(
-            &path,
-            "{\n  \"clock\": {\n    \"format\": \"{:L%A %I:%M %p}\"\n  }\n}\n",
-        )
-        .unwrap();
-
-        assert_eq!(
-            detect_system_time_format_with_paths(Some(&[path])),
-            "ampm".to_string()
-        );
     }
 
     #[test]

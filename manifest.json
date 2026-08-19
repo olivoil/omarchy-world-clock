@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "io.github.olivoil.world-clock",
   "name": "World Clock",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "author": "Olivier Melcher",
   "description": "Compare, convert, and pin time across a user-managed list of places.",
-  "license": "MIT",
+  "license": "MIT AND ODbL-1.0",
   "kinds": [
     "bar-widget"
   ],
@@ -17,17 +17,6 @@
     "description": "Compare, convert, and pin time across a user-managed list of places.",
     "category": "Time",
     "allowMultiple": false,
-    "defaultSection": "center",
-    "defaults": {
-      "command": "omarchy-world-clock"
-    },
-    "schema": [
-      {
-        "key": "command",
-        "type": "string",
-        "label": "Backend command",
-        "defaultValue": "omarchy-world-clock"
-      }
-    ]
+    "defaultSection": "center"
   }
 }

@@ -1,0 +1,4 @@
+bin/omarchy-world-clock-backend binary
+data/timezone-grid.bin binary
+*.png binary
+data/ODbL-1.0.txt -whitespace

@@ -9,7 +9,35 @@ use serde::Serialize;
 use std::collections::BTreeMap;
 
 pub const SNAPSHOT_SCHEMA_VERSION: u64 = 1;
+pub const BACKEND_PROTOCOL_VERSION: u64 = 1;
 const QUATTRO_CLOCK_LIMIT: usize = CLOCK_CARD_LIMIT;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct QuattroModulePayload {
+    pub protocol_version: u64,
+    pub backend_version: &'static str,
+    pub tooltip: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pinned_time: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pinned_label: Option<String>,
+}
+
+pub fn build_module_payload(
+    config: &AppConfig,
+    now: DateTime<Utc>,
+    time_format: &str,
+) -> QuattroModulePayload {
+    let pinned_entry = config.pinned_entry();
+    QuattroModulePayload {
+        protocol_version: BACKEND_PROTOCOL_VERSION,
+        backend_version: env!("CARGO_PKG_VERSION"),
+        tooltip: "World Clock".to_string(),
+        pinned_time: pinned_entry
+            .map(|entry| format_display_time(&zoned_datetime(now, &entry.timezone), time_format)),
+        pinned_label: pinned_entry.map(TimezoneEntry::read_card_title),
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct QuattroClock {

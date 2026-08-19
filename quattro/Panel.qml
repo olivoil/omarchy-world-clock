@@ -15,7 +15,8 @@ Panel {
 
   property var anchorItem: null
   property var hostWidget: null
-  property string backendCommand: "omarchy-world-clock"
+  property string backendCommand:
+    String(Qt.resolvedUrl("../bin/omarchy-world-clock-backend")).replace(/^file:\/\//, "")
   property var snapshot: ({
     schema_version: 1,
     reference_utc: "",
@@ -567,7 +568,7 @@ Panel {
       } else if (exitCode === 0 && current) {
         root.applySnapshot(snapshotOutput.text, manual)
       } else if (exitCode !== 0 && current)
-        root.setStatus("World Clock backend needs an update. Install omarchy-world-clock-bin.", true)
+        root.setStatus("The bundled World Clock backend could not produce a snapshot. Reinstall or update the plugin.", true)
       root.snapshotActiveReference = ""
       Qt.callLater(root.flushSnapshotRequest)
       Qt.callLater(root.flushEditorRefresh)

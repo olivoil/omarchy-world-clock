@@ -1,24 +1,31 @@
 [package]
 name = "omarchy-world-clock"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
-license = "MIT"
+license = "MIT AND ODbL-1.0"
+autobins = false
+
+[[bin]]
+name = "omarchy-world-clock-backend"
+path = "src/bin/omarchy-world-clock-backend.rs"
 
 [dependencies]
 anyhow = "1.0"
 chrono = { version = "0.4", features = ["clock"] }
 chrono-tz = "0.10"
-gtk = { package = "gtk4", version = "0.11", features = ["v4_10"] }
-gtk4-layer-shell = "0.8"
 iana-time-zone = "0.1"
 libc = "0.2"
 regex = "1.11"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-toml = "0.8"
-tzf-rs = { version = "1.2.0", default-features = false }
 unicode-normalization = "0.1"
 
 [dev-dependencies]
 tempfile = "3"
+tzf-rs = { version = "1.2.0", default-features = false }
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+panic = "abort"

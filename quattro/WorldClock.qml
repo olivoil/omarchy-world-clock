@@ -5,8 +5,8 @@ import qs.Commons
 import qs.Ui
 
 // Native Quattro host for the world-clock panel. The panel stays loaded in
-// omarchy-shell, so opening it is a local state change rather than a GTK
-// process launch.
+// omarchy-shell, so opening it is a local state change rather than launching
+// an external UI process.
 BarWidget {
   id: root
   moduleName: "io.github.olivoil.world-clock"
@@ -18,10 +18,9 @@ BarWidget {
   property string pinnedLabel: ""
   property bool moduleRefreshPending: false
 
-  readonly property string backendCommand: {
-    var configured = String(setting("command", "omarchy-world-clock")).trim()
-    return configured === "" ? "omarchy-world-clock" : configured
-  }
+  readonly property int supportedBackendProtocol: 1
+  readonly property string backendCommand:
+    String(Qt.resolvedUrl("../bin/omarchy-world-clock-backend")).replace(/^file:\/\//, "")
   readonly property bool opened: panelLoader.item ? panelLoader.item.opened === true : false
   readonly property bool popoutSwitchClosing: panelLoader.item
     ? panelLoader.item.popoutSwitchClosing === true : false
@@ -34,7 +33,7 @@ BarWidget {
     ? pinnedContent.implicitWidth
     : Math.max(Style.space(10), Math.round(activeButton.implicitWidth * 0.55))
   readonly property string unavailableTooltip:
-    "World Clock unavailable\nInstall omarchy-world-clock-bin"
+    "World Clock unavailable\nThe bundled backend could not be started"
 
   implicitWidth: activeButton.implicitWidth
   implicitHeight: activeButton.implicitHeight
@@ -109,6 +108,8 @@ BarWidget {
   function applyModulePayload(raw) {
     try {
       var payload = JSON.parse(String(raw || ""))
+      if (Number(payload.protocol_version) !== supportedBackendProtocol)
+        throw new Error("Unsupported World Clock backend protocol")
       backendChecked = true
       backendAvailable = true
       clockTooltip = String(payload.tooltip || "World Clock")

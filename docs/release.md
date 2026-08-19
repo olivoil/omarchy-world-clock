@@ -1,126 +1,162 @@
 # Release Process
 
-Releases are published from a local machine with `scripts/release.sh`.
+World Clock releases are complete Quattro plugin repository commits. The QML,
+headless backend, map data, manifest, and provenance files must move together.
+There is no separate binary archive or AUR update for new releases.
 
-## Normal Flow
+`scripts/release.sh` is deliberately a **validation-only** command. It cannot
+tag, push, create a release, or update the plugin directory. Publication stays
+a separate, visible action after hands-on testing and explicit approval.
 
-1. Start from the default branch.
+## Prepare a candidate
 
-   ```bash
-   git checkout master
-   git pull --ff-only
-   ```
+1. Make changes on a non-default branch. Do not publish the branch as a release
+   yet.
 
-2. Update the package version in `Cargo.toml` and the Quattro plugin version in
-   `manifest.json`.
-
-   ```toml
-   version = "0.1.1"
-   ```
-
-   ```json
-   "version": "0.1.1"
-   ```
-
-3. Commit and push the version bump and release changes.
+2. If the timezone boundary dependency or grid format changed, regenerate the
+   compact database:
 
    ```bash
-   git add Cargo.toml Cargo.lock manifest.json
-   git commit -m "Release v0.1.1"
-   git push
+   scripts/build-timezone-grid.sh
    ```
 
-4. Publish the release.
+3. Set the same semantic version in `Cargo.toml` and `manifest.json`, then let
+   Cargo update the root package entry in `Cargo.lock`:
 
    ```bash
-   scripts/release.sh --description "Short summary of what changed."
+   cargo check --bin omarchy-world-clock-backend
+   git diff -- Cargo.lock
    ```
 
-5. Update the AUR package after the GitHub release exists.
+   This is the one intentionally unlocked Cargo command in the release flow.
+   Return to locked commands after inspecting the lockfile diff.
 
-   The AUR package points at the GitHub release archive, so update it only after
-   `scripts/release.sh` has uploaded the new asset.
+4. Rebuild the checked-in executable after every backend source, data,
+   dependency, profile, protocol, or version change:
 
    ```bash
-   cd ~/Code/aur.archlinux.org/omarchy-world-clock-bin
-   git pull --ff-only
+   scripts/build-plugin-backend.sh
    ```
 
-   Update `pkgver` in `PKGBUILD`, reset `pkgrel=1`, and refresh the checksums
-   and generated metadata:
+   This also refreshes `bin/SHA256SUMS` and `bin/BUILDINFO`.
+
+5. Run the complete checks:
 
    ```bash
-   updpkgsums
-   makepkg --printsrcinfo > .SRCINFO
-   makepkg -f
-   git diff
-   git add PKGBUILD .SRCINFO
-   git commit -m "Update to v0.1.1"
-   git push
+   scripts/ci.sh
+   git diff --check
    ```
 
-The script reads `Cargo.toml` and releases `v<package.version>`. For example,
-`version = "0.1.1"` publishes tag `v0.1.1`.
+   CI verifies Rust formatting/lints/tests, protocol behavior, manifest and QML
+   validity, map-data reproduction, exact static-binary reproduction, size,
+   linkage, version alignment, and provenance. Artifact reproduction requires
+   Podman or Docker; the toolchain/userspace image is pinned by digest.
 
-To verify the release before publishing anything:
+6. Review the full diff, especially the executable size/checksum, manifest,
+   license expression, and any generated-data change. Commit the candidate
+   locally. No push or tag is required for local testing.
+
+7. With a clean committed candidate, run:
+
+   ```bash
+   scripts/release.sh
+   ```
+
+   The script stops after validation and prints a reminder that nothing was
+   published.
+
+## Test through the real plugin manager
+
+`omarchy plugin add` performs a Git clone, so it tests committed state rather
+than uncommitted working-tree changes. Back up the current shell configuration
+and installed checkout first:
 
 ```bash
-scripts/release.sh --dry-run --description "Short summary of what changed."
+candidate=$(git rev-parse --show-toplevel)
+stamp=$(date +%Y%m%d-%H%M%S)
+backup="$HOME/.local/state/omarchy-world-clock/test-backups/$stamp"
+mkdir -p "$backup"
+cp ~/.config/omarchy/shell.json "$backup/shell.json"
+if [[ -d ~/.config/omarchy/plugins/io.github.olivoil.world-clock ]]; then
+  cp -a ~/.config/omarchy/plugins/io.github.olivoil.world-clock "$backup/plugin"
+fi
 ```
 
-Dry runs build the release binary, package the archive and checksum, prepare
-release notes, check whether the tag and GitHub release already exist, and print
-the tag/push/release actions that a real publish would take. They do not create
-tags, push tags, or create/update GitHub releases.
-
-## Release Notes
-
-By default, pass a succinct description:
+Then replace only the plugin checkout with the local candidate:
 
 ```bash
-scripts/release.sh --description "Adds prebuilt release installs."
+omarchy plugin remove io.github.olivoil.world-clock --yes
+omarchy plugin add "$candidate" --enable --yes
+omarchy bar move io.github.olivoil.world-clock --after omarchy.clock
 ```
 
-The script uses that as the first paragraph and appends a commit list since the
-previous version tag.
+Saved places remain in `~/.config/omarchy-world-clock/config.json` and are not
+removed by those commands.
 
-For fully manual notes:
+Test at minimum:
+
+- fresh panel open and native panel handoff
+- existing config migration/load
+- pin and unpin, including the bar time
+- add/remove and two named places sharing one timezone
+- local search, an Open-Meteo result, and the privacy opt-out
+- map clicks on representative land and ocean locations
+- time conversion around a DST transition
+- plugin reload and shell restart
+- the bundled version:
+
+  ```bash
+  ~/.config/omarchy/plugins/io.github.olivoil.world-clock/bin/omarchy-world-clock-backend version
+  ```
+
+To return to the currently published build before approval:
 
 ```bash
-scripts/release.sh --notes-file release-notes.md
+omarchy plugin remove io.github.olivoil.world-clock --yes
+omarchy plugin add https://github.com/olivoil/omarchy-world-clock.git --enable
 ```
 
-## Safety Checks
+## Publish only after approval
 
-The release script:
+After the tester explicitly approves the candidate:
 
-- requires a clean worktree
-- requires releasing from `master` unless `--allow-non-default-branch` is passed
-- requires local `master` to match `origin/master`
-- rejects tags that do not match `v<package.version>`
-- rejects existing tags that do not point at `HEAD`
-- runs `scripts/ci.sh` unless `--skip-tests` is passed
+1. Merge it into the default branch and push that branch.
+2. Confirm a fresh public clone passes `omarchy plugin validate` and reports
+   the intended bundled backend version.
+3. Create and push the immutable `v<version>` tag.
+4. Create the matching GitHub release; no separate binary asset is needed.
+5. Verify a clean user install and `omarchy plugin update` from the public URL.
+6. Ask the marketplace maintainers to remove the curated manual-installation
+   override from the existing [World Clock submission #553](https://github.com/HANCORE-linux/omarchy-plugin-marketplace/issues/553).
+   A scheduled source refresh does not remove that override automatically.
+   Include the published version/commit and explain that the static backend is
+   now inside the repository, no setup hook runs, and this command produces a
+   functioning plugin:
 
-`scripts/ci.sh` runs formatting, Clippy, Rust tests, and the shell installer
-tests. On an Omarchy workstation it also validates the plugin manifest and
-QML against the installed shell.
+   ```bash
+   omarchy plugin add https://github.com/olivoil/omarchy-world-clock.git --enable
+   ```
 
-`--dry-run` keeps the publish steps read-only. If the working tree is dirty, the
-dry run still builds and reports the planned actions, but marks the real publish
-as blocked until the changes are committed or stashed.
+7. Check the Omarchy Plugins listing after the override is removed. It should
+   show the standard plugin installation command rather than manual setup.
 
-## Output
-
-Each release uploads:
-
-- `omarchy-world-clock-<target>.tar.gz`
-- `omarchy-world-clock-<target>.tar.gz.sha256`
-
-The archive contains the `omarchy-world-clock` binary and the project
-`LICENSE` file.
-
-Users install the latest release without Rust:
+Example commands are intentionally not automated:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/olivoil/omarchy-world-clock/master/install.sh | bash
+version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
+git tag -s "v$version" -m "World Clock v$version"
+git push origin "v$version"
+gh release create "v$version" --verify-tag --generate-notes \
+  --title "World Clock v$version"
 ```
+
+Pushing the default branch is itself a publication event because normal plugin
+installs and updates follow it. Do not perform that step merely to make a test
+build available.
+
+## Legacy AUR policy
+
+`omarchy-world-clock-bin` remains the historical install path for Omarchy 3
+users. It is frozen on the old architecture and is not part of new version
+work. Never update it to a Quattro-only release or reintroduce an AUR dependency
+into `manifest.json`, QML, README installation steps, or release checks.

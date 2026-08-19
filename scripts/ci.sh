@@ -12,8 +12,7 @@ run() {
 run cargo fmt --all -- --check
 run cargo clippy --locked --all-targets -- -D warnings
 run cargo test --locked
-run bash tests/install.sh
-run bash tests/uninstall.sh
+run bash tests/bundle.sh
 
 OMARCHY_ROOT=${OMARCHY_PATH:-/usr/share/omarchy}
 if command -v omarchy >/dev/null 2>&1 \

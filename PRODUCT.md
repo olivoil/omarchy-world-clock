@@ -36,7 +36,8 @@ Native, precise, quiet.
 - Use Omarchy's active runtime tokens instead of approximating a theme.
 - Keep advanced editing available without adding noise to the read view.
 - Treat a pinned timezone as quiet ambient context, not an alert state.
-- Preserve useful behavior across Omarchy versions where practical.
+- Prefer a focused, native Quattro experience over compatibility layers for
+  older Omarchy shells.
 
 ## Accessibility & Inclusion
 

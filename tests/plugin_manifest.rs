@@ -1,5 +1,6 @@
 use serde_json::Value;
 use std::fs;
+use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
 #[test]
@@ -13,8 +14,10 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert_eq!(manifest["schemaVersion"], 1);
     assert_eq!(manifest["id"], "io.github.olivoil.world-clock");
     assert_eq!(manifest["version"], env!("CARGO_PKG_VERSION"));
-    assert_eq!(manifest["license"], "MIT");
+    assert_eq!(manifest["license"], "MIT AND ODbL-1.0");
     assert_eq!(manifest["kinds"], serde_json::json!(["bar-widget"]));
+    assert!(manifest.pointer("/barWidget/defaults").is_none());
+    assert!(manifest.pointer("/barWidget/schema").is_none());
 
     let entry_point = manifest
         .pointer("/entryPoints/barWidget")
@@ -27,6 +30,20 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(qml_path.is_file(), "missing {}", qml_path.display());
     let qml = fs::read_to_string(&qml_path).expect("read QML entry point");
     assert!(qml.contains("moduleName: \"io.github.olivoil.world-clock\""));
+    assert!(qml.contains("Qt.resolvedUrl(\"../bin/omarchy-world-clock-backend\")"));
+    assert!(!qml.contains("setting(\"command\""));
+    assert!(!qml.contains("Install omarchy-world-clock-bin"));
+    let backend_path = root.join("bin/omarchy-world-clock-backend");
+    assert!(backend_path.is_file(), "missing {}", backend_path.display());
+    assert_ne!(
+        fs::metadata(&backend_path)
+            .expect("read bundled backend metadata")
+            .permissions()
+            .mode()
+            & 0o111,
+        0,
+        "bundled backend must be executable"
+    );
     assert!(qml.contains("source: Qt.resolvedUrl(\"Panel.qml\")"));
     assert!(qml.contains("slotSize: Style.bar.statusSlot"));
     assert!(qml.contains("useActiveColor: false"));
@@ -39,6 +56,7 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     let panel_path = qml_path.parent().unwrap().join("Panel.qml");
     assert!(panel_path.is_file(), "missing {}", panel_path.display());
     let panel = fs::read_to_string(panel_path).expect("read native panel");
+    assert!(!panel.contains("omarchy-world-clock-bin"));
     assert!(panel.contains("KeyboardPanel"));
     assert!(panel.contains("owner: root.barIdentity"));
     assert!(panel.contains("onTabRequested"));

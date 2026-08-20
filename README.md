@@ -1,7 +1,6 @@
 # Omarchy World Clock
 
-A native Omarchy Quattro bar widget for comparing, converting, and pinning
-time across a user-managed list of places.
+A native Omarchy Quattro world clock. Hover over the bar widget icon for a quick view of your timezones, add new timezones, pin one to be always visible, enter any time to convert from one timezone to the others.
 
 <p>
   <img src="preview.png" alt="Omarchy World Clock panel with a pinned home time, proportional timezone timeline, and six location clocks" width="960">
@@ -9,18 +8,14 @@ time across a user-managed list of places.
 
 ## Install
 
-On an x86-64 Omarchy system running the Quattro shell:
+On Omarchy Quattro:
 
 ```bash
 omarchy plugin add https://github.com/olivoil/omarchy-world-clock.git --enable
 ```
 
-That is the complete installation. The repository contains both the QML
-widget and its headless backend, so users do **not** need an AUR package, Rust,
-an installation hook, or administrator privileges.
-
-The interactive installer asks where to place the widget. You can move it at
-any time:
+The interactive installer asks where to place the widget. 
+You can move it after installing at any time:
 
 ```bash
 # Place it immediately after Omarchy's clock.
@@ -38,33 +33,26 @@ Use `center` or `right` instead of `left` as needed.
 omarchy plugin update io.github.olivoil.world-clock
 ```
 
-The update is atomic from the plugin's perspective: QML, backend protocol,
-binary, and bundled map data all come from the same repository commit.
-
-### Moving from the old AUR release
+### Upgrading from the old AUR release
 
 Versions through `0.3.x` used `omarchy-world-clock-bin` for a separate backend.
 If that release already installed the Quattro plugin, update it with the
 command above. If it did not, use the normal `omarchy plugin add ... --enable`
 command instead.
 
-The new plugin ignores the old `/usr/bin/omarchy-world-clock` executable, so
-the AUR package is no longer required. It can remain installed during testing;
-it does not control or override the bundled backend.
+The new plugin ignores the old `/usr/bin/omarchy-world-clock` executable and bundles its own, so
+the AUR package is no longer required.
 
 ## Use
 
 - **Left click** the world icon to open or close World Clock.
-- **Right click** it to open Omarchy's system-timezone selector.
+- **Right click** it to open Omarchy's system-timezone selector and set your local timezone.
 - Use the **pencil** to reveal pin and remove controls.
-- Pin one place to keep its current time beside the bar icon while traveling.
+- Pin one place to keep its current time always visible beside the bar icon.
 - Select a displayed time and enter another time to convert the same instant
   across every visible place.
 - Use **plus** to search for a timezone or city, or select a region on the map.
 - Use **refresh** to return a converted view to live time.
-
-World Clock participates in Quattro's native panel coordination, keyboard
-navigation, theming, focus handling, and active-panel indicator.
 
 ## Features
 
@@ -86,14 +74,12 @@ World Clock use the same panel, bar, focus, keyboard, and theme primitives as
 built-in Omarchy widgets. This frontend is native shell code rather than a
 separate desktop window.
 
-Rust is a small headless backend for the work that QML JavaScript is poorly
-suited to: arbitrary IANA timezone conversion, DST edge cases, config
+Rust is used as a small headless backend for arbitrary IANA timezone conversion, DST edge cases, config
 migration and atomic writes, place search, HTTP fallback, and coordinate to
-timezone lookup. It is bundled inside the plugin, so retaining Rust no longer
-creates a second installation step.
+timezone lookup.
 
 See [Architecture](docs/architecture.md) for the component boundary, JSON
-protocol, packaging decision, and why a JavaScript-only backend was rejected.
+protocol, packaging, etc.
 
 ## Configuration
 

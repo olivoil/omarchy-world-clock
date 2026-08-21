@@ -173,7 +173,8 @@ Rules:
   them, allowing the globe to focus the first result without a remote request
 - Open-Meteo results show one quiet, clickable attribution in the lower-left
   map corner while those remote results are visible
-- selecting a result adds it; Enter chooses the first valid result
+- selecting a result adds it and recenters the globe on that result as a
+  visual confirmation; Enter chooses and centers the first valid result
 - successful addition leaves the add view ready for another query
 - a duplicate or capacity violation produces an inline error
 - remote failure leaves local search usable

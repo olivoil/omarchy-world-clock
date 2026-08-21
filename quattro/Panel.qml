@@ -449,6 +449,8 @@ Panel {
         + " can be added at the nine-location limit.", true)
       return
     }
+    if (name === "add" && result && hasMapCoordinate(result))
+      mapCanvas.focusOnLocations([result])
     actionName = name
     var command = [backendCommand, name]
     if (name !== "unpin") command.push(String(timezone || ""))

@@ -162,6 +162,7 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
         .contains("tooltipText: root.searchVisible ? \"Close search\" : \"Search locations\""));
     assert!(panel.contains("diameterRatio: 0.63"));
     assert!(panel.contains("mapCanvas.focusOnLocations(root.searchResults)"));
+    assert!(panel.contains("mapCanvas.focusOnLocations([result])"));
     assert!(!panel.contains("onHovered: function(isHovered)"));
     assert!(!panel.contains("Drag to rotate  ·  Scroll to zoom"));
     assert!(panel.contains("visible: root.summary.pinned === true"));

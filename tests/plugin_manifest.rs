@@ -16,8 +16,14 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert_eq!(manifest["version"], env!("CARGO_PKG_VERSION"));
     assert_eq!(manifest["license"], "MIT AND ODbL-1.0");
     assert_eq!(manifest["kinds"], serde_json::json!(["bar-widget"]));
-    assert!(manifest.pointer("/barWidget/defaults").is_none());
-    assert!(manifest.pointer("/barWidget/schema").is_none());
+    assert_eq!(manifest["barWidget"]["defaults"]["showWeather"], true);
+    assert_eq!(manifest["barWidget"]["schema"][0]["key"], "showWeather");
+    assert_eq!(manifest["barWidget"]["schema"][0]["type"], "boolean");
+    assert_eq!(
+        manifest["barWidget"]["schema"][0]["label"],
+        "Show current weather"
+    );
+    assert_eq!(manifest["barWidget"]["schema"][0]["defaultValue"], true);
 
     let entry_point = manifest
         .pointer("/entryPoints/barWidget")
@@ -126,6 +132,8 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(
         panel.contains("root.mode === \"add\" ? \"Add a Location\" : root.currentLocationTitle")
     );
+    assert!(panel.contains("spacing: Style.space(root.mode === \"add\" ? 14 : 8)"));
+    assert!(panel.contains("? Style.font.title : Style.space(18)"));
     assert!(panel.contains("text: root.currentTimezoneMetadata"));
     assert!(panel.contains("id: clockRows"));
     assert!(panel.contains("anchors.horizontalCenter: parent.horizontalCenter"));
@@ -139,6 +147,11 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("function weatherFor(clock)"));
     assert!(panel.contains("function weatherGlyph(item)"));
     assert!(panel.contains("function weatherTemperatureCompact(value)"));
+    assert!(panel.contains("readonly property bool weatherEnabled:"));
+    assert!(panel.contains("root.setting(\"showWeather\", true) !== false"));
+    assert!(panel.contains("function clearWeatherState()"));
+    assert!(panel.contains("if (!weatherEnabled)"));
+    assert!(panel.contains("onWeatherEnabledChanged:"));
     assert!(panel.contains("readonly property string weatherUnitOverride"));
     assert!(panel.contains("snapshot.weather_unit"));
     assert!(panel.contains("weatherUnitOverride === \"imperial\""));
@@ -146,17 +159,33 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("id: summaryMetadataLine"));
     assert!(panel.contains("height: Style.space(92)"));
     assert!(panel.contains("id: summaryWeatherLine"));
+    assert!(panel.contains("id: cardTitle"));
     assert!(panel.contains("id: cardMetadataRow"));
     assert!(panel.contains("id: cardWeatherBlock"));
+    assert!(panel.contains("id: cardWeatherTemperature"));
+    assert!(panel.contains("id: cardWeatherGlyph"));
+    assert!(panel.contains("anchors.baseline: cardWeatherTemperature.baseline"));
     assert!(panel.contains("anchors.verticalCenter: parent.verticalCenter"));
-    assert!(panel.contains("id: weatherAttributionSlot"));
     assert!(panel.contains("id: openMeteoAttribution"));
-    assert!(panel.contains("Weather data by Open-Meteo"));
-    assert!(panel.contains("anchors.leftMargin: Style.space(12)"));
-    assert!(panel.contains("background: root.mixColor(Color.popups.background"));
+    assert!(panel.contains(
+        "id: openMeteoAttribution\n                anchors.verticalCenter: parent.verticalCenter"
+    ));
+    assert!(panel.contains("visible: root.mode !== \"add\" && root.weatherEnabled && root.live"));
+    assert!(panel.contains("? \"Open-Meteo\""));
+    assert!(panel.contains("tooltipText: \"Weather data by Open-Meteo\""));
+    assert!(panel.contains("background: \"transparent\""));
+    assert!(panel.contains("fontSize: Style.fontPx(0.75)"));
+    assert!(panel.contains("horizontalPadding: Style.space(4)"));
+    assert!(panel.contains("verticalPadding: Style.space(1)"));
+    assert!(!panel.contains("id: weatherAttributionSlot"));
+    let header_start = panel.find("id: headerStart").unwrap();
+    let attribution = panel.find("id: openMeteoAttribution").unwrap();
+    let read_page = panel.find("id: readPage").unwrap();
+    assert!(header_start < attribution && attribution < read_page);
+    assert!(!panel.contains("function mixColor("));
     assert!(panel.contains("onClicked: Qt.openUrlExternally(\"https://open-meteo.com/\")"));
     assert!(!panel.contains("&& (root.weatherLocations.length > 0 || root.weatherError)"));
-    assert!(panel.contains("root.live && root.weather.disabled !== true"));
+    assert!(panel.contains("&& root.weather.disabled !== true"));
 
     assert!(qml.contains("function editCurrentTime()"));
     assert!(qml.contains("function edit(): void { root.editCurrentTime() }"));

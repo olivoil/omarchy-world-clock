@@ -17,6 +17,18 @@
     "description": "Compare current time and weather, convert time, and pin a place.",
     "category": "Time",
     "allowMultiple": false,
-    "defaultSection": "center"
+    "defaultSection": "center",
+    "defaults": {
+      "showWeather": true
+    },
+    "schema": [
+      {
+        "key": "showWeather",
+        "type": "boolean",
+        "label": "Show current weather",
+        "defaultValue": true,
+        "description": "Fetch and display current conditions. Remote location search remains available when this is off."
+      }
+    ]
   }
 }

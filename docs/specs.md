@@ -50,6 +50,9 @@ AUR package, `PATH` lookup, user-configured backend command, or install hook.
 - The panel has read, edit, and add modes.
 - Read mode shows the summary clock, proportional relative timeline, and up to
   nine non-local location clocks in a borderless three-column layout.
+- The current place uses an 18-pixel title at the default scale and sits close
+  to its summary time, keeping place and time as the primary read-mode
+  hierarchy.
 - Live read mode shows current temperature and conditions as secondary context
   for every visible location with a known coordinate.
 - Edit mode preserves the read layout and exposes pin/unpin and remove actions.
@@ -144,12 +147,15 @@ No separate World Clock 12/24-hour preference is stored.
 
 ## Weather
 
-- Weather uses Open-Meteo current conditions. A quiet, bottom-left footer
-  links the provider name using the same compact attribution treatment as the
-  location-search map.
-- The footer reserves its one-line geometry from the first frame and identifies
-  the provider while data loads, so an asynchronous response never resizes the
-  panel.
+- Weather uses Open-Meteo current conditions. A quiet `Open-Meteo` provider
+  link sits beside the top-left return-to-live action at the smallest display
+  type step and stays transparent at rest. Its padded hit target, tooltip,
+  hover, and focus states preserve the link's context and affordance.
+- The native `Show current weather` widget setting defaults to on. Turning it
+  off prevents weather requests and removes conditions and their attribution
+  row, while Open-Meteo place search remains available.
+- The header identifies the provider from the first frame while data loads, so
+  an asynchronous response never changes its geometry.
 - All visible coordinates are fetched in one request when the panel opens.
 - A successful response is reused for 15 minutes and refreshed while the panel
   remains open.
@@ -159,9 +165,11 @@ No separate World Clock 12/24-hour preference is stored.
   Fahrenheit, and other known countries use Celsius. If that country is
   unavailable, the local timezone's country and then the system locale provide
   the fallback.
-- Cards add only a day/night-aware icon and rounded temperature to the existing
-  relative-time row. Units appear on the summary weather value, while card
-  temperatures omit the repeated unit letter to stay quiet.
+- Cards emphasize location names one type step above secondary metadata. They
+  add only a day/night-aware icon and rounded temperature to the relative-time
+  row; the icon is slightly larger than its temperature. Units appear on the
+  summary weather value, while card temperatures omit the repeated unit letter
+  to stay quiet.
 - The summary timezone metadata, weather icon, and temperature share one
   centered row beneath the primary time.
 - Weather remains secondary to the clock and does not change card ordering.
@@ -171,7 +179,8 @@ No separate World Clock 12/24-hour preference is stored.
   state without hiding the clock.
 - A failed refresh keeps prior conditions visible with an update warning. An
   initial failure leaves the rest of the panel fully usable.
-- `disable_open_meteo_geolocation` prevents weather and geocoding requests.
+- `disable_open_meteo_geolocation` remains the master privacy opt-out and
+  prevents both weather and geocoding requests.
 
 ## Search and add
 

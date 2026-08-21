@@ -100,6 +100,12 @@ when those inputs are inconclusive. This keeps temperature formatting aligned
 with Omarchy without adding duplicate World Clock settings or coupling the
 panel to another widget's loaded state.
 
+Weather visibility is a native bar-widget setting enforced by the QML process
+boundary: when disabled, the frontend never starts the weather command and
+removes weather attribution with the data. The setting is deliberately not
+passed to the search command, so remote place lookup remains controlled only by
+the app-level `disable_open_meteo_geolocation` privacy opt-out.
+
 The executable is not a general user CLI and does not own shell integration.
 Installation, enablement, placement, updates, and removal remain the job of
 the official `omarchy plugin` and `omarchy bar` commands.

@@ -83,13 +83,15 @@ Panel {
   readonly property var summary: snapshot && snapshot.summary ? snapshot.summary : ({ time: "--:--", title: "", timezone: "", day: "", notation: "" })
   readonly property var weatherLocations: weather && Array.isArray(weather.locations)
     ? weather.locations : []
-  readonly property bool weatherLoading: weatherProcess.running
+  readonly property bool weatherEnabled:
+    root.setting("showWeather", true) !== false
+  readonly property bool weatherLoading: root.weatherEnabled && weatherProcess.running
   readonly property string weatherUnitOverride:
     String(snapshot.weather_unit || "").trim().toLowerCase()
   readonly property bool weatherUseImperial: weatherUnitOverride === "imperial"
     || (weatherUnitOverride !== "metric"
       && root.localeUsesImperial(Qt.locale().name))
-  readonly property bool weatherPresentationActive: root.live
+  readonly property bool weatherPresentationActive: root.weatherEnabled && root.live
     && weather.disabled !== true
     && (root.weatherLoading || root.weatherLocations.length > 0)
   readonly property int weatherRefreshMilliseconds: 15 * 60 * 1000
@@ -206,15 +208,6 @@ Panel {
     statusError = error === true
   }
 
-  function mixColor(base, tint, amount) {
-    var ratio = Math.max(0, Math.min(1, Number(amount)))
-    return Qt.rgba(
-      base.r * (1 - ratio) + tint.r * ratio,
-      base.g * (1 - ratio) + tint.g * ratio,
-      base.b * (1 - ratio) + tint.b * ratio,
-      1)
-  }
-
   function conversionSource(clock) {
     if (!clock) return ""
     var label = clock.label !== null && clock.label !== undefined
@@ -287,7 +280,27 @@ Panel {
     return weatherTemperature(item.temperature_celsius)
   }
 
+  function clearWeatherState() {
+    weather = ({
+      source: "Open-Meteo",
+      attribution_url: "https://open-meteo.com/",
+      disabled: false,
+      locations: []
+    })
+    weatherError = false
+    weatherRequestPending = false
+    weatherLoadedSignature = ""
+    weatherActiveSignature = ""
+    weatherAttemptSignature = ""
+    weatherLastUpdatedAt = 0
+    weatherLastAttemptAt = 0
+  }
+
   function requestWeather(force) {
+    if (!weatherEnabled) {
+      weatherRequestPending = false
+      return
+    }
     if (!opened || !snapshotLoaded || !live) return
     var signature = weatherSignature()
     if (!signature) return
@@ -668,6 +681,13 @@ Panel {
     refresh()
     requestWeather(false)
   }
+  onWeatherEnabledChanged: {
+    if (!weatherEnabled) {
+      clearWeatherState()
+    } else if (opened && snapshotLoaded && live) {
+      Qt.callLater(function() { root.requestWeather(true) })
+    }
+  }
   onTimeEditorActiveChanged: {
     if (!timeEditorActive && editorRefreshPending)
       Qt.callLater(root.flushEditorRefresh)
@@ -714,6 +734,10 @@ Panel {
     onExited: function(exitCode) {
       var signature = root.weatherActiveSignature
       root.weatherActiveSignature = ""
+      if (!root.weatherEnabled) {
+        root.weatherRequestPending = false
+        return
+      }
       if (signature !== root.weatherSignature()) {
         root.weatherRequestPending = true
       } else if (exitCode !== 0) {
@@ -879,7 +903,8 @@ Panel {
 
   Timer {
     interval: root.weatherRefreshMilliseconds
-    running: root.opened && root.live && root.weather.disabled !== true
+    running: root.weatherEnabled && root.opened && root.live
+      && root.weather.disabled !== true
     repeat: true
     onTriggered: root.requestWeather(true)
   }
@@ -926,7 +951,7 @@ Panel {
         Column {
           id: panelColumn
           width: panelScroll.width
-          spacing: Style.space(14)
+          spacing: Style.space(root.mode === "add" ? 14 : 8)
 
           Item {
             width: parent.width
@@ -951,6 +976,26 @@ Panel {
               }
 
               Button {
+                id: openMeteoAttribution
+                anchors.verticalCenter: parent.verticalCenter
+                visible: root.mode !== "add" && root.weatherEnabled && root.live
+                  && root.weather.disabled !== true
+                text: root.weatherLocations.length > 0 || !root.weatherError
+                  ? "Open-Meteo"
+                    + (root.weatherError ? "  ·  Update unavailable" : "")
+                  : "Weather unavailable"
+                tooltipText: "Weather data by Open-Meteo"
+                foreground: Qt.darker(root.contentForeground, 1.35)
+                background: "transparent"
+                fontFamily: root.contentFontFamily
+                fontSize: Style.fontPx(0.75)
+                focusable: true
+                horizontalPadding: Style.space(4)
+                verticalPadding: Style.space(1)
+                onClicked: Qt.openUrlExternally("https://open-meteo.com/")
+              }
+
+              Button {
                 visible: root.summary.pinned === true
                 text: "UNPIN"
                 selected: true
@@ -968,7 +1013,8 @@ Panel {
               text: root.mode === "add" ? "Add a Location" : root.currentLocationTitle
               color: root.contentForeground
               font.family: root.contentFontFamily
-              font.pixelSize: Style.font.title
+              font.pixelSize: root.mode === "add"
+                ? Style.font.title : Style.space(18)
               font.bold: true
             }
 
@@ -1316,7 +1362,7 @@ Panel {
                             text: String(clockCell.clockData.title || "").toUpperCase()
                             color: root.contentForeground
                             font.family: root.contentFontFamily
-                            font.pixelSize: Style.font.caption
+                            font.pixelSize: Style.font.bodySmall
                             font.bold: true
                             font.letterSpacing: 1
                             elide: Text.ElideRight
@@ -1438,18 +1484,30 @@ Panel {
                             height: implicitHeight
 
                             Text {
+                              id: cardWeatherTemperature
                               visible: clockCell.weatherData !== null
                               anchors.right: parent.right
                               anchors.verticalCenter: parent.verticalCenter
                               text: clockCell.weatherData === null ? ""
-                                : root.weatherGlyph(clockCell.weatherData)
-                                  + "  "
-                                  + root.weatherTemperatureCompact(
-                                    clockCell.weatherData.temperature_celsius)
+                                : root.weatherTemperatureCompact(
+                                  clockCell.weatherData.temperature_celsius)
                               color: Qt.darker(root.contentForeground, 1.5)
                               font.family: root.contentFontFamily
                               font.pixelSize: Style.font.caption
                               font.letterSpacing: 0.2
+                            }
+
+                            Text {
+                              id: cardWeatherGlyph
+                              visible: clockCell.weatherData !== null
+                              anchors.right: cardWeatherTemperature.left
+                              anchors.rightMargin: Style.space(4)
+                              anchors.baseline: cardWeatherTemperature.baseline
+                              text: clockCell.weatherData === null ? ""
+                                : root.weatherGlyph(clockCell.weatherData)
+                              color: Qt.darker(root.contentForeground, 1.5)
+                              font.family: root.contentFontFamily
+                              font.pixelSize: Style.font.bodySmall
                             }
 
                             Rectangle {
@@ -1469,34 +1527,6 @@ Panel {
                     }
                   }
                 }
-              }
-            }
-
-            Item {
-              id: weatherAttributionSlot
-              width: parent.width
-              height: openMeteoAttribution.implicitHeight
-
-              Button {
-                id: openMeteoAttribution
-                visible: root.live && root.weather.disabled !== true
-                anchors.left: parent.left
-                anchors.leftMargin: Style.space(12)
-                anchors.verticalCenter: parent.verticalCenter
-                text: root.weatherLocations.length > 0 || !root.weatherError
-                  ? "Weather data by Open-Meteo"
-                    + (root.weatherError ? "  ·  Update unavailable" : "")
-                  : "Weather unavailable"
-                tooltipText: "Open Open-Meteo"
-                foreground: Qt.darker(root.contentForeground, 1.35)
-                background: root.mixColor(Color.popups.background,
-                  root.contentForeground, 0.025)
-                fontFamily: root.contentFontFamily
-                fontSize: Style.font.caption
-                focusable: true
-                horizontalPadding: Style.space(6)
-                verticalPadding: Style.space(3)
-                onClicked: Qt.openUrlExternally("https://open-meteo.com/")
               }
             }
 

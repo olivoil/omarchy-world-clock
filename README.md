@@ -58,7 +58,8 @@ the AUR package is no longer required.
 
 - Up to nine non-local places in a compact three-column view.
 - A proportional timezone timeline with day and offset context.
-- Current temperature and conditions for every place with a known coordinate.
+- Optional current temperature and conditions for every place with a known
+  coordinate.
 - Multiple named places in the same timezone, such as Boston and New York.
 - One pinned home/place clock in the bar.
 - Manual time conversion with DST-aware IANA timezone handling.
@@ -128,6 +129,10 @@ To prevent all Open-Meteo requests, add:
 
 This disables both remote city search and current weather. Existing coordinates
 remain usable for the map.
+
+The widget's native `Show current weather` setting controls weather separately.
+Turning it off suppresses weather requests, conditions, and attribution while
+leaving optional Open-Meteo city search available.
 
 ## Privacy and third-party data
 

@@ -144,8 +144,12 @@ No separate World Clock 12/24-hour preference is stored.
 
 ## Weather
 
-- Weather uses Open-Meteo current conditions. A quiet, right-aligned footer
-  links the provider name to its license as required attribution.
+- Weather uses Open-Meteo current conditions. A quiet, bottom-left footer
+  links the provider name using the same compact attribution treatment as the
+  location-search map.
+- The footer reserves its one-line geometry from the first frame and identifies
+  the provider while data loads, so an asynchronous response never resizes the
+  panel.
 - All visible coordinates are fetched in one request when the panel opens.
 - A successful response is reused for 15 minutes and refreshed while the panel
   remains open.
@@ -158,6 +162,8 @@ No separate World Clock 12/24-hour preference is stored.
 - Cards add only a day/night-aware icon and rounded temperature to the existing
   relative-time row. Units appear on the summary weather value, while card
   temperatures omit the repeated unit letter to stay quiet.
+- The summary timezone metadata, weather icon, and temperature share one
+  centered row beneath the primary time.
 - Weather remains secondary to the clock and does not change card ordering.
 - Converted-time views hide weather because the conditions are current rather
   than historical or forecast data.

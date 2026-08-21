@@ -206,6 +206,15 @@ Panel {
     statusError = error === true
   }
 
+  function mixColor(base, tint, amount) {
+    var ratio = Math.max(0, Math.min(1, Number(amount)))
+    return Qt.rgba(
+      base.r * (1 - ratio) + tint.r * ratio,
+      base.g * (1 - ratio) + tint.g * ratio,
+      base.b * (1 - ratio) + tint.b * ratio,
+      1)
+  }
+
   function conversionSource(clock) {
     if (!clock) return ""
     var label = clock.label !== null && clock.label !== undefined
@@ -1000,7 +1009,7 @@ Panel {
               id: summaryClock
               readonly property var weatherData: root.weatherFor(root.summary)
               width: parent.width
-              height: Style.space(root.weatherPresentationActive ? 116 : 92)
+              height: Style.space(92)
 
               TextInput {
                 id: summaryInput
@@ -1041,64 +1050,76 @@ Panel {
                   : Style.focusStateColor(root.contentForeground, Color.accent)
               }
 
-              Text {
-                id: summaryMetadata
+              Row {
+                id: summaryMetadataLine
                 anchors.top: summaryInput.bottom
                 anchors.topMargin: Style.space(7)
                 anchors.horizontalCenter: parent.horizontalCenter
-                text: root.currentTimezoneMetadata
-                color: Qt.darker(root.contentForeground, 1.45)
-                font.family: root.contentFontFamily
-                font.pixelSize: Style.font.bodySmall
-                font.bold: true
-                font.letterSpacing: 1.1
-              }
-
-              Item {
-                id: summaryWeatherLine
-                visible: root.weatherPresentationActive
-                anchors.top: summaryMetadata.bottom
-                anchors.topMargin: Style.space(7)
-                anchors.horizontalCenter: parent.horizontalCenter
-                width: Math.max(summaryWeatherText.implicitWidth,
-                  summaryWeatherSkeleton.implicitWidth)
-                height: Style.space(16)
+                spacing: Style.space(8)
 
                 Text {
-                  id: summaryWeatherText
-                  visible: summaryClock.weatherData || !root.weatherLoading
-                  anchors.centerIn: parent
-                  text: root.weatherGlyph(summaryClock.weatherData)
-                    + (summaryClock.weatherData ? "  " : "")
-                    + root.weatherText(summaryClock.weatherData)
+                  id: summaryMetadata
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: root.currentTimezoneMetadata
                   color: Qt.darker(root.contentForeground, 1.45)
                   font.family: root.contentFontFamily
                   font.pixelSize: Style.font.bodySmall
-                  font.letterSpacing: 0.3
+                  font.bold: true
+                  font.letterSpacing: 1.1
                 }
 
-                Row {
-                  id: summaryWeatherSkeleton
-                  visible: !summaryClock.weatherData && root.weatherLoading
-                  anchors.centerIn: parent
-                  spacing: Style.space(7)
+                Text {
+                  visible: summaryWeatherLine.visible
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: "·"
+                  color: Qt.darker(root.contentForeground, 1.45)
+                  font.family: root.contentFontFamily
+                  font.pixelSize: Style.font.bodySmall
+                }
 
-                  Rectangle {
-                    anchors.verticalCenter: parent.verticalCenter
-                    width: Style.space(16)
-                    height: Style.space(10)
-                    radius: height / 2
-                    color: root.contentForeground
-                    opacity: 0.12
+                Item {
+                  id: summaryWeatherLine
+                  visible: root.weatherPresentationActive
+                  width: Math.max(summaryWeatherText.implicitWidth,
+                    summaryWeatherSkeleton.implicitWidth)
+                  height: Style.space(16)
+
+                  Text {
+                    id: summaryWeatherText
+                    visible: summaryClock.weatherData || !root.weatherLoading
+                    anchors.centerIn: parent
+                    text: root.weatherGlyph(summaryClock.weatherData)
+                      + (summaryClock.weatherData ? "  " : "")
+                      + root.weatherText(summaryClock.weatherData)
+                    color: Qt.darker(root.contentForeground, 1.45)
+                    font.family: root.contentFontFamily
+                    font.pixelSize: Style.font.bodySmall
+                    font.letterSpacing: 0.3
                   }
 
-                  Rectangle {
-                    anchors.verticalCenter: parent.verticalCenter
-                    width: Style.space(96)
-                    height: Style.space(8)
-                    radius: height / 2
-                    color: root.contentForeground
-                    opacity: 0.12
+                  Row {
+                    id: summaryWeatherSkeleton
+                    visible: !summaryClock.weatherData && root.weatherLoading
+                    anchors.centerIn: parent
+                    spacing: Style.space(7)
+
+                    Rectangle {
+                      anchors.verticalCenter: parent.verticalCenter
+                      width: Style.space(12)
+                      height: Style.space(8)
+                      radius: height / 2
+                      color: root.contentForeground
+                      opacity: 0.12
+                    }
+
+                    Rectangle {
+                      anchors.verticalCenter: parent.verticalCenter
+                      width: Style.space(30)
+                      height: Style.space(6)
+                      radius: height / 2
+                      color: root.contentForeground
+                      opacity: 0.12
+                    }
                   }
                 }
               }
@@ -1451,30 +1472,31 @@ Panel {
               }
             }
 
-            Text {
-              id: weatherAttribution
-              visible: root.live && root.weather.disabled !== true
-                && (root.weatherLocations.length > 0 || root.weatherError)
-              anchors.right: parent.right
-              anchors.rightMargin: Style.space(18)
-              textFormat: Text.StyledText
-              text: root.weatherLocations.length > 0
-                ? "Weather · <a href=\"https://open-meteo.com/en/license\">Open-Meteo</a>"
-                  + (root.weatherError ? "  ·  UPDATE UNAVAILABLE" : "")
-                : "Weather unavailable"
-              color: Qt.darker(root.contentForeground, 1.65)
-              linkColor: Qt.darker(root.contentForeground, 1.45)
-              font.family: root.contentFontFamily
-              font.pixelSize: Style.font.caption
-              font.letterSpacing: 0.25
-              onLinkActivated: function(link) { Qt.openUrlExternally(link) }
+            Item {
+              id: weatherAttributionSlot
+              width: parent.width
+              height: openMeteoAttribution.implicitHeight
 
-              MouseArea {
-                anchors.fill: parent
-                acceptedButtons: Qt.NoButton
-                hoverEnabled: true
-                cursorShape: weatherAttribution.hoveredLink.length > 0
-                  ? Qt.PointingHandCursor : Qt.ArrowCursor
+              Button {
+                id: openMeteoAttribution
+                visible: root.live && root.weather.disabled !== true
+                anchors.left: parent.left
+                anchors.leftMargin: Style.space(12)
+                anchors.verticalCenter: parent.verticalCenter
+                text: root.weatherLocations.length > 0 || !root.weatherError
+                  ? "Weather data by Open-Meteo"
+                    + (root.weatherError ? "  ·  Update unavailable" : "")
+                  : "Weather unavailable"
+                tooltipText: "Open Open-Meteo"
+                foreground: Qt.darker(root.contentForeground, 1.35)
+                background: root.mixColor(Color.popups.background,
+                  root.contentForeground, 0.025)
+                fontFamily: root.contentFontFamily
+                fontSize: Style.font.caption
+                focusable: true
+                horizontalPadding: Style.space(6)
+                verticalPadding: Style.space(3)
+                onClicked: Qt.openUrlExternally("https://open-meteo.com/")
               }
             }
 

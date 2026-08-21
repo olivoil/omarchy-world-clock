@@ -66,11 +66,13 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("readonly property int nonLocalLocationCount"));
     assert!(panel.contains("function canAddLocation(timezone)"));
     assert!(panel.contains("root.canAddLocation(resultButton.modelData.timezone)"));
-    assert!(panel.contains("source: Qt.resolvedUrl(\"../assets/world-map.png\")"));
+    assert!(panel.contains("Globe {"));
+    assert!(panel.contains("snapshot.featured_cities"));
+    assert!(panel.contains("root.globeLabelLayout(index, mapCanvas.width, mapCanvas.height)"));
     assert!(panel.contains("backendCommand, \"locate\""));
     assert!(panel.contains("id: searchResultOverlay"));
     assert!(panel.contains(
-        "height: Math.min(root.searchResults.length * Style.space(48), mapCanvas.height)"
+        "height: Math.min(root.searchResults.length * Style.space(48), Style.space(240))"
     ));
     assert!(panel.contains("id: searchResultList"));
     assert!(panel.contains("name === \"pin\" || name === \"remove\""));
@@ -142,4 +144,42 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
 
     let map_path = root.join("assets/world-map.png");
     assert!(map_path.is_file(), "missing {}", map_path.display());
+
+    let globe_path = qml_path.parent().unwrap().join("Globe.qml");
+    assert!(globe_path.is_file(), "missing {}", globe_path.display());
+    let globe = fs::read_to_string(&globe_path).expect("read globe component");
+    assert!(globe.contains("ShaderEffect"));
+    assert!(globe.contains("DragHandler"));
+    assert!(globe.contains("WheelHandler"));
+    assert!(globe.contains("function project(latitudeDegrees, longitudeDegrees)"));
+    assert!(globe.contains("function locationAt(viewX, viewY)"));
+    assert!(globe.contains("function normalizedWheelDelta(angleDelta, pixelDelta)"));
+    assert!(globe.contains("event.pixelDelta.y"));
+    assert!(globe.contains("property real openingZoom:"));
+    assert!(globe.contains("../assets/globe.frag.qsb"));
+    assert!(globe.contains("visible: !root.shaderAvailable"));
+
+    let shader_source = root.join("assets/globe.frag");
+    let shader_bundle = root.join("assets/globe.frag.qsb");
+    assert!(
+        shader_source.is_file(),
+        "missing {}",
+        shader_source.display()
+    );
+    assert!(
+        shader_bundle.is_file(),
+        "missing {}",
+        shader_bundle.display()
+    );
+    assert!(
+        fs::metadata(&shader_bundle)
+            .expect("read shader bundle")
+            .len()
+            > 1_000,
+        "compiled globe shader is unexpectedly small"
+    );
+    let shader = fs::read_to_string(&shader_source).expect("read globe shader source");
+    assert!(shader.contains("gradientX.x -= round(gradientX.x)"));
+    assert!(shader.contains("gradientY.x -= round(gradientY.x)"));
+    assert!(shader.contains("textureGrad(source, textureCoordinate, gradientX, gradientY)"));
 }

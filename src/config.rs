@@ -822,6 +822,17 @@ pub fn place_coordinate(entry: &TimezoneEntry) -> Option<(f64, f64)> {
     }
 }
 
+fn timezone_coordinate(timezone: &str) -> (Option<f64>, Option<f64>) {
+    place_coordinate(&TimezoneEntry {
+        timezone: canonical_timezone_name(timezone),
+        label: String::new(),
+        latitude: None,
+        longitude: None,
+    })
+    .map(|(latitude, longitude)| (Some(latitude), Some(longitude)))
+    .unwrap_or((None, None))
+}
+
 fn is_false(value: &bool) -> bool {
     !*value
 }
@@ -1268,12 +1279,16 @@ impl TimezoneResolver {
             } else {
                 record.abbreviations.join(" / ")
             };
+            let (latitude, longitude) = match (alias.latitude, alias.longitude) {
+                (Some(latitude), Some(longitude)) => (Some(latitude), Some(longitude)),
+                _ => timezone_coordinate(&alias.timezone),
+            };
             results.push(TimezoneSearchResult {
                 timezone: alias.timezone.clone(),
                 title: alias.alias.clone(),
                 subtitle: format!("{}  ·  {}", alias.timezone, abbreviation_text),
-                latitude: alias.latitude,
-                longitude: alias.longitude,
+                latitude,
+                longitude,
                 open_meteo_attribution: false,
             });
             if results.len() >= limit {
@@ -1290,12 +1305,13 @@ impl TimezoneResolver {
             } else {
                 record.abbreviations.join(" / ")
             };
+            let (latitude, longitude) = timezone_coordinate(&record.timezone);
             results.push(TimezoneSearchResult {
                 timezone: record.timezone.clone(),
                 title: record.city.clone(),
                 subtitle: format!("{}  ·  {}", record.timezone, abbreviation_text),
-                latitude: None,
-                longitude: None,
+                latitude,
+                longitude,
                 open_meteo_attribution: false,
             });
             if results.len() >= limit {
@@ -1318,12 +1334,13 @@ impl TimezoneResolver {
             } else {
                 record.abbreviations.join(" / ")
             };
+            let (latitude, longitude) = timezone_coordinate(&record.timezone);
             return Some(TimezoneSearchResult {
                 timezone: record.timezone.clone(),
                 title: record.city.clone(),
                 subtitle: format!("{}  ·  {}", record.timezone, abbreviation_text),
-                latitude: None,
-                longitude: None,
+                latitude,
+                longitude,
                 open_meteo_attribution: false,
             });
         }
@@ -1332,12 +1349,13 @@ impl TimezoneResolver {
             return None;
         }
 
+        let (latitude, longitude) = timezone_coordinate(&canonical_timezone);
         Some(TimezoneSearchResult {
             title: friendly_timezone_name(&canonical_timezone),
             subtitle: canonical_timezone.clone(),
             timezone: canonical_timezone,
-            latitude: None,
-            longitude: None,
+            latitude,
+            longitude,
             open_meteo_attribution: false,
         })
     }
@@ -1714,7 +1732,7 @@ mod tests {
     use super::{
         canonical_timezone_name, detect_system_time_format_with_paths, merge_zone_tab_coordinates,
         non_local_location_count, parse_zone_tab_coordinate, AppConfig, ConfigManager, LocationKey,
-        TimezoneEntry, CLOCK_CARD_LIMIT,
+        TimezoneEntry, TimezoneResolver, CLOCK_CARD_LIMIT,
     };
     use std::collections::BTreeMap;
     use std::fs;
@@ -1903,6 +1921,20 @@ mod tests {
     fn canonicalizes_alias_when_system_tzdata_exposes_it() {
         let canonical = canonical_timezone_name("Asia/Calcutta");
         assert!(!canonical.is_empty());
+    }
+
+    #[test]
+    fn local_search_results_include_coordinates_for_globe_focus() {
+        let resolver = TimezoneResolver::new(Some(vec!["Asia/Tokyo".to_string()]));
+
+        let result = resolver
+            .search("Tokyo", 1)
+            .into_iter()
+            .next()
+            .expect("Tokyo should resolve locally");
+
+        assert!(result.latitude.is_some());
+        assert!(result.longitude.is_some());
     }
 
     #[test]

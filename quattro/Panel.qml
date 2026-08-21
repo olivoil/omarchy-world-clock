@@ -27,7 +27,8 @@ Panel {
     pinned_timezone: null,
     summary: ({ timezone: "", label: "", title: "", time: "--:--", day: "", notation: "", relative_minutes: 0, relative_label: "Same time" }),
     clocks: [],
-    timeline: []
+    timeline: [],
+    featured_cities: []
   })
   property bool snapshotLoaded: false
   property bool summaryFocusPending: false
@@ -60,12 +61,15 @@ Panel {
   property real mapCursorX: 0
   property real mapCursorY: 0
   property bool mapClickPending: false
+  property bool globeInitialized: false
 
   readonly property var barIdentity: hostWidget || root
   readonly property color contentForeground: bar ? bar.foreground : Color.foreground
   readonly property string contentFontFamily: bar ? bar.fontFamily : Style.font.family
   readonly property var clocks: snapshot && Array.isArray(snapshot.clocks) ? snapshot.clocks : []
   readonly property var timeline: snapshot && Array.isArray(snapshot.timeline) ? snapshot.timeline : []
+  readonly property var featuredCities: snapshot && Array.isArray(snapshot.featured_cities)
+    ? snapshot.featured_cities : []
   readonly property var summary: snapshot && snapshot.summary ? snapshot.summary : ({ time: "--:--", title: "", timezone: "", day: "", notation: "" })
   readonly property string currentLocationTitle: {
     var title = String(summary.title || summary.label || "").trim()
@@ -89,6 +93,24 @@ Panel {
     if (root.hasMapCoordinate(summary)) entries.push(summary)
     for (var i = 0; i < clocks.length; i++)
       if (root.hasMapCoordinate(clocks[i])) entries.push(clocks[i])
+    return entries
+  }
+  readonly property var globeLocations: {
+    var entries = []
+    var seenTimezones = ({})
+    for (var savedIndex = 0; savedIndex < mapClocks.length; savedIndex++) {
+      var saved = mapClocks[savedIndex]
+      var savedTimezone = String(saved.timezone || "")
+      entries.push({ location: saved, configured: true })
+      if (savedTimezone) seenTimezones[savedTimezone] = true
+    }
+    for (var cityIndex = 0; cityIndex < featuredCities.length; cityIndex++) {
+      var city = featuredCities[cityIndex]
+      var cityTimezone = String(city.timezone || "")
+      if (!root.hasMapCoordinate(city) || seenTimezones[cityTimezone]) continue
+      entries.push({ location: city, configured: false })
+      if (cityTimezone) seenTimezones[cityTimezone] = true
+    }
     return entries
   }
   readonly property int timelineExtent: {
@@ -156,7 +178,32 @@ Panel {
     searchSubmitQuery = ""
     mapSelection = null
     mapClickPending = false
+    globeInitialized = false
     controller.hide()
+  }
+
+  function mixColor(base, tint, amount) {
+    var ratio = Math.max(0, Math.min(1, Number(amount)))
+    return Qt.rgba(
+      base.r * (1 - ratio) + tint.r * ratio,
+      base.g * (1 - ratio) + tint.g * ratio,
+      base.b * (1 - ratio) + tint.b * ratio,
+      1)
+  }
+
+  function initializeGlobe() {
+    if (globeInitialized || mode !== "add" || !snapshotLoaded) return
+    globeInitialized = true
+    if (hasMapCoordinate(summary))
+      mapCanvas.settleOn(summary.latitude, summary.longitude)
+    else
+      mapCanvas.settleOn(18, 0)
+  }
+
+  function focusGlobeOn(location, zoomValue) {
+    if (!location || !hasMapCoordinate(location) || mode !== "add") return
+    mapCanvas.focusOn(location.latitude, location.longitude,
+      zoomValue === undefined ? 1.95 : zoomValue)
   }
 
   function toggle() {
@@ -217,6 +264,7 @@ Panel {
         mode = "add"
       clearStatus()
       if (summaryFocusPending) Qt.callLater(root.focusSummaryEditor)
+      if (mode === "add") Qt.callLater(root.initializeGlobe)
     } catch (error) {
       setStatus("World Clock backend returned invalid data.", true)
     }
@@ -401,30 +449,12 @@ Panel {
       && longitude >= -180 && longitude <= 180
   }
 
-  function mapX(longitude, width) {
-    return Math.max(0, Math.min(width, ((Number(longitude) + 180) / 360) * width))
-  }
-
-  function mapY(latitude, height) {
-    return Math.max(0, Math.min(height, ((90 - Number(latitude)) / 180) * height))
-  }
-
-  function compactMapLabel(value) {
-    var label = String(value || "")
-    return label.length <= 18 ? label : label.slice(0, 15) + "…"
-  }
-
   function escapeHtml(value) {
     return String(value || "")
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
       .replace(/\"/g, "&quot;")
-  }
-
-  function mapLabelWidth(label) {
-    return Math.max(Style.space(42), Math.min(Style.space(148),
-      String(label || "").length * Style.spaceReal(7.2) + Style.space(16)))
   }
 
   function mapRectsOverlap(left, right) {
@@ -435,37 +465,71 @@ Panel {
       && left.y + left.height + gap > right.y
   }
 
-  function mapLabelLayout(targetIndex, width, height) {
+  function globeLabelWidth(location) {
+    var titleLength = String(location && location.title || "").length
+    var timeLength = String(location && location.time || "").length
+    return Math.max(Style.space(68), Math.min(Style.space(148),
+      Math.max(titleLength, timeLength) * Style.spaceReal(7.1) + Style.space(18)))
+  }
+
+  function globeLabelLayout(targetIndex, width, height) {
     var placed = []
-    var labelHeight = Style.space(22)
-    var margin = Style.space(7)
-    var labelGap = Style.space(8)
-    var rowGap = labelHeight + Style.space(5)
-    var offsets = [0, -rowGap, rowGap, -rowGap * 2, rowGap * 2, -rowGap * 3, rowGap * 3]
+    var featuredPlaced = 0
+    var target = {
+      visible: false,
+      labelVisible: false,
+      x: 0,
+      y: 0,
+      width: 0,
+      height: 0,
+      pointX: 0,
+      pointY: 0,
+      depth: -1
+    }
+    var labelHeight = Style.space(38)
+    var edge = Style.space(8)
+    var pointGap = Style.space(12)
 
-    for (var i = 0; i <= targetIndex && i < mapClocks.length; i++) {
-      var entry = mapClocks[i]
-      var pointX = mapX(entry.longitude, width)
-      var pointY = mapY(entry.latitude, height)
-      var label = compactMapLabel(entry.title)
-      var labelWidth = mapLabelWidth(label)
-      var preferredRight = pointX < width / 2
-      var sides = preferredRight
-        ? [pointX + labelGap, pointX - labelGap - labelWidth]
-        : [pointX - labelGap - labelWidth, pointX + labelGap]
+    for (var i = 0; i <= targetIndex && i < globeLocations.length; i++) {
+      var wrapper = globeLocations[i]
+      var location = wrapper.location
+      var projection = mapCanvas.project(location.latitude, location.longitude)
+      var layout = {
+        visible: false,
+        labelVisible: false,
+        x: 0,
+        y: 0,
+        width: globeLabelWidth(location),
+        height: labelHeight,
+        pointX: projection.x,
+        pointY: projection.y,
+        depth: projection.depth
+      }
+      if (!projection.visible) {
+        if (i === targetIndex) target = layout
+        continue
+      }
+
+      var mayPlaceLabel = wrapper.configured || featuredPlaced < 7
+      var labelWidth = layout.width
+      var candidates = [
+        { x: projection.x - labelWidth / 2, y: projection.y - labelHeight - pointGap },
+        { x: projection.x + pointGap, y: projection.y - labelHeight / 2 },
+        { x: projection.x - labelWidth - pointGap, y: projection.y - labelHeight / 2 },
+        { x: projection.x - labelWidth / 2, y: projection.y + pointGap },
+        { x: projection.x + pointGap, y: projection.y - labelHeight - pointGap },
+        { x: projection.x - labelWidth - pointGap, y: projection.y - labelHeight - pointGap }
+      ]
       var chosen = null
-
-      for (var offsetIndex = 0; offsetIndex < offsets.length && !chosen; offsetIndex++) {
-        for (var sideIndex = 0; sideIndex < sides.length && !chosen; sideIndex++) {
+      if (mayPlaceLabel) {
+        for (var candidateIndex = 0; candidateIndex < candidates.length && !chosen;
+             candidateIndex++) {
+          var raw = candidates[candidateIndex]
           var candidate = {
-            x: Math.max(margin, Math.min(width - labelWidth - margin, sides[sideIndex])),
-            y: Math.max(margin, Math.min(height - labelHeight - margin,
-              pointY - labelHeight / 2 + offsets[offsetIndex])),
+            x: Math.max(edge, Math.min(width - labelWidth - edge, raw.x)),
+            y: Math.max(edge, Math.min(height - labelHeight - edge, raw.y)),
             width: labelWidth,
-            height: labelHeight,
-            pointX: pointX,
-            pointY: pointY,
-            label: label
+            height: labelHeight
           }
           var overlaps = false
           for (var placedIndex = 0; placedIndex < placed.length; placedIndex++) {
@@ -478,30 +542,27 @@ Panel {
         }
       }
 
-      if (!chosen) {
-        chosen = {
-          x: Math.max(margin, Math.min(width - labelWidth - margin, sides[0])),
-          y: Math.max(margin, Math.min(height - labelHeight - margin, pointY - labelHeight / 2)),
-          width: labelWidth,
-          height: labelHeight,
-          pointX: pointX,
-          pointY: pointY,
-          label: label
-        }
+      if (chosen) {
+        layout.x = chosen.x
+        layout.y = chosen.y
+        layout.labelVisible = true
+        placed.push(chosen)
+        if (!wrapper.configured) featuredPlaced++
       }
-      placed.push(chosen)
+      layout.visible = wrapper.configured || layout.labelVisible
+      if (i === targetIndex) target = layout
     }
-
-    return placed.length > targetIndex ? placed[targetIndex]
-      : ({ x: 0, y: 0, width: 0, height: 0, pointX: 0, pointY: 0, label: "" })
+    return target
   }
 
-  function requestMapLocation(x, y, width, height) {
-    if (!canAdd || width <= 0 || height <= 0) return
+  function requestMapLocation(latitude, longitude, x, y) {
+    if (!canAdd) return
     mapCursorX = x
     mapCursorY = y
-    mapRequestedLongitude = Math.max(-179.999999, Math.min(179.999999, x / width * 360 - 180))
-    mapRequestedLatitude = Math.max(-89.999999, Math.min(89.999999, 90 - y / height * 180))
+    mapRequestedLongitude = Math.max(-179.999999,
+      Math.min(179.999999, Number(longitude)))
+    mapRequestedLatitude = Math.max(-89.999999,
+      Math.min(89.999999, Number(latitude)))
     mapSelection = null
     mapClickPending = true
     if (!mapProcess.running) startMapLookup()
@@ -543,6 +604,7 @@ Panel {
   onModeChanged: {
     if (mode === "add") {
       focusAddField()
+      Qt.callLater(root.initializeGlobe)
     } else {
       searchDebounce.stop()
       searchResults = []
@@ -661,6 +723,7 @@ Panel {
           root.setStatus("No matching location.", false)
         } else {
           root.clearStatus()
+          root.focusGlobeOn(root.searchResults[0], 1.95)
           if (root.mode === "add"
               && root.searchSubmitQuery === root.searchResultsQuery && root.canAdd) {
             root.searchSubmitQuery = ""
@@ -1224,27 +1287,30 @@ Panel {
               font.pixelSize: Style.font.body
             }
 
-            Item {
+            Globe {
               id: mapCanvas
               visible: root.canAdd
               anchors.horizontalCenter: parent.horizontalCenter
-              width: Math.min(parent.width, Style.space(720))
-              height: width / 2
+              width: Math.min(parent.width, Style.space(760))
+              height: Style.space(430)
               clip: true
-
-              Rectangle {
-                anchors.fill: parent
-                color: Style.normalFillFor(root.contentForeground, Color.accent)
+              interactive: root.canAdd && !actionProcess.running
+              oceanColor: root.mixColor(Color.background, root.contentForeground, 0.07)
+              landColor: root.mixColor(Color.background, root.contentForeground, 0.68)
+              boundaryColor: root.mixColor(Color.background, root.contentForeground, 0.40)
+              rimColor: root.mixColor(Color.background, root.contentForeground, 0.28)
+              onLocationPicked: function(latitude, longitude, viewX, viewY) {
+                root.requestMapLocation(latitude, longitude, viewX, viewY)
               }
 
               Rectangle {
                 id: searchResultOverlay
                 visible: root.searchResults.length > 0
                 anchors.top: parent.top
-                anchors.left: parent.left
-                anchors.right: parent.right
-                height: Math.min(root.searchResults.length * Style.space(48), mapCanvas.height)
-                z: 3
+                anchors.horizontalCenter: parent.horizontalCenter
+                width: Math.min(parent.width, Style.space(720))
+                height: Math.min(root.searchResults.length * Style.space(48), Style.space(240))
+                z: 10
                 color: Color.background
                 clip: true
 
@@ -1266,6 +1332,9 @@ Panel {
                     leftAlign: true
                     text: ""
                     onClicked: root.runAction("add", resultButton.modelData.timezone, resultButton.modelData)
+                    onHovered: function(isHovered) {
+                      if (isHovered) root.focusGlobeOn(resultButton.modelData, 1.95)
+                    }
 
                     Column {
                       anchors.left: parent.left
@@ -1303,78 +1372,113 @@ Panel {
                 }
               }
 
-              Image {
-                anchors.fill: parent
-                source: Qt.resolvedUrl("../assets/world-map.png")
-                fillMode: Image.Stretch
-                smooth: true
-                mipmap: true
-                opacity: 0.78
-              }
-
               Repeater {
-                model: 11
-
-                Rectangle {
-                  required property int index
-                  x: Math.round((index + 1) * mapCanvas.width / 12)
-                  y: Style.space(8)
-                  width: Style.spacing.hairline
-                  height: mapCanvas.height - Style.space(16)
-                  color: root.contentForeground
-                  opacity: 0.10
-                }
-              }
-
-              Repeater {
-                model: root.mapClocks
+                model: root.globeLocations
 
                 Item {
                   id: mapMarker
                   required property int index
                   required property var modelData
+                  readonly property var location: modelData.location
+                  readonly property bool configured: modelData.configured === true
                   readonly property var layout:
-                    root.mapLabelLayout(index, mapCanvas.width, mapCanvas.height)
+                    root.globeLabelLayout(index, mapCanvas.width, mapCanvas.height)
                   anchors.fill: parent
+                  visible: layout.visible
+                  z: 4
+                  opacity: Math.max(0.42, Math.min(1, 0.46 + layout.depth * 0.62))
 
                   Rectangle {
+                    id: cityLabel
+                    visible: mapMarker.layout.labelVisible
                     x: mapMarker.layout.x
                     y: mapMarker.layout.y
                     width: mapMarker.layout.width
                     height: mapMarker.layout.height
-                    radius: height / 2
-                    color: Color.background
-                    opacity: 0.88
+                    radius: Style.cornerRadius
+                    color: cityMouse.containsMouse
+                      ? Style.hoverFillFor(root.contentForeground, Color.accent)
+                      : "transparent"
 
-                    Text {
+                    Column {
                       anchors.fill: parent
-                      anchors.leftMargin: Style.space(7)
-                      anchors.rightMargin: Style.space(7)
-                      verticalAlignment: Text.AlignVCenter
-                      horizontalAlignment: Text.AlignHCenter
-                      text: mapMarker.layout.label
-                      color: root.contentForeground
-                      font.family: root.contentFontFamily
-                      font.pixelSize: Style.font.caption
-                      font.bold: true
-                      elide: Text.ElideRight
+                      anchors.leftMargin: Style.space(6)
+                      anchors.rightMargin: Style.space(6)
+                      spacing: Style.space(1)
+
+                      Text {
+                        width: parent.width
+                        text: mapMarker.location.title
+                        horizontalAlignment: Text.AlignHCenter
+                        color: root.contentForeground
+                        font.family: root.contentFontFamily
+                        font.pixelSize: Style.font.bodySmall
+                        font.bold: true
+                        style: Text.Outline
+                        styleColor: Color.background
+                        elide: Text.ElideRight
+                      }
+
+                      Text {
+                        width: parent.width
+                        text: mapMarker.location.time
+                        horizontalAlignment: Text.AlignHCenter
+                        color: Qt.darker(root.contentForeground, 1.35)
+                        font.family: root.contentFontFamily
+                        font.pixelSize: Style.font.caption
+                        font.bold: mapMarker.configured
+                        style: Text.Outline
+                        styleColor: Color.background
+                        elide: Text.ElideRight
+                      }
+                    }
+
+                    MouseArea {
+                      id: cityMouse
+                      anchors.fill: parent
+                      enabled: !mapMarker.configured
+                        && root.canAddLocation(mapMarker.location.timezone)
+                        && !actionProcess.running
+                      hoverEnabled: true
+                      cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                      onClicked: root.runAction("add", mapMarker.location.timezone,
+                        mapMarker.location)
                     }
                   }
 
                   Rectangle {
                     x: mapMarker.layout.pointX - width / 2
                     y: mapMarker.layout.pointY - height / 2
-                    width: Style.space(11)
+                    width: mapMarker.configured ? Style.space(11) : Style.space(9)
                     height: width
                     radius: width / 2
-                    color: Style.selectedFillFor(root.contentForeground, Color.accent)
+                    color: mapMarker.configured
+                      ? Style.selectedFillFor(root.contentForeground, Color.accent)
+                      : root.mixColor(Color.background, root.contentForeground, 0.22)
+                    border.width: 1
+                    border.color: mapMarker.configured
+                      ? Style.selectedStateColor(root.contentForeground, Color.accent)
+                      : root.mixColor(Color.background, root.contentForeground, 0.72)
 
                     Rectangle {
                       anchors.centerIn: parent
-                      width: Style.space(5)
+                      width: mapMarker.configured ? Style.space(5) : Style.space(3)
                       height: width
                       radius: width / 2
-                      color: Style.selectedStateColor(root.contentForeground, Color.accent)
+                      color: mapMarker.configured
+                        ? Style.selectedStateColor(root.contentForeground, Color.accent)
+                        : root.contentForeground
+                    }
+
+                    MouseArea {
+                      anchors.fill: parent
+                      anchors.margins: -Style.space(5)
+                      enabled: !mapMarker.configured
+                        && root.canAddLocation(mapMarker.location.timezone)
+                        && !actionProcess.running
+                      cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                      onClicked: root.runAction("add", mapMarker.location.timezone,
+                        mapMarker.location)
                     }
                   }
                 }
@@ -1403,49 +1507,16 @@ Panel {
                   font.pixelSize: Style.font.bodySmall
                 }
               }
-
-              MouseArea {
-                anchors.fill: parent
-                enabled: root.canAdd && !actionProcess.running
-                hoverEnabled: true
-                cursorShape: enabled ? Qt.CrossCursor : Qt.ArrowCursor
-                onClicked: function(mouse) {
-                  root.requestMapLocation(mouse.x, mouse.y, width, height)
-                }
-              }
-            }
-
-            Row {
-              visible: mapCanvas.visible
-              anchors.horizontalCenter: parent.horizontalCenter
-              width: mapCanvas.width
-
-              Repeater {
-                model: ["−12", "−8", "−4", "0", "+4", "+8", "+12"]
-
-                Item {
-                  id: legendCell
-                  required property string modelData
-                  width: mapCanvas.width / 7
-                  height: zoneLegend.implicitHeight
-
-                  Text {
-                    id: zoneLegend
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    text: legendCell.modelData
-                    color: Qt.darker(root.contentForeground, 1.55)
-                    font.family: root.contentFontFamily
-                    font.pixelSize: Style.font.caption
-                  }
-                }
-              }
             }
 
             Text {
               visible: root.canAdd
               anchors.horizontalCenter: parent.horizontalCenter
               width: mapCanvas.width
-              text: "Search by city or timezone, or click a land region on the map."
+              horizontalAlignment: Text.AlignHCenter
+              text: mapCanvas.shaderAvailable
+                ? "Drag to rotate  ·  Scroll to zoom  ·  Click a city or land"
+                : "Search by city or timezone, or click a land region on the map."
               color: Qt.darker(root.contentForeground, 1.55)
               font.family: root.contentFontFamily
               font.pixelSize: Style.font.bodySmall

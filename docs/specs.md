@@ -51,7 +51,7 @@ AUR package, `PATH` lookup, user-configured backend command, or install hook.
 - Read mode shows the summary clock, proportional relative timeline, and up to
   nine non-local location clocks in a borderless three-column layout.
 - Edit mode preserves the read layout and exposes pin/unpin and remove actions.
-- Add mode shows local/remote search and an interactive world map.
+- Add mode shows local/remote search and an interactive rotating globe.
 
 ## Configuration and persistence
 
@@ -156,18 +156,33 @@ Rules:
 - remote search is skipped when `disable_open_meteo_geolocation` is true
 - remote timezones are canonicalized and validated
 - results are de-duplicated by canonical timezone and normalized place label
+- locally resolved places include bundled coordinates when timezone data has
+  them, allowing the globe to focus the first result without a remote request
 - Open-Meteo results include visible attribution
 - selecting a result adds it; Enter chooses the first valid result
 - successful addition leaves the add view ready for another query
 - a duplicate or capacity violation produces an inline error
 - remote failure leaves local search usable
 
-## Map
+## Globe and map lookup
 
-- Add mode displays a bundled world-map image and configured markers.
-- Saved coordinates are preferred for marker placement.
-- Bundled timezone coordinates are used when saved coordinates are absent.
-- Clicking the map invokes the backend only after the click.
+- Add mode projects a bundled equirectangular world texture onto an
+  orthographic sphere using a precompiled Qt shader package.
+- The globe opens tightly framed on the local region, with its edge outside
+  the viewport so the spherical form emerges through interaction rather than
+  dominating the initial view.
+- Drag rotates it. Mouse-wheel angle deltas and trackpad pixel deltas both
+  zoom it; zooming out reveals the complete sphere.
+- Configured places and a curated set of unconfigured major cities appear as
+  front-hemisphere markers with live local times.
+- Configured markers take label priority. Featured labels are capped and
+  collision-aware so dense regions stay legible.
+- Clicking a featured marker adds it without requiring network access.
+- Saved coordinates are preferred for marker placement. Bundled timezone
+  coordinates are used when saved coordinates are absent.
+- If the shader package cannot load, the viewport falls back to the bundled
+  flat map while preserving click-to-add.
+- Clicking bare land invokes the backend only after the click.
 - The backend resolves land coordinates through the embedded compact timezone
   grid; ocean or invalid coordinates return no location.
 - Map lookup itself never calls a remote service.

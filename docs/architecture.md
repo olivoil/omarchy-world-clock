@@ -95,7 +95,10 @@ the official `omarchy plugin` and `omarchy bar` commands.
 manifest.json
 quattro/WorldClock.qml
 quattro/Panel.qml
+quattro/Globe.qml
 assets/world-map.png
+assets/globe.frag
+assets/globe.frag.qsb
 bin/omarchy-world-clock-backend
 bin/BUILDINFO
 bin/SHA256SUMS
@@ -126,9 +129,16 @@ Omarchy platform. `scripts/build-plugin-backend.sh` enforces:
 - checksums for the binary, lockfile, and embedded map
 - exact `BUILDINFO` provenance
 
-Both artifact scripts run inside the same digest-pinned official Rust/Alpine
-container. `scripts/build-timezone-grid.sh --check` regenerates the compact map
-database from the locked `tzf-rs` source and compares it byte for byte.
+The backend and timezone-grid artifact scripts run inside the same
+digest-pinned official Rust/Alpine container.
+`scripts/build-timezone-grid.sh --check` regenerates the compact map database
+from the locked `tzf-rs` source and compares it byte for byte.
+
+`scripts/build-globe-shader.sh --check` compiles the globe fragment shader with
+Qt Shader Tools and compares the generated QSB package byte for byte. QML owns
+the transient projection, motion, and label placement; Rust supplies live
+featured-city times and offline coordinates. The precompiled package avoids a
+runtime shader-compiler dependency.
 
 The full upstream polygon database made the backend unnecessarily large. The
 derived 0.1-degree row-run-length grid preserves click-to-add accuracy at the

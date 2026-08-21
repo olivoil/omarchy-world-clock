@@ -12,6 +12,115 @@ pub const SNAPSHOT_SCHEMA_VERSION: u64 = 1;
 pub const BACKEND_PROTOCOL_VERSION: u64 = 1;
 const QUATTRO_CLOCK_LIMIT: usize = CLOCK_CARD_LIMIT;
 
+struct FeaturedCity {
+    timezone: &'static str,
+    title: &'static str,
+    latitude: f64,
+    longitude: f64,
+}
+
+// Ordered by visual priority rather than longitude. The frontend shows only
+// the highest-priority cities that fit on the visible hemisphere, which keeps
+// the globe useful without turning it into a label cloud.
+const FEATURED_CITIES: &[FeaturedCity] = &[
+    FeaturedCity {
+        timezone: "America/New_York",
+        title: "New York",
+        latitude: 40.7128,
+        longitude: -74.006,
+    },
+    FeaturedCity {
+        timezone: "Europe/London",
+        title: "London",
+        latitude: 51.5072,
+        longitude: -0.1276,
+    },
+    FeaturedCity {
+        timezone: "Asia/Tokyo",
+        title: "Tokyo",
+        latitude: 35.6762,
+        longitude: 139.6503,
+    },
+    FeaturedCity {
+        timezone: "America/Los_Angeles",
+        title: "Los Angeles",
+        latitude: 34.0522,
+        longitude: -118.2437,
+    },
+    FeaturedCity {
+        timezone: "Europe/Paris",
+        title: "Paris",
+        latitude: 48.8566,
+        longitude: 2.3522,
+    },
+    FeaturedCity {
+        timezone: "Asia/Singapore",
+        title: "Singapore",
+        latitude: 1.3521,
+        longitude: 103.8198,
+    },
+    FeaturedCity {
+        timezone: "Australia/Sydney",
+        title: "Sydney",
+        latitude: -33.8688,
+        longitude: 151.2093,
+    },
+    FeaturedCity {
+        timezone: "America/Mexico_City",
+        title: "Mexico City",
+        latitude: 19.4326,
+        longitude: -99.1332,
+    },
+    FeaturedCity {
+        timezone: "America/Sao_Paulo",
+        title: "São Paulo",
+        latitude: -23.5505,
+        longitude: -46.6333,
+    },
+    FeaturedCity {
+        timezone: "Asia/Kolkata",
+        title: "New Delhi",
+        latitude: 28.6139,
+        longitude: 77.209,
+    },
+    FeaturedCity {
+        timezone: "Asia/Dubai",
+        title: "Dubai",
+        latitude: 25.2048,
+        longitude: 55.2708,
+    },
+    FeaturedCity {
+        timezone: "Africa/Cairo",
+        title: "Cairo",
+        latitude: 30.0444,
+        longitude: 31.2357,
+    },
+    FeaturedCity {
+        timezone: "Africa/Johannesburg",
+        title: "Johannesburg",
+        latitude: -26.2041,
+        longitude: 28.0473,
+    },
+    FeaturedCity {
+        timezone: "Asia/Seoul",
+        title: "Seoul",
+        latitude: 37.5665,
+        longitude: 126.978,
+    },
+    FeaturedCity {
+        timezone: "Pacific/Auckland",
+        title: "Auckland",
+        latitude: -36.8509,
+        longitude: 174.7645,
+    },
+    FeaturedCity {
+        timezone: "Pacific/Honolulu",
+        title: "Honolulu",
+        latitude: 21.3099,
+        longitude: -157.8581,
+    },
+];
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct QuattroModulePayload {
     pub protocol_version: u64,
@@ -75,6 +184,7 @@ pub struct QuattroSnapshot {
     pub summary: QuattroClock,
     pub clocks: Vec<QuattroClock>,
     pub timeline: Vec<QuattroTimelineItem>,
+    pub featured_cities: Vec<QuattroMapLocation>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -254,6 +364,41 @@ pub fn build_map_location(
     }
 }
 
+fn build_featured_cities(
+    config: &AppConfig,
+    reference_utc: DateTime<Utc>,
+    local_timezone: &str,
+    time_format: &str,
+) -> Vec<QuattroMapLocation> {
+    FEATURED_CITIES
+        .iter()
+        .filter(|city| {
+            !config
+                .timezones
+                .iter()
+                .any(|entry| entry.timezone == city.timezone)
+        })
+        .map(|city| {
+            let result = TimezoneSearchResult {
+                timezone: city.timezone.to_string(),
+                title: city.title.to_string(),
+                subtitle: city.timezone.to_string(),
+                latitude: Some(city.latitude),
+                longitude: Some(city.longitude),
+                open_meteo_attribution: false,
+            };
+            build_map_location(
+                &result,
+                city.latitude,
+                city.longitude,
+                reference_utc,
+                local_timezone,
+                time_format,
+            )
+        })
+        .collect()
+}
+
 pub fn build_snapshot(
     config: &AppConfig,
     reference_utc: DateTime<Utc>,
@@ -306,6 +451,7 @@ pub fn build_snapshot(
         .map(|entry| clock_from_entry(entry, config, reference_utc, local_timezone, time_format))
         .collect::<Vec<_>>();
     let timeline = timeline_items(&summary, &clocks);
+    let featured_cities = build_featured_cities(config, reference_utc, local_timezone, time_format);
 
     QuattroSnapshot {
         schema_version: SNAPSHOT_SCHEMA_VERSION,
@@ -318,6 +464,7 @@ pub fn build_snapshot(
         summary,
         clocks,
         timeline,
+        featured_cities,
     }
 }
 
@@ -435,6 +582,49 @@ mod tests {
 
         assert!(snapshot.summary.latitude.is_some());
         assert!(snapshot.summary.longitude.is_some());
+    }
+
+    #[test]
+    fn snapshot_supplies_live_featured_cities_for_the_globe() {
+        let config = AppConfig {
+            timezones: vec![entry("America/Cancun", "Cancun")],
+            pinned_location: None,
+            disable_open_meteo_geolocation: false,
+        };
+        let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
+
+        let snapshot = build_snapshot(&config, now, "America/Cancun", "24h");
+        let tokyo = snapshot
+            .featured_cities
+            .iter()
+            .find(|city| city.title == "Tokyo")
+            .expect("Tokyo should be a featured globe city");
+
+        assert_eq!(tokyo.timezone, "Asia/Tokyo");
+        assert_eq!(tokyo.time, "20:05");
+        assert_eq!(tokyo.notation, "JST");
+        assert_eq!(tokyo.latitude, 35.6762);
+        assert_eq!(tokyo.longitude, 139.6503);
+    }
+
+    #[test]
+    fn snapshot_hides_a_featured_timezone_that_is_already_configured() {
+        let config = AppConfig {
+            timezones: vec![
+                entry("America/Cancun", "Cancun"),
+                entry("Asia/Tokyo", "Tokyo"),
+            ],
+            pinned_location: None,
+            disable_open_meteo_geolocation: false,
+        };
+        let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
+
+        let snapshot = build_snapshot(&config, now, "America/Cancun", "24h");
+
+        assert!(!snapshot
+            .featured_cities
+            .iter()
+            .any(|city| city.timezone == "Asia/Tokyo"));
     }
 
     #[test]

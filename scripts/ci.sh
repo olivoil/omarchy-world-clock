@@ -14,6 +14,10 @@ run cargo clippy --locked --all-targets -- -D warnings
 run cargo test --locked
 run bash tests/bundle.sh
 
+if [[ -x /usr/lib/qt6/bin/qsb ]] || command -v qsb >/dev/null 2>&1; then
+  run scripts/build-globe-shader.sh --check
+fi
+
 OMARCHY_ROOT=${OMARCHY_PATH:-/usr/share/omarchy}
 if command -v omarchy >/dev/null 2>&1 \
   && { [[ -x /usr/lib/qt6/bin/qmllint ]] || command -v qmllint >/dev/null 2>&1; } \

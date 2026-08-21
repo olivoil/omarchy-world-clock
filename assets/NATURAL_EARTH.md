@@ -22,4 +22,5 @@ scripts/build-world-map.sh
 
 The first two commands download and verify their pinned GeoJSON inputs. They
 emit the styled equirectangular SVG and the compact ranked city catalogue. The
-last command renders the committed 8192×4096 PNG consumed by the globe shader.
+last command renders the committed 2048×1024 preview and 8192×4096 detail PNGs
+consumed by the globe shader.

@@ -233,9 +233,12 @@ Rules:
 
 ## Globe and map lookup
 
-- Add mode projects a bundled 8192×4096 equirectangular world texture, derived
-  from Natural Earth 1:10m country and minor-island geometry, onto an
-  orthographic sphere using a precompiled Qt shader package.
+- Add mode immediately projects a warm 2048×1024 preview derived from Natural
+  Earth 1:10m country and minor-island geometry onto an orthographic sphere.
+  It retains that preview while the bundled 8192×4096 detail texture loads
+  asynchronously through the same precompiled Qt shader package.
+- The detail texture stays available when moving between add and read modes in
+  one panel session, then is released when the panel closes.
 - The globe occupies the full add surface. Search results and contextual
   feedback float over it instead of reducing its viewport.
 - The globe opens tightly framed on the local region, with its edge outside

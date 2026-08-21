@@ -77,6 +77,7 @@ Panel {
   property double weatherLastUpdatedAt: 0
   property double weatherLastAttemptAt: 0
   property bool globeInitialized: false
+  property bool globeDetailRequested: false
   property bool searchVisible: false
   property bool keyboardCursorActive: false
   property int keyboardClockIndex: -1
@@ -297,6 +298,7 @@ Panel {
 
   function close() {
     mode = "read"
+    globeDetailRequested = false
     summaryFocusPending = false
     searchResults = []
     searchResultsQuery = ""
@@ -982,7 +984,12 @@ Panel {
     return Math.max(0, Math.min(width - itemWidth, center - itemWidth / 2))
   }
 
-  onOpenedChanged: if (opened) {
+  onOpenedChanged: {
+    if (!opened) {
+      globeDetailRequested = false
+      return
+    }
+    if (mode === "add") globeDetailRequested = true
     refresh()
     requestWeather(false)
   }
@@ -999,6 +1006,7 @@ Panel {
   }
   onModeChanged: {
     if (mode === "add") {
+      globeDetailRequested = true
       searchVisible = false
       Qt.callLater(root.initializeGlobe)
     } else {
@@ -2066,7 +2074,7 @@ Panel {
               anchors.fill: parent
               clip: true
               interactive: root.canAdd && !actionProcess.running
-              textureEnabled: root.opened && root.mode === "add"
+              highResolutionEnabled: root.opened && root.globeDetailRequested
               property var markerLayouts: root.globeLabelLayouts(width, height)
               diameterRatio: 0.63
               oceanColor: root.mixColor(Color.background, root.contentForeground, 0.07)

@@ -20,7 +20,7 @@ Item {
   property real maximumZoom: 4.8
   property real diameterRatio: 0.57
   property bool interactive: true
-  property bool textureEnabled: true
+  property bool highResolutionEnabled: true
 
   readonly property real baseDiameter: Math.max(1,
     Math.min(height - 2, width * diameterRatio))
@@ -31,6 +31,11 @@ Item {
   readonly property bool shaderAvailable: globeEffect.status !== ShaderEffect.Error
   readonly property string shaderLog: globeEffect.log
   readonly property bool dragging: globeDrag.active
+  readonly property url textureSource: highResolutionEnabled
+    ? Qt.resolvedUrl("../assets/world-map.png")
+    : Qt.resolvedUrl("../assets/world-map-preview.png")
+  readonly property int textureWidth: highResolutionEnabled ? 8192 : 2048
+  readonly property int textureHeight: highResolutionEnabled ? 4096 : 1024
 
   signal locationPicked(real latitude, real longitude, real viewX, real viewY)
   signal viewInteractionStarted()
@@ -363,10 +368,11 @@ Item {
   Image {
     id: mapTexture
     visible: false
-    source: root.textureEnabled ? Qt.resolvedUrl("../assets/world-map.png") : ""
-    sourceSize.width: 8192
-    sourceSize.height: 4096
+    source: root.textureSource
+    sourceSize.width: root.textureWidth
+    sourceSize.height: root.textureHeight
     asynchronous: true
+    retainWhileLoading: true
     cache: true
     smooth: true
     mipmap: true
@@ -376,9 +382,11 @@ Item {
     id: fallbackMap
     anchors.fill: parent
     visible: !root.shaderAvailable
-    source: root.textureEnabled && !root.shaderAvailable
-      ? Qt.resolvedUrl("../assets/world-map.png") : ""
+    source: root.textureSource
+    sourceSize.width: root.textureWidth
+    sourceSize.height: root.textureHeight
     asynchronous: true
+    retainWhileLoading: true
     fillMode: Image.Stretch
     smooth: true
     mipmap: true

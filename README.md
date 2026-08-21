@@ -66,8 +66,8 @@ the AUR package is no longer required.
 - Manual time conversion with DST-aware IANA timezone handling.
 - Local timezone and alias search that works offline.
 - Optional Open-Meteo city search for queries not resolved locally.
-- A high-resolution, full-panel shader-rendered globe with detailed Natural
-  Earth 1:10m coastlines, type-to-search, live major-city suggestions,
+- A progressively loaded, high-resolution full-panel globe with detailed
+  Natural Earth 1:10m coastlines, type-to-search, live major-city suggestions,
   drag-to-rotate, extended mouse-wheel or trackpad zoom, and offline
   click-to-add.
 - Automatic 12/24-hour display matching the Omarchy clock or system locale.

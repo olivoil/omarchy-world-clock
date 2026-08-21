@@ -80,6 +80,11 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("modelData.searchResult === true"));
     assert!(panel.contains("backendCommand, \"locate\""));
     assert!(panel.contains("function selectMapLocation(location)"));
+    assert!(panel.contains("function dismissMapSelection()"));
+    assert!(panel.contains("if (searchVisible) {\n      closeSearch()\n      return\n    }"));
+    assert!(panel.contains(
+        "keyCatcher.forceActiveFocus(Qt.ShortcutFocusReason)\n    Qt.callLater(function()"
+    ));
     assert!(panel.contains("id: mapSelectionCard"));
     assert!(panel.contains("id: mapSelectionAddButton"));
     assert!(panel.contains("root.selectMapLocation(mapMarker.location)"));
@@ -87,7 +92,8 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("message = \"That location is already added.\""));
     assert!(!panel.contains("root.runAction(\"add\", mapMarker.location.timezone"));
     assert!(!panel.contains("root.runAction(\"add\", payload.timezone, payload)"));
-    assert!(panel.contains("if (root.mapSelection !== null) root.mapSelection = null"));
+    assert!(panel.contains("if (root.mapSelection !== null) root.dismissMapSelection()"));
+    assert!(panel.contains("onViewInteractionStarted: root.dismissMapSelection()"));
     assert!(panel.contains("id: searchResultOverlay"));
     assert!(panel.contains("id: searchResultTitleMetrics"));
     assert!(panel.contains("id: searchResultSubtitleMetrics"));

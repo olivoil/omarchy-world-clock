@@ -180,6 +180,9 @@ Rules:
   valid result
 - selecting the same result on the map centers it and opens an anchored detail
   card with an explicit `Add` action instead of mutating configuration
+- dismissing a detail card closes any active search and returns focus to the
+  globe; the next printable key opens a fresh search through the global
+  type-to-search handler
 - a successful addition returns to the main clock view, where the new clock is
   visible as confirmation
 - a duplicate or capacity violation produces an inline error

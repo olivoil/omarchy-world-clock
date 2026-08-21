@@ -245,6 +245,7 @@ Panel {
     mapSelection = null
     mapClickPending = false
     editorActive = false
+    keyCatcher.forceActiveFocus(Qt.ShortcutFocusReason)
     Qt.callLater(function() {
       if (opened && mode === "add") keyCatcher.forceActiveFocus(Qt.ShortcutFocusReason)
     })
@@ -588,6 +589,20 @@ Panel {
     if (hasMapCoordinate(location)) mapCanvas.focusOnLocations([location])
   }
 
+  function dismissMapSelection() {
+    if (mapSelection === null) return
+    mapSelection = null
+    mapClickPending = false
+    if (searchVisible) {
+      closeSearch()
+      return
+    }
+    Qt.callLater(function() {
+      if (opened && mode === "add")
+        keyCatcher.forceActiveFocus(Qt.ShortcutFocusReason)
+    })
+  }
+
   function globeLocationReveal(wrapper) {
     if (!wrapper || wrapper.searchResult === true || wrapper.configured === true) return 1
     var minimumZoom = Number(wrapper.location && wrapper.location.minimum_zoom)
@@ -918,7 +933,7 @@ Panel {
       blocked: root.editorActive || addField.activeFocus
       directTextInput: root.mode === "add" && !addField.activeFocus
       onCloseRequested: {
-        if (root.mapSelection !== null) root.mapSelection = null
+        if (root.mapSelection !== null) root.dismissMapSelection()
         else if (root.mode === "add" && root.searchVisible) root.closeSearch()
         else if (root.mode === "read") root.close()
         else root.mode = "read"
@@ -1436,7 +1451,7 @@ Panel {
                 onAccepted: root.addFirstResult()
                 onActiveFocusChanged: root.editorActive = activeFocus
                 Keys.onEscapePressed: function(event) {
-                  if (root.mapSelection !== null) root.mapSelection = null
+                  if (root.mapSelection !== null) root.dismissMapSelection()
                   else root.closeSearch()
                   event.accepted = true
                 }
@@ -1564,7 +1579,7 @@ Panel {
               onLocationPicked: function(latitude, longitude, viewX, viewY) {
                 root.requestMapLocation(latitude, longitude, viewX, viewY)
               }
-              onViewInteractionStarted: root.mapSelection = null
+              onViewInteractionStarted: root.dismissMapSelection()
 
               Rectangle {
                 id: searchResultOverlay

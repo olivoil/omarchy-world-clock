@@ -22,6 +22,7 @@ Panel {
     reference_utc: "",
     local_timezone: "",
     time_format: "24h",
+    weather_unit: "",
     configured_count: 0,
     local_configured: false,
     pinned_timezone: null,
@@ -60,6 +61,19 @@ Panel {
   property real mapCursorX: 0
   property real mapCursorY: 0
   property bool mapClickPending: false
+  property var weather: ({
+    source: "Open-Meteo",
+    attribution_url: "https://open-meteo.com/",
+    disabled: false,
+    locations: []
+  })
+  property bool weatherError: false
+  property bool weatherRequestPending: false
+  property string weatherLoadedSignature: ""
+  property string weatherActiveSignature: ""
+  property string weatherAttemptSignature: ""
+  property double weatherLastUpdatedAt: 0
+  property double weatherLastAttemptAt: 0
 
   readonly property var barIdentity: hostWidget || root
   readonly property color contentForeground: bar ? bar.foreground : Color.foreground
@@ -67,6 +81,18 @@ Panel {
   readonly property var clocks: snapshot && Array.isArray(snapshot.clocks) ? snapshot.clocks : []
   readonly property var timeline: snapshot && Array.isArray(snapshot.timeline) ? snapshot.timeline : []
   readonly property var summary: snapshot && snapshot.summary ? snapshot.summary : ({ time: "--:--", title: "", timezone: "", day: "", notation: "" })
+  readonly property var weatherLocations: weather && Array.isArray(weather.locations)
+    ? weather.locations : []
+  readonly property bool weatherLoading: weatherProcess.running
+  readonly property string weatherUnitOverride:
+    String(snapshot.weather_unit || "").trim().toLowerCase()
+  readonly property bool weatherUseImperial: weatherUnitOverride === "imperial"
+    || (weatherUnitOverride !== "metric"
+      && root.localeUsesImperial(Qt.locale().name))
+  readonly property bool weatherPresentationActive: root.live
+    && weather.disabled !== true
+    && (root.weatherLoading || root.weatherLocations.length > 0)
+  readonly property int weatherRefreshMilliseconds: 15 * 60 * 1000
   readonly property string currentLocationTitle: {
     var title = String(summary.title || summary.label || "").trim()
     return title || "World Clock"
@@ -187,6 +213,98 @@ Panel {
     return String(clock.timezone || "") + "\u001f" + String(label || "")
   }
 
+  function localeUsesImperial(localeName) {
+    var name = String(localeName || "").replace(".", "_")
+    return /^en[_-]US($|[_.-])/.test(name)
+      || /^en[_-]LR($|[_.-])/.test(name)
+      || /^my($|[_.-])/.test(name)
+  }
+
+  function weatherSignature() {
+    if (!snapshotLoaded) return ""
+    var entries = [summary].concat(clocks)
+    var signatures = []
+    for (var i = 0; i < entries.length; i++) {
+      var entry = entries[i]
+      signatures.push(conversionSource(entry)
+        + "\u001f" + String(entry.latitude)
+        + "\u001f" + String(entry.longitude))
+    }
+    signatures.sort()
+    return signatures.join("\u001e")
+  }
+
+  function weatherFor(clock) {
+    var key = conversionSource(clock)
+    for (var i = 0; i < weatherLocations.length; i++) {
+      if (conversionSource(weatherLocations[i]) === key) return weatherLocations[i]
+    }
+    return null
+  }
+
+  function weatherTemperature(value) {
+    var celsius = Number(value)
+    if (!isFinite(celsius)) return ""
+    var temperature = weatherUseImperial ? celsius * 9 / 5 + 32 : celsius
+    return String(Math.round(temperature)) + "°" + (weatherUseImperial ? "F" : "C")
+  }
+
+  function weatherTemperatureCompact(value) {
+    return weatherTemperature(value).replace(/[FC]$/, "")
+  }
+
+  // Match the weather-icons glyph vocabulary already used by Omarchy's
+  // native weather panel, including day/night-aware clear and cloud icons.
+  function weatherGlyph(item) {
+    if (!item) return ""
+    var code = Number(item.weather_code)
+    var night = item.is_day === false
+    if (code === 0) return night ? "" : ""
+    if (code === 1 || code === 2) return night ? "" : ""
+    if (code === 3) return ""
+    if (code === 45 || code === 48) return night ? "" : ""
+    if (code === 51 || code === 53 || code === 55 || code === 56
+        || code === 57 || code === 61) return ""
+    if (code === 63 || code === 65 || code === 66 || code === 67
+        || code === 80 || code === 81 || code === 82) return ""
+    if (code === 71 || code === 73 || code === 75 || code === 77
+        || code === 85 || code === 86) return ""
+    if (code === 95 || code === 96 || code === 99) return ""
+    return ""
+  }
+
+  function weatherText(item) {
+    if (!item) return "WEATHER UNAVAILABLE"
+    return weatherTemperature(item.temperature_celsius)
+  }
+
+  function requestWeather(force) {
+    if (!opened || !snapshotLoaded || !live) return
+    var signature = weatherSignature()
+    if (!signature) return
+    var fresh = !weatherError && signature === weatherLoadedSignature
+      && Date.now() - weatherLastUpdatedAt < weatherRefreshMilliseconds
+    var recentlyAttempted = signature === weatherAttemptSignature
+      && Date.now() - weatherLastAttemptAt < 2 * 60 * 1000
+    if (force !== true && (fresh || recentlyAttempted)) return
+    if (weatherProcess.running) {
+      weatherRequestPending = true
+      return
+    }
+    weatherRequestPending = false
+    weatherActiveSignature = signature
+    weatherAttemptSignature = signature
+    weatherLastAttemptAt = Date.now()
+    weatherProcess.command = [backendCommand, "weather"]
+    weatherProcess.running = true
+  }
+
+  function flushWeatherRequest() {
+    if (!weatherRequestPending || weatherProcess.running) return
+    weatherRequestPending = false
+    requestWeather(false)
+  }
+
   function clearConversionError(source) {
     if (invalidConversionSource !== String(source || "")) return
     invalidConversionSource = ""
@@ -217,6 +335,7 @@ Panel {
         mode = "add"
       clearStatus()
       if (summaryFocusPending) Qt.callLater(root.focusSummaryEditor)
+      requestWeather(false)
     } catch (error) {
       setStatus("World Clock backend returned invalid data.", true)
     }
@@ -292,6 +411,7 @@ Panel {
     invalidConversionSource = ""
     live = true
     requestLiveSnapshot()
+    requestWeather(false)
   }
 
   function convertFrom(timezone, value, source) {
@@ -535,7 +655,10 @@ Panel {
     return Math.max(0, Math.min(width - itemWidth, center - itemWidth / 2))
   }
 
-  onOpenedChanged: if (opened) refresh()
+  onOpenedChanged: if (opened) {
+    refresh()
+    requestWeather(false)
+  }
   onTimeEditorActiveChanged: {
     if (!timeEditorActive && editorRefreshPending)
       Qt.callLater(root.flushEditorRefresh)
@@ -572,6 +695,34 @@ Panel {
       root.snapshotActiveReference = ""
       Qt.callLater(root.flushSnapshotRequest)
       Qt.callLater(root.flushEditorRefresh)
+    }
+  }
+
+  Process {
+    id: weatherProcess
+    stdout: StdioCollector { id: weatherOutput; waitForEnd: true }
+    stderr: StdioCollector { waitForEnd: true }
+    onExited: function(exitCode) {
+      var signature = root.weatherActiveSignature
+      root.weatherActiveSignature = ""
+      if (signature !== root.weatherSignature()) {
+        root.weatherRequestPending = true
+      } else if (exitCode !== 0) {
+        root.weatherError = true
+      } else {
+        try {
+          var payload = JSON.parse(String(weatherOutput.text || ""))
+          if (!payload || !Array.isArray(payload.locations))
+            throw new Error("Unsupported weather response")
+          root.weather = payload
+          root.weatherError = false
+          root.weatherLoadedSignature = signature
+          root.weatherLastUpdatedAt = Date.now()
+        } catch (error) {
+          root.weatherError = true
+        }
+      }
+      Qt.callLater(root.flushWeatherRequest)
     }
   }
 
@@ -717,6 +868,13 @@ Panel {
     onTriggered: root.startSearch()
   }
 
+  Timer {
+    interval: root.weatherRefreshMilliseconds
+    running: root.opened && root.live && root.weather.disabled !== true
+    repeat: true
+    onTriggered: root.requestWeather(true)
+  }
+
   KeyboardPanel {
     id: panel
     anchorItem: root.anchorItem
@@ -839,8 +997,10 @@ Panel {
             spacing: Style.space(14)
 
             Item {
+              id: summaryClock
+              readonly property var weatherData: root.weatherFor(root.summary)
               width: parent.width
-              height: Style.space(92)
+              height: Style.space(root.weatherPresentationActive ? 116 : 92)
 
               TextInput {
                 id: summaryInput
@@ -882,15 +1042,65 @@ Panel {
               }
 
               Text {
-              anchors.top: summaryInput.bottom
-              anchors.topMargin: Style.space(7)
-              anchors.horizontalCenter: parent.horizontalCenter
-              text: root.currentTimezoneMetadata
+                id: summaryMetadata
+                anchors.top: summaryInput.bottom
+                anchors.topMargin: Style.space(7)
+                anchors.horizontalCenter: parent.horizontalCenter
+                text: root.currentTimezoneMetadata
                 color: Qt.darker(root.contentForeground, 1.45)
                 font.family: root.contentFontFamily
                 font.pixelSize: Style.font.bodySmall
                 font.bold: true
                 font.letterSpacing: 1.1
+              }
+
+              Item {
+                id: summaryWeatherLine
+                visible: root.weatherPresentationActive
+                anchors.top: summaryMetadata.bottom
+                anchors.topMargin: Style.space(7)
+                anchors.horizontalCenter: parent.horizontalCenter
+                width: Math.max(summaryWeatherText.implicitWidth,
+                  summaryWeatherSkeleton.implicitWidth)
+                height: Style.space(16)
+
+                Text {
+                  id: summaryWeatherText
+                  visible: summaryClock.weatherData || !root.weatherLoading
+                  anchors.centerIn: parent
+                  text: root.weatherGlyph(summaryClock.weatherData)
+                    + (summaryClock.weatherData ? "  " : "")
+                    + root.weatherText(summaryClock.weatherData)
+                  color: Qt.darker(root.contentForeground, 1.45)
+                  font.family: root.contentFontFamily
+                  font.pixelSize: Style.font.bodySmall
+                  font.letterSpacing: 0.3
+                }
+
+                Row {
+                  id: summaryWeatherSkeleton
+                  visible: !summaryClock.weatherData && root.weatherLoading
+                  anchors.centerIn: parent
+                  spacing: Style.space(7)
+
+                  Rectangle {
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: Style.space(16)
+                    height: Style.space(10)
+                    radius: height / 2
+                    color: root.contentForeground
+                    opacity: 0.12
+                  }
+
+                  Rectangle {
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: Style.space(96)
+                    height: Style.space(8)
+                    radius: height / 2
+                    color: root.contentForeground
+                    opacity: 0.12
+                  }
+                }
               }
             }
 
@@ -1048,8 +1258,12 @@ Panel {
                       required property int index
                       readonly property var clockData:
                         root.clocks[clockRow.startIndex + index]
+                      readonly property var weatherData: root.weatherFor(clockData)
+                      readonly property bool showWeather: root.weatherPresentationActive
+                        && (weatherData !== null || root.weatherLoading)
                       width: clockRow.cellWidth
                       height: clockRow.height
+                      clip: true
 
                       Rectangle {
                         id: clockSurface
@@ -1059,6 +1273,7 @@ Panel {
                       }
 
                       Column {
+                        id: cardContent
                         anchors.fill: parent
                         anchors.leftMargin: Style.space(10)
                         anchors.rightMargin: Style.space(10)
@@ -1168,21 +1383,98 @@ Panel {
                           }
                         }
 
-                        Text {
+                        Item {
+                          id: cardMetadataRow
                           width: parent.width
-                          text: String(clockCell.clockData.day || "").toUpperCase()
-                            + "  ·  "
-                            + String(clockCell.clockData.relative_label || "").toUpperCase()
-                          color: Qt.darker(root.contentForeground, 1.5)
-                          font.family: root.contentFontFamily
-                          font.pixelSize: Style.font.caption
-                          font.letterSpacing: 0.6
-                          elide: Text.ElideRight
+                          height: Math.max(cardRelativeMetadata.implicitHeight,
+                            cardWeatherBlock.implicitHeight)
+
+                          Text {
+                            id: cardRelativeMetadata
+                            anchors.left: parent.left
+                            anchors.right: cardWeatherBlock.left
+                            anchors.rightMargin: cardWeatherBlock.visible
+                              ? Style.space(8) : 0
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: String(clockCell.clockData.day || "").toUpperCase()
+                              + "  ·  "
+                              + String(clockCell.clockData.relative_label || "").toUpperCase()
+                            color: Qt.darker(root.contentForeground, 1.5)
+                            font.family: root.contentFontFamily
+                            font.pixelSize: Style.font.caption
+                            font.letterSpacing: 0.6
+                            elide: Text.ElideRight
+                          }
+
+                          Item {
+                            id: cardWeatherBlock
+                            visible: clockCell.showWeather
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            implicitWidth: Style.space(64)
+                            implicitHeight: Style.space(14)
+                            width: visible ? implicitWidth : 0
+                            height: implicitHeight
+
+                            Text {
+                              visible: clockCell.weatherData !== null
+                              anchors.right: parent.right
+                              anchors.verticalCenter: parent.verticalCenter
+                              text: clockCell.weatherData === null ? ""
+                                : root.weatherGlyph(clockCell.weatherData)
+                                  + "  "
+                                  + root.weatherTemperatureCompact(
+                                    clockCell.weatherData.temperature_celsius)
+                              color: Qt.darker(root.contentForeground, 1.5)
+                              font.family: root.contentFontFamily
+                              font.pixelSize: Style.font.caption
+                              font.letterSpacing: 0.2
+                            }
+
+                            Rectangle {
+                              visible: clockCell.weatherData === null
+                                && root.weatherLoading
+                              anchors.right: parent.right
+                              anchors.verticalCenter: parent.verticalCenter
+                              width: Style.space(42)
+                              height: Style.space(6)
+                              radius: height / 2
+                              color: root.contentForeground
+                              opacity: 0.09
+                            }
+                          }
                         }
                       }
                     }
                   }
                 }
+              }
+            }
+
+            Text {
+              id: weatherAttribution
+              visible: root.live && root.weather.disabled !== true
+                && (root.weatherLocations.length > 0 || root.weatherError)
+              anchors.right: parent.right
+              anchors.rightMargin: Style.space(18)
+              textFormat: Text.StyledText
+              text: root.weatherLocations.length > 0
+                ? "Weather · <a href=\"https://open-meteo.com/en/license\">Open-Meteo</a>"
+                  + (root.weatherError ? "  ·  UPDATE UNAVAILABLE" : "")
+                : "Weather unavailable"
+              color: Qt.darker(root.contentForeground, 1.65)
+              linkColor: Qt.darker(root.contentForeground, 1.45)
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.caption
+              font.letterSpacing: 0.25
+              onLinkActivated: function(link) { Qt.openUrlExternally(link) }
+
+              MouseArea {
+                anchors.fill: parent
+                acceptedButtons: Qt.NoButton
+                hoverEnabled: true
+                cursorShape: weatherAttribution.hoveredLink.length > 0
+                  ? Qt.PointingHandCursor : Qt.ArrowCursor
               }
             }
 

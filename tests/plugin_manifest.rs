@@ -133,6 +133,24 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("id: clockSurface"));
     assert!(panel.contains("color: Style.normalFillFor(root.contentForeground, Color.accent)"));
     assert!(panel.contains("radius: Style.cornerRadius"));
+    assert!(panel.contains("backendCommand, \"weather\""));
+    assert!(panel.contains("property bool weatherRequestPending: false"));
+    assert!(panel.contains("weatherRefreshMilliseconds: 15 * 60 * 1000"));
+    assert!(panel.contains("function weatherFor(clock)"));
+    assert!(panel.contains("function weatherGlyph(item)"));
+    assert!(panel.contains("function weatherTemperatureCompact(value)"));
+    assert!(panel.contains("readonly property string weatherUnitOverride"));
+    assert!(panel.contains("snapshot.weather_unit"));
+    assert!(panel.contains("weatherUnitOverride === \"imperial\""));
+    assert!(panel.contains("weatherUnitOverride !== \"metric\""));
+    assert!(panel.contains("id: summaryWeatherLine"));
+    assert!(panel.contains("id: cardMetadataRow"));
+    assert!(panel.contains("id: cardWeatherBlock"));
+    assert!(panel.contains("anchors.verticalCenter: parent.verticalCenter"));
+    assert!(
+        panel.contains(r#"Weather · <a href=\"https://open-meteo.com/en/license\">Open-Meteo</a>"#)
+    );
+    assert!(panel.contains("root.live && root.weather.disabled !== true"));
 
     assert!(qml.contains("function editCurrentTime()"));
     assert!(qml.contains("function edit(): void { root.editCurrentTime() }"));

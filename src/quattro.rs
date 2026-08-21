@@ -9,7 +9,7 @@ use serde::Serialize;
 use std::collections::BTreeMap;
 
 pub const SNAPSHOT_SCHEMA_VERSION: u64 = 1;
-pub const BACKEND_PROTOCOL_VERSION: u64 = 1;
+pub const BACKEND_PROTOCOL_VERSION: u64 = 2;
 const QUATTRO_CLOCK_LIMIT: usize = CLOCK_CARD_LIMIT;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -69,6 +69,8 @@ pub struct QuattroSnapshot {
     pub reference_utc: String,
     pub local_timezone: String,
     pub time_format: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub weather_unit: Option<String>,
     pub configured_count: usize,
     pub local_configured: bool,
     pub pinned_timezone: Option<String>,
@@ -312,6 +314,7 @@ pub fn build_snapshot(
         reference_utc: reference_utc.to_rfc3339(),
         local_timezone: local_timezone.to_string(),
         time_format: time_format.to_string(),
+        weather_unit: None,
         configured_count: config.timezones.len(),
         local_configured: summary_entry_index.is_some(),
         pinned_timezone: config.pinned_entry().map(|entry| entry.timezone.clone()),

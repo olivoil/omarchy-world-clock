@@ -4,7 +4,7 @@
   "name": "World Clock",
   "version": "0.4.0",
   "author": "Olivier Melcher",
-  "description": "Compare, convert, and pin time across a user-managed list of places.",
+  "description": "Compare current time and weather, convert time, and pin a place.",
   "license": "MIT AND ODbL-1.0",
   "kinds": [
     "bar-widget"
@@ -14,7 +14,7 @@
   },
   "barWidget": {
     "displayName": "World Clock",
-    "description": "Compare, convert, and pin time across a user-managed list of places.",
+    "description": "Compare current time and weather, convert time, and pin a place.",
     "category": "Time",
     "allowMultiple": false,
     "defaultSection": "center"

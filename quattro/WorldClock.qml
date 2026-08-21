@@ -18,7 +18,7 @@ BarWidget {
   property string pinnedLabel: ""
   property bool moduleRefreshPending: false
 
-  readonly property int supportedBackendProtocol: 1
+  readonly property int supportedBackendProtocol: 2
   readonly property string backendCommand:
     String(Qt.resolvedUrl("../bin/omarchy-world-clock-backend")).replace(/^file:\/\//, "")
   readonly property bool opened: panelLoader.item ? panelLoader.item.opened === true : false

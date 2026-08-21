@@ -1,14 +1,16 @@
 use crate::config::{
-    detect_local_timezone, system_time_format, ConfigManager, RemotePlaceSearch, TimezoneResolver,
+    detect_local_timezone, resolve_omarchy_weather_unit, system_time_format, ConfigManager,
+    RemotePlaceSearch, TimezoneResolver,
 };
 use crate::quattro::{build_map_location, build_module_payload, build_snapshot, QuattroSnapshot};
 use crate::time::parse_manual_reference_details;
 use crate::timezone_grid::timezone_at;
+use crate::weather::current_weather;
 use anyhow::{bail, Context, Result};
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 
-pub const USAGE: &str = "Usage: omarchy-world-clock-backend <module|snapshot|convert|search|locate|add|remove|pin|unpin|version>";
+pub const USAGE: &str = "Usage: omarchy-world-clock-backend <module|snapshot|convert|weather|search|locate|add|remove|pin|unpin|version>";
 
 fn optional_flag(args: &[String], flag: &str) -> Result<Option<String>> {
     let Some(index) = args.iter().position(|arg| arg == flag) else {
@@ -50,12 +52,15 @@ fn parse_reference_utc(raw: Option<String>) -> Result<DateTime<Utc>> {
 
 fn current_snapshot(reference_utc: DateTime<Utc>) -> Result<QuattroSnapshot> {
     let config = ConfigManager::new(None).load()?;
-    Ok(build_snapshot(
+    let local_timezone = detect_local_timezone();
+    let mut snapshot = build_snapshot(
         &config,
         reference_utc,
-        &detect_local_timezone(),
+        &local_timezone,
         &system_time_format(),
-    ))
+    );
+    snapshot.weather_unit = resolve_omarchy_weather_unit(None, None, None, &local_timezone);
+    Ok(snapshot)
 }
 
 #[derive(Serialize)]
@@ -89,6 +94,11 @@ pub fn execute(args: &[String]) -> Result<Option<String>> {
                 normalized_input: parsed.normalized_text,
                 snapshot: current_snapshot(parsed.reference_utc)?,
             })?)
+        }
+        "weather" => {
+            let config = ConfigManager::new(None).load()?;
+            let payload = current_weather(&config, &detect_local_timezone())?;
+            Some(serde_json::to_string(&payload)?)
         }
         "search" => {
             let query = remaining_args

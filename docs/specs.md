@@ -50,6 +50,8 @@ AUR package, `PATH` lookup, user-configured backend command, or install hook.
 - The panel has read, edit, and add modes.
 - Read mode shows the summary clock, proportional relative timeline, and up to
   nine non-local location clocks in a borderless three-column layout.
+- Live read mode shows current temperature and conditions as secondary context
+  for every visible location with a known coordinate.
 - Edit mode preserves the read layout and exposes pin/unpin and remove actions.
 - Add mode shows local/remote search and an interactive world map.
 
@@ -94,7 +96,7 @@ Persistence rules:
 - a pin must match one configured location
 - removing the pinned location clears the pin
 - `disable_open_meteo_geolocation` defaults to `false` and is only persisted
-  when true
+  when true; it disables both remote place search and current weather
 
 On first load, the detected local timezone is added unless already present. If
 the user later removes it, it is not automatically re-added.
@@ -139,6 +141,31 @@ The only user-facing format is the system format. Detection order is:
 3. 24-hour format when ambiguous
 
 No separate World Clock 12/24-hour preference is stored.
+
+## Weather
+
+- Weather uses Open-Meteo current conditions. A quiet, right-aligned footer
+  links the provider name to its license as required attribution.
+- All visible coordinates are fetched in one request when the panel opens.
+- A successful response is reused for 15 minutes and refreshed while the panel
+  remains open.
+- Temperature inherits an explicit `metric` or `imperial` unit from the
+  `omarchy.weather` widget. In automatic mode, the configured Omarchy Weather
+  location's country decides first; United States, Liberia, and Myanmar use
+  Fahrenheit, and other known countries use Celsius. If that country is
+  unavailable, the local timezone's country and then the system locale provide
+  the fallback.
+- Cards add only a day/night-aware icon and rounded temperature to the existing
+  relative-time row. Units appear on the summary weather value, while card
+  temperatures omit the repeated unit letter to stay quiet.
+- Weather remains secondary to the clock and does not change card ordering.
+- Converted-time views hide weather because the conditions are current rather
+  than historical or forecast data.
+- Missing coordinates or individual conditions produce a quiet unavailable
+  state without hiding the clock.
+- A failed refresh keeps prior conditions visible with an update warning. An
+  initial failure leaves the rest of the panel fully usable.
+- `disable_open_meteo_geolocation` prevents weather and geocoding requests.
 
 ## Search and add
 
@@ -207,6 +234,8 @@ Rules:
 - Pinning persists and updates the bar display.
 - Time conversion works from the summary and every visible location.
 - Local search and map lookup work offline.
+- Current conditions load independently, refresh as one batched request, and
+  never block clock rendering or conversion.
 - Remote search is attributed and can be disabled.
 - Multiple names in one timezone remain distinct.
 - Artifact regeneration, Rust tests, manifest validation, and QML lint pass.

@@ -11,7 +11,6 @@ Item {
 
   signal moveRequested(int dx, int dy)
   signal activateRequested()
-  signal returnRequested()
   signal closeRequested()
   signal deleteRequested()
   signal tabRequested(int direction)
@@ -54,7 +53,6 @@ Item {
       moveRequested(-1, 0); event.accepted = true; return
     }
     if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-      returnRequested()
       activateRequested(); event.accepted = true; return
     }
     if (event.key === Qt.Key_Space) {

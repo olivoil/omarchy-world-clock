@@ -134,7 +134,7 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("function closeSearch()"));
     assert!(panel.contains("addField.forceActiveFocus(Qt.ShortcutFocusReason)"));
     assert!(panel.contains("if (mode === \"add\")"));
-    assert!(panel.contains("if (root.mode === \"read\") root.focusSummaryEditor()"));
+    assert!(panel.contains("if (mode === \"read\") focusSummaryEditor()"));
     assert!(panel.contains("Qt.callLater(function()"));
     assert!(panel.contains("property bool editorRefreshPending: false"));
     assert!(panel.contains("property bool snapshotRequestPending: false"));
@@ -220,7 +220,8 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("anchors.horizontalCenter: parent.horizontalCenter"));
     assert!(panel.contains("anchors.leftMargin: Style.space(10)"));
     assert!(panel.contains("id: clockSurface"));
-    assert!(panel.contains("color: Style.normalFillFor(root.contentForeground, Color.accent)"));
+    assert!(panel.contains("? Style.hoverFillFor(root.contentForeground, Color.accent)"));
+    assert!(panel.contains(": Style.normalFillFor(root.contentForeground, Color.accent)"));
     assert!(panel.contains("radius: Style.cornerRadius"));
 
     let city_data_path = root.join("data/featured-cities.json");
@@ -278,6 +279,13 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(key_catcher.contains("Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier"));
     assert!(panel.contains("WorldClockKeyCatcher {"));
     assert!(panel.contains("directTextInput: root.mode === \"add\" && !addField.activeFocus"));
+    assert!(panel.contains("onMoveRequested: function(dx, dy)"));
+    assert!(panel.contains("onActivateRequested: root.activateKeyboardCursor()"));
+    assert!(panel.contains("onDeleteRequested: root.deleteKeyboardCursor()"));
+    assert!(panel.contains("function moveKeyboardCursor(dx, dy)"));
+    assert!(panel.contains("function activateKeyboardCursor()"));
+    assert!(panel.contains("function deleteKeyboardCursor()"));
+    assert!(panel.contains("readonly property bool hasKeyboardCursor:"));
     assert!(panel.contains("if (!root.searchVisible) root.openSearch(text)"));
 
     let globe_path = qml_path.parent().unwrap().join("Globe.qml");

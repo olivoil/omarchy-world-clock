@@ -64,6 +64,8 @@ Panel {
   property bool mapClickPending: false
   property bool globeInitialized: false
   property bool searchVisible: false
+  property bool keyboardCursorActive: false
+  property int keyboardClockIndex: -1
 
   readonly property var barIdentity: hostWidget || root
   readonly property color contentForeground: bar ? bar.foreground : Color.foreground
@@ -149,6 +151,11 @@ Panel {
     for (var i = 0; i < timeline.length; i++)
       extent = Math.max(extent, Math.abs(Number(timeline[i].relative_minutes || 0)))
     return Math.ceil(extent / 60) * 60 + 60
+  }
+
+  onClocksChanged: {
+    if (keyboardClockIndex >= clocks.length)
+      keyboardClockIndex = clocks.length - 1
   }
 
   FontMetrics {
@@ -269,6 +276,8 @@ Panel {
     mapSelection = null
     mapClickPending = false
     globeInitialized = false
+    keyboardCursorActive = false
+    keyboardClockIndex = -1
     controller.hide()
   }
 
@@ -294,6 +303,102 @@ Panel {
     if (!location || !hasMapCoordinate(location) || mode !== "add") return
     mapCanvas.focusOn(location.latitude, location.longitude,
       zoomValue === undefined ? 1.95 : zoomValue)
+  }
+
+  function clockCellAt(clockIndex) {
+    var normalizedIndex = Number(clockIndex)
+    if (!isFinite(normalizedIndex) || normalizedIndex < 0
+        || normalizedIndex >= clocks.length) return null
+    var row = clockRowRepeater.itemAt(Math.floor(normalizedIndex / 3))
+    return row ? row.cellAt(normalizedIndex % 3) : null
+  }
+
+  function ensureKeyboardCursorVisible() {
+    if (!keyboardCursorActive || mode === "add") return
+    var target = keyboardClockIndex < 0
+      ? summaryInput : clockCellAt(keyboardClockIndex)
+    if (!target) return
+    var mapped = target.mapToItem(panelColumn, 0, 0)
+    var top = mapped.y - Style.space(12)
+    var bottom = mapped.y + target.height + Style.space(12)
+    if (top < panelScroll.contentY)
+      panelScroll.contentY = Math.max(0, top)
+    else if (bottom > panelScroll.contentY + panelScroll.height)
+      panelScroll.contentY = Math.min(
+        Math.max(0, panelScroll.contentHeight - panelScroll.height),
+        bottom - panelScroll.height)
+  }
+
+  function moveKeyboardCursor(dx, dy) {
+    if (mode === "add") {
+      if (mapSelection !== null) dismissMapSelection()
+      mapClickPending = false
+      mapCanvas.setView(mapCanvas.latitude + Number(dy) * 7,
+        mapCanvas.longitude - Number(dx) * 10)
+      return
+    }
+
+    var count = clocks.length
+    if (!keyboardCursorActive) {
+      keyboardCursorActive = true
+      keyboardClockIndex = count > 0 ? 0 : -1
+      Qt.callLater(root.ensureKeyboardCursorVisible)
+      return
+    }
+    if (count === 0) {
+      keyboardClockIndex = -1
+      return
+    }
+
+    var nextIndex = keyboardClockIndex
+    if (Number(dy) > 0)
+      nextIndex = nextIndex < 0 ? 0 : Math.min(count - 1, nextIndex + 3)
+    else if (Number(dy) < 0)
+      nextIndex = nextIndex < 3 ? -1 : nextIndex - 3
+    else if (Number(dx) > 0)
+      nextIndex = nextIndex < 0 ? 0 : Math.min(count - 1, nextIndex + 1)
+    else if (Number(dx) < 0)
+      nextIndex = nextIndex < 0 ? count - 1 : Math.max(0, nextIndex - 1)
+    keyboardClockIndex = nextIndex
+    Qt.callLater(root.ensureKeyboardCursorVisible)
+  }
+
+  function focusClockEditor(clockIndex) {
+    Qt.callLater(function() {
+      if (!opened || mode !== "read") return
+      var cell = root.clockCellAt(clockIndex)
+      if (cell) cell.focusTimeEditor()
+    })
+  }
+
+  function activateKeyboardCursor() {
+    if (mode === "add") {
+      openSearch()
+      return
+    }
+    if (!keyboardCursorActive) {
+      if (mode === "read") focusSummaryEditor()
+      else {
+        keyboardCursorActive = true
+        keyboardClockIndex = clocks.length > 0 ? 0 : -1
+      }
+      return
+    }
+    if (keyboardClockIndex < 0) {
+      if (mode === "read") focusSummaryEditor()
+      else if (summary.pinned === true) togglePin(summary)
+      return
+    }
+    if (keyboardClockIndex >= clocks.length) return
+    if (mode === "read") focusClockEditor(keyboardClockIndex)
+    else if (mode === "edit") togglePin(clocks[keyboardClockIndex])
+  }
+
+  function deleteKeyboardCursor() {
+    if (mode !== "edit" || !keyboardCursorActive
+        || keyboardClockIndex < 0 || keyboardClockIndex >= clocks.length
+        || !canRemove || actionProcess.running) return
+    removeClock(clocks[keyboardClockIndex])
   }
 
   function toggle() {
@@ -936,6 +1041,9 @@ Panel {
       anchors.fill: parent
       blocked: root.editorActive || addField.activeFocus
       directTextInput: root.mode === "add" && !addField.activeFocus
+      onMoveRequested: function(dx, dy) { root.moveKeyboardCursor(dx, dy) }
+      onActivateRequested: root.activateKeyboardCursor()
+      onDeleteRequested: root.deleteKeyboardCursor()
       onCloseRequested: {
         if (root.mapSelection !== null) root.dismissMapSelection()
         else if (root.mode === "add" && root.searchVisible) root.closeSearch()
@@ -943,10 +1051,6 @@ Panel {
         else root.mode = "read"
       }
       onTabRequested: function(direction) { root.switchPanel(direction) }
-      onReturnRequested: {
-        if (root.mode === "read") root.focusSummaryEditor()
-        else if (root.mode === "add") root.openSearch()
-      }
       onTextKey: function(text) {
         if (root.mode === "add") {
           if (!root.searchVisible) root.openSearch(text)
@@ -1087,6 +1191,7 @@ Panel {
 
               Rectangle {
                 visible: summaryInput.activeFocus || summaryInput.conversionInvalid
+                  || root.keyboardCursorActive && root.keyboardClockIndex < 0
                 anchors.left: summaryInput.left
                 anchors.right: summaryInput.right
                 anchors.top: summaryInput.bottom
@@ -1239,6 +1344,7 @@ Panel {
               spacing: Style.space(14)
 
               Repeater {
+                id: clockRowRepeater
                 model: Math.ceil(root.clocks.length / 3)
 
                 Row {
@@ -1249,6 +1355,9 @@ Panel {
                     Math.min(3, root.clocks.length - startIndex)
                   readonly property real cellWidth:
                     (clockRows.width - Style.space(32)) / 3
+                  function cellAt(cellIndex) {
+                    return clockCellRepeater.itemAt(cellIndex)
+                  }
                   anchors.horizontalCenter: parent.horizontalCenter
                   width: itemCount * cellWidth
                     + Math.max(0, itemCount - 1) * spacing
@@ -1256,6 +1365,7 @@ Panel {
                   spacing: Style.space(16)
 
                   Repeater {
+                    id: clockCellRepeater
                     model: clockRow.itemCount
 
                     Item {
@@ -1263,6 +1373,14 @@ Panel {
                       required property int index
                       readonly property var clockData:
                         root.clocks[clockRow.startIndex + index]
+                      readonly property int clockIndex: clockRow.startIndex + index
+                      readonly property bool hasKeyboardCursor:
+                        root.keyboardCursorActive
+                          && root.keyboardClockIndex === clockIndex
+                      function focusTimeEditor() {
+                        cardTimeInput.forceActiveFocus(Qt.ShortcutFocusReason)
+                        cardTimeInput.selectAll()
+                      }
                       width: clockRow.cellWidth
                       height: clockRow.height
 
@@ -1270,7 +1388,13 @@ Panel {
                         id: clockSurface
                         anchors.fill: parent
                         radius: Style.cornerRadius
-                        color: Style.normalFillFor(root.contentForeground, Color.accent)
+                        color: clockCell.hasKeyboardCursor
+                          ? Style.hoverFillFor(root.contentForeground, Color.accent)
+                          : Style.normalFillFor(root.contentForeground, Color.accent)
+                        border.width: clockCell.hasKeyboardCursor
+                          ? Style.spacing.hairline : 0
+                        border.color: Style.focusStateColor(
+                          root.contentForeground, Color.accent)
                       }
 
                       Column {

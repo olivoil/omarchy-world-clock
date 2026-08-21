@@ -1406,23 +1406,47 @@ Panel {
                 }
               }
 
-              Button {
+              Item {
                 id: addSearchCloseButton
                 anchors.right: parent.right
                 anchors.rightMargin: Style.space(2)
                 anchors.verticalCenter: parent.verticalCenter
                 width: Style.space(38)
-                height: width
+                height: parent.height
                 z: 2
-                radius: height / 2
-                iconText: "󰅖"
-                iconSize: Style.font.iconLarge
-                tooltipText: "Close search"
-                foreground: root.contentForeground
-                background: "transparent"
-                horizontalPadding: 0
-                verticalPadding: 0
-                onClicked: root.closeSearch()
+
+                Rectangle {
+                  id: addSearchCloseHover
+                  anchors.centerIn: parent
+                  width: Style.space(28)
+                  height: width
+                  radius: Style.cornerRadius
+                  color: addSearchCloseMouse.containsMouse
+                    ? Style.hoverFillFor(root.contentForeground, Color.accent)
+                    : "transparent"
+
+                  Behavior on color { ColorAnimation { duration: 120 } }
+                }
+
+                Text {
+                  id: addSearchCloseGlyph
+                  anchors.centerIn: parent
+                  text: "󰅖"
+                  color: root.contentForeground
+                  opacity: addSearchCloseMouse.containsMouse ? 1 : 0.82
+                  font.family: root.contentFontFamily
+                  font.pixelSize: Style.font.icon
+
+                  Behavior on opacity { NumberAnimation { duration: 120 } }
+                }
+
+                MouseArea {
+                  id: addSearchCloseMouse
+                  anchors.fill: parent
+                  hoverEnabled: true
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: root.closeSearch()
+                }
               }
             }
 

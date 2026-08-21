@@ -141,6 +141,9 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("id: addSearchButton"));
     assert!(panel.contains("id: addSearchSurface"));
     assert!(panel.contains("id: addSearchCloseButton"));
+    assert!(panel.contains("id: addSearchCloseHover"));
+    assert!(panel.contains("id: addSearchCloseGlyph"));
+    assert!(panel.contains("id: addSearchCloseMouse"));
     assert!(
         panel.contains("rightPadding: addSearchCloseButton.width + Style.spacing.controlPaddingX")
     );
@@ -150,7 +153,10 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("color: root.searchSurfaceColor"));
     assert!(panel.contains("visible: root.searchVisible"));
     assert!(panel.contains("visible: !root.searchVisible"));
-    assert!(panel.contains("tooltipText: \"Close search\""));
+    assert!(panel.contains("width: Style.space(28)"));
+    assert!(panel.contains("? Style.hoverFillFor(root.contentForeground, Color.accent)"));
+    assert!(panel.contains("opacity: addSearchCloseMouse.containsMouse ? 1 : 0.82"));
+    assert!(!panel.contains("tooltipText: \"Close search\""));
     assert!(panel.contains("tooltipText: \"Search locations\""));
     assert!(!panel
         .contains("tooltipText: root.searchVisible ? \"Close search\" : \"Search locations\""));

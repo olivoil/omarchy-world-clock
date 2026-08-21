@@ -91,7 +91,12 @@ pub fn execute(args: &[String]) -> Result<Option<String>> {
     let output = match command.as_str() {
         "module" => {
             let config = ConfigManager::new(None).load()?;
-            let payload = build_module_payload(&config, Utc::now(), &system_time_format());
+            let payload = build_module_payload(
+                &config,
+                Utc::now(),
+                &detect_local_timezone(),
+                &system_time_format(),
+            );
             Some(serde_json::to_string(&payload)?)
         }
         "snapshot" => {

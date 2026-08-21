@@ -419,6 +419,8 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(globe.contains("function normalizedWheelDelta(angleDelta, pixelDelta)"));
     assert!(globe.contains("((rawDelta + 180) % 360 + 360) % 360 - 180"));
     assert!(globe.contains("function focusOnLocations(locations)"));
+    assert!(globe.contains("locations.length === 1 ? Math.max(zoom, view.zoom) : view.zoom"));
+    assert!(globe.contains("focusOn(view.latitude, view.longitude, targetZoom)"));
     assert!(globe.contains("function minimumAngularCenter(vectors)"));
     assert!(globe.contains("minimumDepth: minimumDepth"));
     assert!(globe.contains("event.pixelDelta.y"));

@@ -4,6 +4,22 @@ World Clock releases are complete Quattro plugin repository commits. The QML,
 headless backend, map data, manifest, and provenance files must move together.
 There is no separate binary archive or AUR update for new releases.
 
+World Clock is a native third-party Omarchy Quattro plugin, installed by
+`omarchy plugin`, with the root `manifest.json` as its plugin manifest. Its
+community listing is maintained by the independent
+[Omarchy Plugin Marketplace](https://github.com/HANCORE-linux/omarchy-plugin-marketplace),
+not by a Codex or ChatGPT plugin marketplace.
+
+The ownership boundary matters during a release:
+
+- `manifest.json` owns the plugin name, version, author, description, license,
+  kinds, and entry points. The marketplace uses its top-level `description` as
+  the listing summary. Keep `barWidget.description` aligned with it so Omarchy
+  and the marketplace present the same copy.
+- The marketplace registry owns the category, tags, recorded validation
+  snapshot, and any curated manual-installation override. Upstream manifest
+  changes cannot remove that override.
+
 `scripts/release.sh` is deliberately a **validation-only** command. It cannot
 tag, push, create a release, or update the plugin directory. Publication stays
 a separate, visible action after hands-on testing and explicit approval.
@@ -126,19 +142,36 @@ After the tester explicitly approves the candidate:
 3. Create and push the immutable `v<version>` tag.
 4. Create the matching GitHub release; no separate binary asset is needed.
 5. Verify a clean user install and `omarchy plugin update` from the public URL.
-6. Ask the marketplace maintainers to remove the curated manual-installation
-   override from the existing [World Clock submission #553](https://github.com/HANCORE-linux/omarchy-plugin-marketplace/issues/553).
-   A scheduled source refresh does not remove that override automatically.
-   Include the published version/commit and explain that the static backend is
-   now inside the repository, no setup hook runs, and this command produces a
-   functioning plugin:
+6. Open the marketplace's
+   [plugin verification issue form](https://github.com/HANCORE-linux/omarchy-plugin-marketplace/issues/new?template=verify-plugin.yml),
+   select **Verify and publish a newer upstream commit**, and supply the exact
+   plugin ID, repository URL, and full 40-character SHA of the final default
+   branch HEAD. Do this only after every intended release PR is merged; the
+   guarded update rejects a target that is no longer current HEAD.
+7. In that update issue, explicitly ask the marketplace maintainers to remove
+   the curated `installation.mode: "manual"` override for
+   `io.github.olivoil.world-clock`. Link the historical
+   [World Clock submission #553](https://github.com/HANCORE-linux/omarchy-plugin-marketplace/issues/553)
+   for context, but do not rely on a comment on that closed submission to start
+   the current update workflow. Include the published version/commit and
+   explain that the static backend is inside the repository, no setup hook
+   runs, and this command produces a functioning plugin:
 
    ```bash
    omarchy plugin add https://github.com/olivoil/omarchy-world-clock.git --enable
    ```
 
-7. Check the Omarchy Plugins listing after the override is removed. It should
+   The verified-update workflow records the new commit but preserves curated
+   installation overrides, so the maintainer must remove this field explicitly.
+8. Check the Omarchy Plugins listing after the override is removed. It should
    show the standard plugin installation command rather than manual setup.
+
+The marketplace's scheduled catalog refresh can pick up upstream manifest
+copy, including a revised description, but it cannot promote a new validated
+snapshot or remove the manual-installation override. A description-only change
+does not need a separate marketplace issue; include the final description in
+the release commit and use the single update issue above for the released
+snapshot and installability request.
 
 Example commands are intentionally not automated:
 

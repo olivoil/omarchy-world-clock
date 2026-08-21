@@ -2,6 +2,10 @@
 
 A native Omarchy Quattro world clock. Open the bar widget for current time and weather across your places, add new timezones, pin one to be always visible, or enter any time to convert from one timezone to the others.
 
+This repository is the installable root of the native Quattro plugin
+`io.github.olivoil.world-clock`. It is listed in the independent community
+[Omarchy Plugin Marketplace](https://omarchyplugins.com/plugin.html?id=io.github.olivoil.world-clock).
+
 <p>
   <img src="preview.png" alt="Omarchy World Clock panel with a pinned home time, proportional timezone timeline, and six location clocks" width="960">
 </p>

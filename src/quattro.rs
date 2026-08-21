@@ -42,16 +42,64 @@ pub struct QuattroModulePayload {
     pub pinned_label: Option<String>,
 }
 
+fn pad_right(value: &str, width: usize) -> String {
+    let padding = width.saturating_sub(value.chars().count());
+    format!("{value}{}", " ".repeat(padding))
+}
+
+fn pad_left(value: &str, width: usize) -> String {
+    let padding = width.saturating_sub(value.chars().count());
+    format!("{}{value}", " ".repeat(padding))
+}
+
+fn format_tooltip_clock_rows(rows: &[(String, String)]) -> String {
+    let widest_label = rows
+        .iter()
+        .map(|(label, _)| label.chars().count())
+        .max()
+        .unwrap_or(0);
+    let widest_time = rows
+        .iter()
+        .map(|(_, time)| time.chars().count())
+        .max()
+        .unwrap_or(0);
+
+    rows.iter()
+        .map(|(label, time)| {
+            format!(
+                "{}  {}",
+                pad_right(label, widest_label),
+                pad_left(time, widest_time)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 pub fn build_module_payload(
     config: &AppConfig,
     now: DateTime<Utc>,
+    local_timezone: &str,
     time_format: &str,
 ) -> QuattroModulePayload {
     let pinned_entry = config.pinned_entry();
+    let (_, visible_entries) = visible_location_entries(config, now, local_timezone);
+    let tooltip_rows = visible_entries
+        .into_iter()
+        .skip(1)
+        .map(|entry| {
+            let time = format_display_time(&zoned_datetime(now, &entry.timezone), time_format);
+            (entry.read_card_title(), time)
+        })
+        .collect::<Vec<_>>();
     QuattroModulePayload {
         protocol_version: BACKEND_PROTOCOL_VERSION,
         backend_version: env!("CARGO_PKG_VERSION"),
-        tooltip: "World Clock".to_string(),
+        tooltip: if tooltip_rows.is_empty() {
+            "No additional timezones yet.".to_string()
+        } else {
+            format_tooltip_clock_rows(&tooltip_rows)
+        },
         pinned_time: pinned_entry
             .map(|entry| format_display_time(&zoned_datetime(now, &entry.timezone), time_format)),
         pinned_label: pinned_entry.map(TimezoneEntry::read_card_title),
@@ -439,7 +487,7 @@ pub fn build_snapshot(
 
 #[cfg(test)]
 mod tests {
-    use super::build_snapshot;
+    use super::{build_module_payload, build_snapshot};
     use crate::config::{AppConfig, LocationKey, TimezoneEntry};
     use chrono::{TimeZone, Utc};
 
@@ -450,6 +498,40 @@ mod tests {
             latitude: None,
             longitude: None,
         }
+    }
+
+    #[test]
+    fn module_tooltip_lists_non_local_locations_in_popup_order() {
+        let config = AppConfig {
+            timezones: vec![
+                entry("Europe/Paris", "Rennes, Brittany, France"),
+                entry("America/Cancun", "Home"),
+                entry("America/Vancouver", "Vancouver"),
+            ],
+            pinned_location: None,
+            disable_open_meteo_geolocation: false,
+        };
+        let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
+
+        let payload = build_module_payload(&config, now, "America/Cancun", "24h");
+
+        assert_eq!(payload.tooltip, "Vancouver  04:05\nRennes     13:05");
+        assert!(!payload.tooltip.contains("Home"));
+        assert!(!payload.tooltip.contains("World Clock"));
+    }
+
+    #[test]
+    fn module_tooltip_explains_when_there_are_no_additional_locations() {
+        let config = AppConfig {
+            timezones: vec![entry("America/Cancun", "Home")],
+            pinned_location: None,
+            disable_open_meteo_geolocation: false,
+        };
+        let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
+
+        let payload = build_module_payload(&config, now, "America/Cancun", "24h");
+
+        assert_eq!(payload.tooltip, "No additional timezones yet.");
     }
 
     #[test]

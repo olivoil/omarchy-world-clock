@@ -34,6 +34,9 @@ AUR package, `PATH` lookup, user-configured backend command, or install hook.
 - With no pin, it displays only the icon.
 - With a pin, it displays the icon and that place's current time.
 - The pinned time updates on minute boundaries.
+- Its tooltip is a compact, time-sorted table of the visible non-local places;
+  it omits both a title row and the local summary place.
+- With no additional places, the tooltip says `No additional timezones yet.`
 - If the bundled backend cannot start or has an incompatible protocol, the
   widget is dimmed and its tooltip explains that the plugin is unavailable.
 
@@ -266,6 +269,8 @@ Rules:
   only a subtle horizon fade.
 - Clicking a featured or search marker centers it and opens a compact detail
   card with its local time, day/relative offset, timezone, and `Add` action.
+- Focusing one place may zoom closer when needed but never zooms out from the
+  user's current view; fitting multiple search results may change either way.
 - Saved coordinates are preferred for marker placement. Bundled timezone
   coordinates are used when saved coordinates are absent.
 - If the shader package cannot load, the viewport falls back to the bundled

@@ -1681,6 +1681,9 @@ Panel {
                   readonly property var location: modelData.location
                   readonly property bool configured: modelData.configured === true
                   readonly property bool searchResult: modelData.searchResult === true
+                  readonly property bool selectable: !configured
+                    && root.canAddLocation(location.timezone)
+                    && !actionProcess.running
                   readonly property bool selected: root.mapSelection !== null
                     && root.mapLocationKey(root.mapSelection)
                       === root.mapLocationKey(mapMarker.location)
@@ -1716,7 +1719,7 @@ Panel {
                     radius: Style.cornerRadius
                     color: mapMarker.selected
                       ? Style.selectedFillFor(root.contentForeground, Color.accent)
-                      : cityMouse.containsMouse
+                      : cityMouse.containsMouse && mapMarker.selectable
                       ? Style.hoverFillFor(root.contentForeground, Color.accent)
                       : "transparent"
 
@@ -1761,12 +1764,14 @@ Panel {
                     MouseArea {
                       id: cityMouse
                       anchors.fill: parent
-                      enabled: !mapMarker.configured
-                        && root.canAddLocation(mapMarker.location.timezone)
-                        && !actionProcess.running
-                      hoverEnabled: true
-                      cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-                      onClicked: root.selectMapLocation(mapMarker.location)
+                      enabled: true
+                      hoverEnabled: mapMarker.selectable
+                      cursorShape: mapMarker.selectable
+                        ? Qt.PointingHandCursor : Qt.ArrowCursor
+                      onClicked: {
+                        if (mapMarker.selectable)
+                          root.selectMapLocation(mapMarker.location)
+                      }
                     }
                   }
 
@@ -1809,11 +1814,13 @@ Panel {
                     MouseArea {
                       anchors.fill: parent
                       anchors.margins: -Style.space(5)
-                      enabled: !mapMarker.configured
-                        && root.canAddLocation(mapMarker.location.timezone)
-                        && !actionProcess.running
-                      cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-                      onClicked: root.selectMapLocation(mapMarker.location)
+                      enabled: true
+                      cursorShape: mapMarker.selectable
+                        ? Qt.PointingHandCursor : Qt.ArrowCursor
+                      onClicked: {
+                        if (mapMarker.selectable)
+                          root.selectMapLocation(mapMarker.location)
+                      }
                     }
                   }
                 }

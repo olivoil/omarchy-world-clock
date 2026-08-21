@@ -78,6 +78,9 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("readonly property var mapLocations: searchHasQuery"));
     assert!(panel.contains("model: root.mapLocations"));
     assert!(panel.contains("modelData.searchResult === true"));
+    assert!(panel.contains("readonly property bool selectable: !configured"));
+    assert_eq!(panel.matches("if (mapMarker.selectable)").count(), 2);
+    assert!(panel.contains("hoverEnabled: mapMarker.selectable"));
     assert!(panel.contains("textureEnabled: root.opened && root.mode === \"add\""));
     assert!(panel.contains("if (!root.mapClickPending) return\n      if (exitCode !== 0)"));
     assert!(panel.contains("backendCommand, \"locate\""));

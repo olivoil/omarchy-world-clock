@@ -1982,6 +1982,14 @@ Panel {
               }
             }
 
+            Rectangle {
+              id: addBackButtonSurface
+              anchors.fill: addBackButton
+              z: addBackButton.z - 1
+              radius: addBackButton.radius
+              color: root.searchSurfaceColor
+            }
+
             Button {
               id: addBackButton
               anchors.top: parent.top
@@ -1995,12 +2003,20 @@ Panel {
               iconSize: Style.font.iconLarge
               tooltipText: "Back to world clock"
               foreground: root.contentForeground
-              background: root.mixColor(Color.popups.background,
-                root.contentForeground, 0.025)
+              background: "transparent"
               bordered: true
               horizontalPadding: 0
               verticalPadding: 0
               onClicked: root.mode = "read"
+            }
+
+            Rectangle {
+              id: addSearchButtonSurface
+              visible: addSearchButton.visible
+              anchors.fill: addSearchButton
+              z: addSearchButton.z - 1
+              radius: addSearchButton.radius
+              color: root.searchSurfaceColor
             }
 
             Button {
@@ -2017,8 +2033,7 @@ Panel {
               iconSize: Style.font.iconLarge
               tooltipText: "Search locations"
               foreground: root.contentForeground
-              background: root.mixColor(Color.popups.background,
-                root.contentForeground, 0.025)
+              background: "transparent"
               bordered: true
               horizontalPadding: 0
               verticalPadding: 0

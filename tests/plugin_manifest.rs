@@ -173,7 +173,12 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("if (root.mode === \"add\""));
     assert!(panel.contains("onTextChanged: root.searchTextChanged()"));
     assert!(panel.contains("id: addBackButton"));
+    assert!(panel.contains("id: addBackButtonSurface"));
+    assert!(panel.contains("anchors.fill: addBackButton"));
     assert!(panel.contains("id: addSearchButton"));
+    assert!(panel.contains("id: addSearchButtonSurface"));
+    assert!(panel.contains("visible: addSearchButton.visible"));
+    assert!(panel.contains("anchors.fill: addSearchButton"));
     assert!(panel.contains("id: addSearchSurface"));
     assert!(panel.contains("id: addSearchCloseButton"));
     assert!(panel.contains("id: addSearchCloseHover"));

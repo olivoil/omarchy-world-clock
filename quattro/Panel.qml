@@ -78,6 +78,7 @@ Panel {
   property double weatherLastUpdatedAt: 0
   property double weatherLastAttemptAt: 0
   property bool globeInitialized: false
+  property bool globeDetailRequested: false
   property bool searchVisible: false
   property bool keyboardCursorActive: false
   property int keyboardClockIndex: -1
@@ -298,6 +299,7 @@ Panel {
 
   function close() {
     mode = "read"
+    globeDetailRequested = false
     summaryFocusPending = false
     searchResults = []
     searchResultsQuery = ""
@@ -360,6 +362,11 @@ Panel {
       mapCanvas.settleOn(summary.latitude, summary.longitude)
     else
       mapCanvas.settleOn(18, 0)
+  }
+
+  function requestGlobeDetailWhenReady() {
+    if (!opened || mode !== "add" || !mapCanvas.previewReady) return
+    globeDetailRequested = true
   }
 
   function focusGlobeOn(location, zoomValue) {
@@ -886,6 +893,11 @@ Panel {
     return timezone && title ? timezone + "\u001f" + title : ""
   }
 
+  function mapLocationSelected(location) {
+    var selectedKey = mapLocationKey(mapSelection)
+    return selectedKey !== "" && selectedKey === mapLocationKey(location)
+  }
+
   function selectMapLocation(location) {
     if (!location || !canAddLocation(location.timezone)) return
     if (hasMapCoordinate(location)) {
@@ -948,8 +960,8 @@ Panel {
         continue
       }
 
-      var mayPlaceLabel = wrapper.searchResult === true
-        || wrapper.configured || reveal >= 0.72
+      var mayPlaceLabel = !mapLocationSelected(location)
+        && (wrapper.searchResult === true || wrapper.configured || reveal >= 0.72)
       var labelWidth = layout.width
       var candidates = [
         { x: projection.x - labelWidth / 2, y: projection.y - labelHeight - pointGap },
@@ -1034,7 +1046,12 @@ Panel {
     return Math.max(0, Math.min(width - itemWidth, center - itemWidth / 2))
   }
 
-  onOpenedChanged: if (opened) {
+  onOpenedChanged: {
+    if (!opened) {
+      globeDetailRequested = false
+      return
+    }
+    if (mode === "add") Qt.callLater(root.requestGlobeDetailWhenReady)
     refresh()
     requestWeather(false)
   }
@@ -1057,6 +1074,7 @@ Panel {
     if (mode === "add") {
       searchVisible = false
       Qt.callLater(root.initializeGlobe)
+      Qt.callLater(root.requestGlobeDetailWhenReady)
     } else {
       searchVisible = false
       addField.text = ""
@@ -2316,13 +2334,16 @@ Panel {
               anchors.fill: parent
               clip: true
               interactive: root.canAdd && !actionProcess.running
-              textureEnabled: root.opened && root.mode === "add"
+              highResolutionEnabled: root.opened && root.globeDetailRequested
               property var markerLayouts: root.globeLabelLayouts(width, height)
               diameterRatio: 0.63
               oceanColor: root.mixColor(Color.background, root.contentForeground, 0.07)
               landColor: root.mixColor(Color.background, root.contentForeground, 0.68)
               boundaryColor: root.mixColor(Color.background, root.contentForeground, 0.40)
               rimColor: root.mixColor(Color.background, root.contentForeground, 0.28)
+              onPreviewReadyChanged: {
+                if (previewReady) root.requestGlobeDetailWhenReady()
+              }
               onLocationPicked: function(latitude, longitude, viewX, viewY) {
                 root.requestMapLocation(latitude, longitude, viewX, viewY)
               }
@@ -2426,9 +2447,8 @@ Panel {
                   readonly property bool selectable: !configured
                     && root.canAddLocation(location.timezone)
                     && !actionProcess.running
-                  readonly property bool selected: root.mapSelection !== null
-                    && root.mapLocationKey(root.mapSelection)
-                      === root.mapLocationKey(mapMarker.location)
+                  readonly property bool selected:
+                    root.mapLocationSelected(mapMarker.location)
                   readonly property var layout: mapCanvas.markerLayouts[index] || ({
                     visible: false,
                     labelVisible: false,
@@ -2453,7 +2473,7 @@ Panel {
 
                   Rectangle {
                     id: cityLabel
-                    visible: mapMarker.layout.labelVisible
+                    visible: mapMarker.layout.labelVisible && !mapMarker.selected
                     x: mapMarker.layout.x
                     y: mapMarker.layout.y
                     width: mapMarker.layout.width

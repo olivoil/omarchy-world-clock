@@ -81,6 +81,9 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("(mapCanvas.zoom - minimumZoom) / 0.24"));
     assert!(panel.contains("layout.reveal * (searchResult || configured"));
     assert!(panel.contains("function mapLocationKey(location)"));
+    assert!(panel.contains("function mapLocationSelected(location)"));
+    assert!(panel.contains("var mayPlaceLabel = !mapLocationSelected(location)"));
+    assert!(panel.contains("visible: mapMarker.layout.labelVisible && !mapMarker.selected"));
     assert!(!panel.contains("featuredPlaced < 7"));
     assert!(panel.contains("readonly property var mapLocations: searchHasQuery"));
     assert!(panel.contains("model: root.mapLocations"));
@@ -88,7 +91,13 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("readonly property bool selectable: !configured"));
     assert_eq!(panel.matches("if (mapMarker.selectable)").count(), 2);
     assert!(panel.contains("hoverEnabled: mapMarker.selectable"));
-    assert!(panel.contains("textureEnabled: root.opened && root.mode === \"add\""));
+    assert!(panel.contains("property bool globeDetailRequested: false"));
+    assert!(panel.contains("function requestGlobeDetailWhenReady()"));
+    assert!(panel.contains("!mapCanvas.previewReady"));
+    assert!(panel.contains("onPreviewReadyChanged:"));
+    assert!(panel.contains("if (previewReady) root.requestGlobeDetailWhenReady()"));
+    assert!(panel.contains("if (!opened) {\n      globeDetailRequested = false"));
+    assert!(panel.contains("highResolutionEnabled: root.opened && root.globeDetailRequested"));
     assert!(panel.contains("if (!root.mapClickPending) return\n      if (exitCode !== 0)"));
     assert!(panel.contains("backendCommand, \"locate\""));
     assert!(panel.contains("function selectMapLocation(location)"));
@@ -346,13 +355,18 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(qml.contains("onDateChanged: root.refresh()"));
     assert!(!qml.contains("root.pinnedLabel + \" · \""));
 
-    let map_path = root.join("assets/world-map.png");
-    assert!(map_path.is_file(), "missing {}", map_path.display());
-    let map = fs::read(&map_path).expect("read globe texture");
-    assert!(map.len() >= 24, "globe texture is not a complete PNG");
-    assert_eq!(&map[1..4], b"PNG");
-    assert_eq!(u32::from_be_bytes(map[16..20].try_into().unwrap()), 8192);
-    assert_eq!(u32::from_be_bytes(map[20..24].try_into().unwrap()), 4096);
+    for (filename, width, height) in [
+        ("world-map-preview.png", 2048, 1024),
+        ("world-map.png", 8192, 4096),
+    ] {
+        let map_path = root.join("assets").join(filename);
+        assert!(map_path.is_file(), "missing {}", map_path.display());
+        let map = fs::read(&map_path).expect("read globe texture");
+        assert!(map.len() >= 24, "globe texture is not a complete PNG");
+        assert_eq!(&map[1..4], b"PNG");
+        assert_eq!(u32::from_be_bytes(map[16..20].try_into().unwrap()), width);
+        assert_eq!(u32::from_be_bytes(map[20..24].try_into().unwrap()), height);
+    }
 
     let map_source_path = root.join("assets/world-map.svg");
     let map_source = fs::read_to_string(&map_source_path).expect("read globe map source");
@@ -410,14 +424,33 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(globe.contains("event.pixelDelta.y"));
     assert!(globe.contains("property real openingZoom:"));
     assert!(globe.contains("property real maximumZoom: 4.8"));
-    assert!(globe.contains("sourceSize.width: 8192"));
-    assert!(globe.contains("sourceSize.height: 4096"));
-    assert!(globe.contains(
-        "source: root.textureEnabled ? Qt.resolvedUrl(\"../assets/world-map.png\") : \"\""
-    ));
-    assert!(globe.contains(
-        "source: root.textureEnabled && !root.shaderAvailable\n      ? Qt.resolvedUrl(\"../assets/world-map.png\") : \"\""
-    ));
+    assert!(globe.contains("property bool highResolutionEnabled: true"));
+    assert!(globe.contains("property bool previewReady: false"));
+    assert!(globe.contains("function updatePreviewReadiness()"));
+    assert!(globe.contains("mapTexture.status !== Image.Ready"));
+    assert!(globe.contains("fallbackMap.status !== Image.Ready"));
+    assert_eq!(
+        globe
+            .matches("onStatusChanged: root.updatePreviewReadiness()")
+            .count(),
+        2
+    );
+    assert!(globe.contains("readonly property url textureSource: highResolutionEnabled"));
+    assert!(globe.contains("Qt.resolvedUrl(\"../assets/world-map-preview.png\")"));
+    assert!(globe.contains("readonly property int textureWidth: highResolutionEnabled"));
+    assert!(globe.contains("readonly property int textureHeight: highResolutionEnabled"));
+    assert_eq!(globe.matches("source: root.textureSource").count(), 2);
+    assert_eq!(
+        globe.matches("sourceSize.width: root.textureWidth").count(),
+        2
+    );
+    assert_eq!(
+        globe
+            .matches("sourceSize.height: root.textureHeight")
+            .count(),
+        2
+    );
+    assert_eq!(globe.matches("retainWhileLoading: true").count(), 2);
     assert_eq!(globe.matches("asynchronous: true").count(), 2);
     assert!(globe.contains("../assets/globe.frag.qsb"));
     assert!(globe.contains("visible: !root.shaderAvailable"));
@@ -465,6 +498,12 @@ fn globe_artifact_freshness_checks_are_mandatory_and_reproducible() {
     assert!(checker.contains("librsvg2-bin=2.61.3+dfsg-3"));
     assert!(checker.contains("scripts/build-globe-shader.sh --check"));
     assert!(checker.contains("scripts/build-world-map.sh --check"));
+
+    let map_builder =
+        fs::read_to_string(root.join("scripts/build-world-map.sh")).expect("read map builder");
+    assert!(map_builder.contains("world-map-preview.png"));
+    assert!(map_builder.contains("PREVIEW_WIDTH=2048"));
+    assert!(map_builder.contains("PREVIEW_HEIGHT=1024"));
     assert_ne!(
         fs::metadata(&checker_path)
             .expect("read globe artifact checker metadata")

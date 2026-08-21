@@ -123,6 +123,7 @@ quattro/Panel.qml
 quattro/Globe.qml
 quattro/WorldClockKeyCatcher.qml
 assets/world-map.png
+assets/world-map-preview.png
 assets/world-map.svg
 assets/NATURAL_EARTH.md
 assets/globe.frag
@@ -173,19 +174,23 @@ catalogue through the embedded timezone grid. The precompiled package avoids a
 runtime shader-compiler dependency.
 
 `scripts/build-world-map.sh --check` renders the committed SVG geography into
-the 8192×4096 PNG used by the GPU and verifies it byte for byte. The larger
-texture keeps coastlines and boundaries crisp through the globe's extended
-zoom range without adding a runtime SVG-rendering dependency.
+a 2048×1024 preview and the 8192×4096 detail texture, then verifies both byte
+for byte. The preview stays warm so add mode can render geography on its first
+frame. Qt retains it while the detail texture decodes asynchronously, and the
+panel keeps that detail texture only for the rest of its current open session.
+The larger texture therefore keeps coastlines and boundaries crisp through the
+globe's extended zoom range without delaying its first useful frame or adding
+a runtime SVG-rendering dependency.
 
 `scripts/build-world-map-source.mjs` regenerates that SVG from checksum-pinned
 Natural Earth v5.1.2 country and minor-island GeoJSON, while
 `scripts/build-featured-cities.mjs` regenerates the zoom-ranked city catalogue
 from the corresponding populated-place data. CI runs both generators in check
-mode before validating the derived shader and PNG. The 1:10m inputs retain
-roughly 87 times as many geographic points as the original simplified source,
-while the 8K derived PNG deliberately trades additional texture memory for
-crisper coastlines at the extended zoom ceiling. Natural Earth publishes the
-source map data in the public domain.
+mode before validating the derived shader and PNGs. The 1:10m inputs retain
+roughly 87 times as many geographic points as the original simplified source.
+The progressive texture pair limits the 8K image's additional memory cost to
+an active panel session while preserving crisp coastlines at the extended zoom
+ceiling. Natural Earth publishes the source map data in the public domain.
 
 The full upstream polygon database made the backend unnecessarily large. The
 derived 0.1-degree row-run-length grid preserves click-to-add accuracy at the

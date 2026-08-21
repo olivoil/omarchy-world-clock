@@ -68,7 +68,13 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("root.canAddLocation(resultButton.modelData.timezone)"));
     assert!(panel.contains("Globe {"));
     assert!(panel.contains("snapshot.featured_cities"));
-    assert!(panel.contains("root.globeLabelLayout(index, mapCanvas.width, mapCanvas.height)"));
+    assert!(panel.contains("function globeLabelLayouts(width, height)"));
+    assert!(panel.contains("property var markerLayouts: root.globeLabelLayouts(width, height)"));
+    assert!(panel.contains("function globeLocationReveal(wrapper)"));
+    assert!(panel.contains("(mapCanvas.zoom - minimumZoom) / 0.24"));
+    assert!(panel.contains("layout.reveal * (searchResult || configured"));
+    assert!(panel.contains("function mapLocationKey(location)"));
+    assert!(!panel.contains("featuredPlaced < 7"));
     assert!(panel.contains("readonly property var mapLocations: searchHasQuery"));
     assert!(panel.contains("model: root.mapLocations"));
     assert!(panel.contains("modelData.searchResult === true"));
@@ -163,6 +169,12 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("diameterRatio: 0.63"));
     assert!(panel.contains("mapCanvas.focusOnLocations(root.searchResults)"));
     assert!(panel.contains("mapCanvas.focusOnLocations([result])"));
+    assert!(panel.contains("font.pixelSize: Style.font.title"));
+    assert!(panel.contains("font.pixelSize: Style.font.bodySmall"));
+    assert!(panel.contains("font.bold: false"));
+    assert!(panel.contains("readonly property color mapLabelForeground"));
+    assert!(panel.contains("Qt.lighter(contentForeground, 1.20)"));
+    assert!(panel.contains("opacity: 0.88"));
     assert!(!panel.contains("onHovered: function(isHovered)"));
     assert!(!panel.contains("Drag to rotate  ·  Scroll to zoom"));
     assert!(panel.contains("visible: root.summary.pinned === true"));
@@ -185,6 +197,21 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("id: clockSurface"));
     assert!(panel.contains("color: Style.normalFillFor(root.contentForeground, Color.accent)"));
     assert!(panel.contains("radius: Style.cornerRadius"));
+
+    let city_data_path = root.join("data/featured-cities.json");
+    let city_data: Value = serde_json::from_str(
+        &fs::read_to_string(&city_data_path).expect("read featured-city catalogue"),
+    )
+    .expect("parse featured-city catalogue");
+    let cities = city_data.as_array().expect("featured-city array");
+    assert!(cities.len() >= 300);
+    assert!(cities.iter().any(|city| {
+        city["title"] == "London" && city["minimum_zoom"].as_f64().is_some_and(|zoom| zoom < 1.0)
+    }));
+    assert!(cities.iter().any(|city| {
+        city["title"] == "Bern" && city["minimum_zoom"].as_f64().is_some_and(|zoom| zoom > 4.0)
+    }));
+    assert!(root.join("scripts/build-featured-cities.mjs").is_file());
 
     assert!(qml.contains("function editCurrentTime()"));
     assert!(qml.contains("function edit(): void { root.editCurrentTime() }"));

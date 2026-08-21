@@ -1,0 +1,2927 @@
+[
+  {
+    "title": "New York",
+    "latitude": 40.751925,
+    "longitude": -73.981963,
+    "minimum_zoom": 0.75,
+    "source_timezone": "America/New_York",
+    "source_label_rank": 1,
+    "source_population": 19040000
+  },
+  {
+    "title": "Mumbai",
+    "latitude": 19.018936,
+    "longitude": 72.855043,
+    "minimum_zoom": 0.75,
+    "source_timezone": "Asia/Kolkata",
+    "source_label_rank": 1,
+    "source_population": 18978000
+  },
+  {
+    "title": "Rio de Janeiro",
+    "latitude": -22.923077,
+    "longitude": -43.226967,
+    "minimum_zoom": 0.75,
+    "source_timezone": "America/Sao_Paulo",
+    "source_label_rank": 1,
+    "source_population": 11748000
+  },
+  {
+    "title": "Beijing",
+    "latitude": 39.930838,
+    "longitude": 116.38634,
+    "minimum_zoom": 0.75,
+    "source_timezone": "Asia/Harbin",
+    "source_label_rank": 1,
+    "source_population": 11106000
+  },
+  {
+    "title": "Tokyo",
+    "latitude": 35.686963,
+    "longitude": 139.749462,
+    "minimum_zoom": 0.75,
+    "source_timezone": "Asia/Tokyo",
+    "source_label_rank": 2,
+    "source_population": 35676000
+  },
+  {
+    "title": "Moscow",
+    "latitude": 55.75411,
+    "longitude": 37.613577,
+    "minimum_zoom": 0.75,
+    "source_timezone": null,
+    "source_label_rank": 2,
+    "source_population": 10452000
+  },
+  {
+    "title": "Cairo",
+    "latitude": 30.051906,
+    "longitude": 31.248022,
+    "minimum_zoom": 0.75,
+    "source_timezone": "Africa/Cairo",
+    "source_label_rank": 3,
+    "source_population": 11893000
+  },
+  {
+    "title": "Paris",
+    "latitude": 48.868639,
+    "longitude": 2.33139,
+    "minimum_zoom": 0.75,
+    "source_timezone": "Europe/Paris",
+    "source_label_rank": 3,
+    "source_population": 9904000
+  },
+  {
+    "title": "Sydney",
+    "latitude": -33.918065,
+    "longitude": 151.183234,
+    "minimum_zoom": 0.75,
+    "source_timezone": null,
+    "source_label_rank": 3,
+    "source_population": 4630000
+  },
+  {
+    "title": "Cape Town",
+    "latitude": -33.918065,
+    "longitude": 18.433042,
+    "minimum_zoom": 0.75,
+    "source_timezone": "Africa/Johannesburg",
+    "source_label_rank": 3,
+    "source_population": 3215000
+  },
+  {
+    "title": "London",
+    "latitude": 51.501941,
+    "longitude": -0.118668,
+    "minimum_zoom": 0.75,
+    "source_timezone": "Europe/London",
+    "source_label_rank": 5,
+    "source_population": 8567000
+  },
+  {
+    "title": "Shanghai",
+    "latitude": 31.218398,
+    "longitude": 121.434559,
+    "minimum_zoom": 1.005,
+    "source_timezone": "Asia/Shanghai",
+    "source_label_rank": 1,
+    "source_population": 14987000
+  },
+  {
+    "title": "Los Angeles",
+    "latitude": 33.991924,
+    "longitude": -118.181926,
+    "minimum_zoom": 1.005,
+    "source_timezone": "America/Los_Angeles",
+    "source_label_rank": 1,
+    "source_population": 12500000
+  },
+  {
+    "title": "Lagos",
+    "latitude": 6.445208,
+    "longitude": 3.389585,
+    "minimum_zoom": 1.005,
+    "source_timezone": "Europe/Athens",
+    "source_label_rank": 2,
+    "source_population": 9466000
+  },
+  {
+    "title": "Santiago",
+    "latitude": -33.448068,
+    "longitude": -70.668987,
+    "minimum_zoom": 1.005,
+    "source_timezone": "America/Sao_Paulo",
+    "source_label_rank": 3,
+    "source_population": 5720000
+  },
+  {
+    "title": "Nairobi",
+    "latitude": -1.281401,
+    "longitude": 36.814711,
+    "minimum_zoom": 1.005,
+    "source_timezone": "Africa/Nairobi",
+    "source_label_rank": 5,
+    "source_population": 3010000
+  },
+  {
+    "title": "Jakarta",
+    "latitude": -6.172472,
+    "longitude": 106.827492,
+    "minimum_zoom": 1.09,
+    "source_timezone": "Asia/Jakarta",
+    "source_label_rank": 1,
+    "source_population": 9125000
+  },
+  {
+    "title": "Miami",
+    "latitude": 25.789557,
+    "longitude": -80.226052,
+    "minimum_zoom": 1.09,
+    "source_timezone": "America/New_York",
+    "source_label_rank": 1,
+    "source_population": 5585000
+  },
+  {
+    "title": "Washington DC",
+    "latitude": 38.901495,
+    "longitude": -77.011364,
+    "minimum_zoom": 1.09,
+    "source_timezone": "America/New_York",
+    "source_label_rank": 1,
+    "source_population": 4338000
+  },
+  {
+    "title": "New Delhi",
+    "latitude": 28.600023,
+    "longitude": 77.19998,
+    "minimum_zoom": 1.09,
+    "source_timezone": "Asia/Kolkata",
+    "source_label_rank": 1,
+    "source_population": 317797
+  },
+  {
+    "title": "Mexico City",
+    "latitude": 19.444388,
+    "longitude": -99.132934,
+    "minimum_zoom": 1.09,
+    "source_timezone": "America/Mexico_City",
+    "source_label_rank": 2,
+    "source_population": 19028000
+  },
+  {
+    "title": "Toronto",
+    "latitude": 43.701926,
+    "longitude": -79.421967,
+    "minimum_zoom": 1.09,
+    "source_timezone": "America/Toronto",
+    "source_label_rank": 2,
+    "source_population": 5213000
+  },
+  {
+    "title": "Vancouver",
+    "latitude": 49.275362,
+    "longitude": -123.12359,
+    "minimum_zoom": 1.09,
+    "source_timezone": "America/Vancouver",
+    "source_label_rank": 2,
+    "source_population": 2313328
+  },
+  {
+    "title": "Buenos Aires",
+    "latitude": -34.600556,
+    "longitude": -58.399477,
+    "minimum_zoom": 1.09,
+    "source_timezone": "America/Argentina/Buenos_Aires",
+    "source_label_rank": 3,
+    "source_population": 12795000
+  },
+  {
+    "title": "Bogotá",
+    "latitude": 4.598369,
+    "longitude": -74.08529,
+    "minimum_zoom": 1.09,
+    "source_timezone": "America/Bogota",
+    "source_label_rank": 5,
+    "source_population": 7772000
+  },
+  {
+    "title": "Singapore",
+    "latitude": 1.294979,
+    "longitude": 103.853875,
+    "minimum_zoom": 1.09,
+    "source_timezone": "Asia/Singapore",
+    "source_label_rank": 99,
+    "source_population": 5183700
+  },
+  {
+    "title": "San Francisco",
+    "latitude": 37.769196,
+    "longitude": -122.417169,
+    "minimum_zoom": 1.6,
+    "source_timezone": "America/Los_Angeles",
+    "source_label_rank": 1,
+    "source_population": 3450000
+  },
+  {
+    "title": "Berlin",
+    "latitude": 52.523765,
+    "longitude": 13.399603,
+    "minimum_zoom": 1.6,
+    "source_timezone": "Europe/Berlin",
+    "source_label_rank": 3,
+    "source_population": 3406000
+  },
+  {
+    "title": "Rome",
+    "latitude": 41.897902,
+    "longitude": 12.481313,
+    "minimum_zoom": 1.6,
+    "source_timezone": "Europe/Rome",
+    "source_label_rank": 3,
+    "source_population": 3339000
+  },
+  {
+    "title": "Manila",
+    "latitude": 14.606105,
+    "longitude": 120.980271,
+    "minimum_zoom": 1.6,
+    "source_timezone": "Asia/Manila",
+    "source_label_rank": 5,
+    "source_population": 11100000
+  },
+  {
+    "title": "São Paulo",
+    "latitude": -23.556734,
+    "longitude": -46.626966,
+    "minimum_zoom": 1.855,
+    "source_timezone": "America/Sao_Paulo",
+    "source_label_rank": 1,
+    "source_population": 18845000
+  },
+  {
+    "title": "Chicago",
+    "latitude": 41.831937,
+    "longitude": -87.752001,
+    "minimum_zoom": 1.855,
+    "source_timezone": "America/Chicago",
+    "source_label_rank": 1,
+    "source_population": 8990000
+  },
+  {
+    "title": "Atlanta",
+    "latitude": 33.83196,
+    "longitude": -84.401895,
+    "minimum_zoom": 1.855,
+    "source_timezone": "America/New_York",
+    "source_label_rank": 1,
+    "source_population": 4506000
+  },
+  {
+    "title": "Houston",
+    "latitude": 29.82192,
+    "longitude": -95.341925,
+    "minimum_zoom": 1.855,
+    "source_timezone": null,
+    "source_label_rank": 1,
+    "source_population": 4459000
+  },
+  {
+    "title": "Chengdu",
+    "latitude": 30.671946,
+    "longitude": 104.068074,
+    "minimum_zoom": 1.855,
+    "source_timezone": "Asia/Chongqing",
+    "source_label_rank": 1,
+    "source_population": 4123000
+  },
+  {
+    "title": "Anchorage",
+    "latitude": 61.21997,
+    "longitude": -149.900215,
+    "minimum_zoom": 1.855,
+    "source_timezone": "America/Juneau",
+    "source_label_rank": 1,
+    "source_population": 260283
+  },
+  {
+    "title": "Osaka",
+    "latitude": 34.751981,
+    "longitude": 135.458199,
+    "minimum_zoom": 1.855,
+    "source_timezone": "Asia/Tokyo",
+    "source_label_rank": 2,
+    "source_population": 11294000
+  },
+  {
+    "title": "Ottawa",
+    "latitude": 45.418643,
+    "longitude": -75.701961,
+    "minimum_zoom": 1.855,
+    "source_timezone": "America/Montreal",
+    "source_label_rank": 2,
+    "source_population": 1145000
+  },
+  {
+    "title": "Seoul",
+    "latitude": 37.568295,
+    "longitude": 126.997785,
+    "minimum_zoom": 1.855,
+    "source_timezone": "Asia/Seoul",
+    "source_label_rank": 3,
+    "source_population": 9796000
+  },
+  {
+    "title": "Kinshasa",
+    "latitude": -4.327778,
+    "longitude": 15.313026,
+    "minimum_zoom": 1.855,
+    "source_timezone": "Africa/Kinshasa",
+    "source_label_rank": 3,
+    "source_population": 7843000
+  },
+  {
+    "title": "Madrid",
+    "latitude": 40.401972,
+    "longitude": -3.685298,
+    "minimum_zoom": 1.855,
+    "source_timezone": "Europe/Madrid",
+    "source_label_rank": 3,
+    "source_population": 5567000
+  },
+  {
+    "title": "Melbourne",
+    "latitude": -37.818086,
+    "longitude": 144.97307,
+    "minimum_zoom": 1.855,
+    "source_timezone": null,
+    "source_label_rank": 3,
+    "source_population": 4170000
+  },
+  {
+    "title": "Johannesburg",
+    "latitude": -26.168099,
+    "longitude": 28.028064,
+    "minimum_zoom": 1.855,
+    "source_timezone": "Africa/Johannesburg",
+    "source_label_rank": 3,
+    "source_population": 3435000
+  },
+  {
+    "title": "Addis Ababa",
+    "latitude": 9.035256,
+    "longitude": 38.698059,
+    "minimum_zoom": 1.855,
+    "source_timezone": "Africa/Addis_Ababa",
+    "source_label_rank": 3,
+    "source_population": 3100000
+  },
+  {
+    "title": "Punta Arenas",
+    "latitude": -53.164986,
+    "longitude": -70.939996,
+    "minimum_zoom": 1.855,
+    "source_timezone": "America/Santiago",
+    "source_label_rank": 3,
+    "source_population": 117430
+  },
+  {
+    "title": "Istanbul",
+    "latitude": 41.106942,
+    "longitude": 29.008056,
+    "minimum_zoom": 1.855,
+    "source_timezone": "Europe/Istanbul",
+    "source_label_rank": 5,
+    "source_population": 10061000
+  },
+  {
+    "title": "Lima",
+    "latitude": -12.046067,
+    "longitude": -77.052008,
+    "minimum_zoom": 1.855,
+    "source_timezone": "America/Lima",
+    "source_label_rank": 5,
+    "source_population": 8012000
+  },
+  {
+    "title": "Tehran",
+    "latitude": 35.673889,
+    "longitude": 51.422398,
+    "minimum_zoom": 1.855,
+    "source_timezone": "Asia/Tehran",
+    "source_label_rank": 5,
+    "source_population": 7873000
+  },
+  {
+    "title": "Bangkok",
+    "latitude": 13.751945,
+    "longitude": 100.514699,
+    "minimum_zoom": 1.855,
+    "source_timezone": "Asia/Bangkok",
+    "source_label_rank": 5,
+    "source_population": 6704000
+  },
+  {
+    "title": "Caracas",
+    "latitude": 10.502944,
+    "longitude": -66.918983,
+    "minimum_zoom": 1.855,
+    "source_timezone": "America/Caracas",
+    "source_label_rank": 6,
+    "source_population": 2985000
+  },
+  {
+    "title": "Stockholm",
+    "latitude": 59.352706,
+    "longitude": 18.095389,
+    "minimum_zoom": 1.855,
+    "source_timezone": "Europe/Stockholm",
+    "source_label_rank": 7,
+    "source_population": 1264000
+  },
+  {
+    "title": "Dakar",
+    "latitude": 14.717778,
+    "longitude": -17.475076,
+    "minimum_zoom": 1.855,
+    "source_timezone": "Africa/Dakar",
+    "source_label_rank": 8,
+    "source_population": 2604000
+  },
+  {
+    "title": "Auckland",
+    "latitude": -36.848055,
+    "longitude": 174.763027,
+    "minimum_zoom": 1.855,
+    "source_timezone": "Pacific/Auckland",
+    "source_label_rank": 8,
+    "source_population": 1377200
+  },
+  {
+    "title": "Hong Kong",
+    "latitude": 22.306927,
+    "longitude": 114.183064,
+    "minimum_zoom": 1.855,
+    "source_timezone": "Asia/Hong_Kong",
+    "source_label_rank": 99,
+    "source_population": 7206000
+  },
+  {
+    "title": "McMurdo Station",
+    "latitude": -77.732282,
+    "longitude": 166.869416,
+    "minimum_zoom": 1.855,
+    "source_timezone": null,
+    "source_label_rank": 99,
+    "source_population": 1000
+  },
+  {
+    "title": "Esperanza Base",
+    "latitude": -63.375329,
+    "longitude": -57.025902,
+    "minimum_zoom": 1.855,
+    "source_timezone": null,
+    "source_label_rank": 99,
+    "source_population": 250
+  },
+  {
+    "title": "Casey Station",
+    "latitude": -66.286086,
+    "longitude": 110.536214,
+    "minimum_zoom": 1.855,
+    "source_timezone": null,
+    "source_label_rank": 99,
+    "source_population": 200
+  },
+  {
+    "title": "Mirny Station",
+    "latitude": -66.57553,
+    "longitude": 93.006289,
+    "minimum_zoom": 1.855,
+    "source_timezone": null,
+    "source_label_rank": 99,
+    "source_population": 169
+  },
+  {
+    "title": "Kolkata",
+    "latitude": 22.496915,
+    "longitude": 88.32273,
+    "minimum_zoom": 2.45,
+    "source_timezone": "Asia/Kolkata",
+    "source_label_rank": 1,
+    "source_population": 14787000
+  },
+  {
+    "title": "Bengaluru",
+    "latitude": 12.971941,
+    "longitude": 77.558064,
+    "minimum_zoom": 2.45,
+    "source_timezone": "Asia/Kolkata",
+    "source_label_rank": 1,
+    "source_population": 6787000
+  },
+  {
+    "title": "Xi'an",
+    "latitude": 34.276971,
+    "longitude": 108.89305,
+    "minimum_zoom": 2.45,
+    "source_timezone": "Asia/Chongqing",
+    "source_label_rank": 1,
+    "source_population": 4009000
+  },
+  {
+    "title": "Brasília",
+    "latitude": -15.781394,
+    "longitude": -47.917998,
+    "minimum_zoom": 2.45,
+    "source_timezone": "America/Sao_Paulo",
+    "source_label_rank": 1,
+    "source_population": 3716996
+  },
+  {
+    "title": "Recife",
+    "latitude": -8.0737,
+    "longitude": -34.917551,
+    "minimum_zoom": 2.45,
+    "source_timezone": "America/Recife",
+    "source_label_rank": 1,
+    "source_population": 3651000
+  },
+  {
+    "title": "Harbin",
+    "latitude": 45.75193,
+    "longitude": 126.648039,
+    "minimum_zoom": 2.45,
+    "source_timezone": "Asia/Harbin",
+    "source_label_rank": 1,
+    "source_population": 3621000
+  },
+  {
+    "title": "Ürümqi",
+    "latitude": 43.806958,
+    "longitude": 87.57306,
+    "minimum_zoom": 2.45,
+    "source_timezone": "Asia/Urumqi",
+    "source_label_rank": 1,
+    "source_population": 3575000
+  },
+  {
+    "title": "Salvador",
+    "latitude": -12.968026,
+    "longitude": -38.481933,
+    "minimum_zoom": 2.45,
+    "source_timezone": "America/Bahia",
+    "source_label_rank": 1,
+    "source_population": 3484000
+  },
+  {
+    "title": "Denver",
+    "latitude": 39.741134,
+    "longitude": -104.985962,
+    "minimum_zoom": 2.45,
+    "source_timezone": null,
+    "source_label_rank": 1,
+    "source_population": 2313000
+  },
+  {
+    "title": "Prudhoe Bay",
+    "latitude": 70.292181,
+    "longitude": -148.66936,
+    "minimum_zoom": 2.45,
+    "source_timezone": null,
+    "source_label_rank": 1,
+    "source_population": 2500
+  },
+  {
+    "title": "Saint Petersburg",
+    "latitude": 59.94096,
+    "longitude": 30.314074,
+    "minimum_zoom": 2.45,
+    "source_timezone": "Europe/Moscow",
+    "source_label_rank": 2,
+    "source_population": 4553000
+  },
+  {
+    "title": "Monterrey",
+    "latitude": 25.671941,
+    "longitude": -100.331931,
+    "minimum_zoom": 2.45,
+    "source_timezone": "America/Monterrey",
+    "source_label_rank": 2,
+    "source_population": 3712000
+  },
+  {
+    "title": "Samara",
+    "latitude": 53.196953,
+    "longitude": 50.149349,
+    "minimum_zoom": 2.45,
+    "source_timezone": "Europe/Samara",
+    "source_label_rank": 2,
+    "source_population": 1137000
+  },
+  {
+    "title": "Omsk",
+    "latitude": 54.991934,
+    "longitude": 73.398008,
+    "minimum_zoom": 2.45,
+    "source_timezone": "Asia/Omsk",
+    "source_label_rank": 2,
+    "source_population": 1135000
+  },
+  {
+    "title": "Irkutsk",
+    "latitude": 52.319971,
+    "longitude": 104.245048,
+    "minimum_zoom": 2.45,
+    "source_timezone": "Asia/Irkutsk",
+    "source_label_rank": 2,
+    "source_population": 586695
+  },
+  {
+    "title": "Murmansk",
+    "latitude": 68.969988,
+    "longitude": 33.100036,
+    "minimum_zoom": 2.45,
+    "source_timezone": "Europe/Moscow",
+    "source_label_rank": 2,
+    "source_population": 319263
+  },
+  {
+    "title": "Magadan",
+    "latitude": 59.57498,
+    "longitude": 150.810009,
+    "minimum_zoom": 2.45,
+    "source_timezone": "Asia/Magadan",
+    "source_label_rank": 2,
+    "source_population": 95282
+  },
+  {
+    "title": "Perth",
+    "latitude": -31.953069,
+    "longitude": 115.838053,
+    "minimum_zoom": 2.45,
+    "source_timezone": "Australia/Perth",
+    "source_label_rank": 3,
+    "source_population": 1532000
+  },
+  {
+    "title": "Adelaide",
+    "latitude": -34.933042,
+    "longitude": 138.598059,
+    "minimum_zoom": 2.45,
+    "source_timezone": "Australia/Adelaide",
+    "source_label_rank": 3,
+    "source_population": 1145000
+  },
+  {
+    "title": "Darwin",
+    "latitude": -12.425354,
+    "longitude": 130.850039,
+    "minimum_zoom": 2.45,
+    "source_timezone": "Australia/Darwin",
+    "source_label_rank": 3,
+    "source_population": 93080
+  },
+  {
+    "title": "Baghdad",
+    "latitude": 33.340594,
+    "longitude": 44.391923,
+    "minimum_zoom": 2.45,
+    "source_timezone": "Asia/Baghdad",
+    "source_label_rank": 5,
+    "source_population": 5054000
+  },
+  {
+    "title": "Riyadh",
+    "latitude": 24.642779,
+    "longitude": 46.770796,
+    "minimum_zoom": 2.45,
+    "source_timezone": "Asia/Riyadh",
+    "source_label_rank": 5,
+    "source_population": 4465000
+  },
+  {
+    "title": "Kabul",
+    "latitude": 34.518636,
+    "longitude": 69.181314,
+    "minimum_zoom": 2.45,
+    "source_timezone": "Asia/Kabul",
+    "source_label_rank": 5,
+    "source_population": 3277000
+  },
+  {
+    "title": "Casablanca",
+    "latitude": 33.601922,
+    "longitude": -7.618313,
+    "minimum_zoom": 2.45,
+    "source_timezone": "Africa/Casablanca",
+    "source_label_rank": 5,
+    "source_population": 3181000
+  },
+  {
+    "title": "Kyiv",
+    "latitude": 50.435313,
+    "longitude": 30.514682,
+    "minimum_zoom": 2.45,
+    "source_timezone": "Europe/Kiev",
+    "source_label_rank": 5,
+    "source_population": 2709000
+  },
+  {
+    "title": "Mecca",
+    "latitude": 21.431967,
+    "longitude": 39.818094,
+    "minimum_zoom": 2.45,
+    "source_timezone": "Asia/Riyadh",
+    "source_label_rank": 5,
+    "source_population": 1385000
+  },
+  {
+    "title": "Athens",
+    "latitude": 37.985272,
+    "longitude": 23.731375,
+    "minimum_zoom": 2.45,
+    "source_timezone": "Europe/Athens",
+    "source_label_rank": 6,
+    "source_population": 3242000
+  },
+  {
+    "title": "Tashkent",
+    "latitude": 41.313648,
+    "longitude": 69.292987,
+    "minimum_zoom": 2.45,
+    "source_timezone": "Asia/Tashkent",
+    "source_label_rank": 6,
+    "source_population": 2184000
+  },
+  {
+    "title": "Vienna",
+    "latitude": 48.201961,
+    "longitude": 16.364693,
+    "minimum_zoom": 2.45,
+    "source_timezone": "Europe/Vienna",
+    "source_label_rank": 7,
+    "source_population": 2400000
+  },
+  {
+    "title": "Geneva",
+    "latitude": 46.210008,
+    "longitude": 6.140028,
+    "minimum_zoom": 2.45,
+    "source_timezone": "Europe/Zurich",
+    "source_label_rank": 7,
+    "source_population": 1240000
+  },
+  {
+    "title": "Tromsø",
+    "latitude": 69.635076,
+    "longitude": 18.992025,
+    "minimum_zoom": 2.45,
+    "source_timezone": "Europe/Oslo",
+    "source_label_rank": 7,
+    "source_population": 52436
+  },
+  {
+    "title": "Taipei",
+    "latitude": 25.035833,
+    "longitude": 121.568333,
+    "minimum_zoom": 2.45,
+    "source_timezone": "Asia/Taipei",
+    "source_label_rank": 8,
+    "source_population": 6900273
+  },
+  {
+    "title": "Dubai",
+    "latitude": 25.231942,
+    "longitude": 55.278029,
+    "minimum_zoom": 2.45,
+    "source_timezone": "Asia/Dubai",
+    "source_label_rank": 8,
+    "source_population": 1379000
+  },
+  {
+    "title": "Amsterdam",
+    "latitude": 52.351915,
+    "longitude": 4.914694,
+    "minimum_zoom": 2.45,
+    "source_timezone": "Europe/Amsterdam",
+    "source_label_rank": 8,
+    "source_population": 1031000
+  },
+  {
+    "title": "Reykjavík",
+    "latitude": 64.150024,
+    "longitude": -21.950015,
+    "minimum_zoom": 2.45,
+    "source_timezone": "Atlantic/Reykjavik",
+    "source_label_rank": 8,
+    "source_population": 166212
+  },
+  {
+    "title": "Jerusalem",
+    "latitude": 31.778408,
+    "longitude": 35.206626,
+    "minimum_zoom": 2.45,
+    "source_timezone": "Asia/Jerusalem",
+    "source_label_rank": 99,
+    "source_population": 1029300
+  },
+  {
+    "title": "Guangzhou",
+    "latitude": 23.146927,
+    "longitude": 113.323064,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Asia/Chongqing",
+    "source_label_rank": 1,
+    "source_population": 8829000
+  },
+  {
+    "title": "Wuhan",
+    "latitude": 30.581977,
+    "longitude": 114.268071,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Asia/Shanghai",
+    "source_label_rank": 1,
+    "source_population": 7243000
+  },
+  {
+    "title": "Tianjin",
+    "latitude": 39.131972,
+    "longitude": 117.198073,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Asia/Shanghai",
+    "source_label_rank": 1,
+    "source_population": 7180000
+  },
+  {
+    "title": "Chennai",
+    "latitude": 13.091934,
+    "longitude": 80.278053,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Asia/Kolkata",
+    "source_label_rank": 1,
+    "source_population": 7163000
+  },
+  {
+    "title": "Chongqing",
+    "latitude": 29.566923,
+    "longitude": 106.593036,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Asia/Chongqing",
+    "source_label_rank": 1,
+    "source_population": 6461000
+  },
+  {
+    "title": "Hyderabad",
+    "latitude": 17.401929,
+    "longitude": 78.478008,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Asia/Kolkata",
+    "source_label_rank": 1,
+    "source_population": 6376000
+  },
+  {
+    "title": "Dallas",
+    "latitude": 32.82197,
+    "longitude": -96.841963,
+    "minimum_zoom": 2.705,
+    "source_timezone": "America/Chicago",
+    "source_label_rank": 1,
+    "source_population": 4798000
+  },
+  {
+    "title": "Shenyang",
+    "latitude": 41.806925,
+    "longitude": 123.448028,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Asia/Harbin",
+    "source_label_rank": 1,
+    "source_population": 4787000
+  },
+  {
+    "title": "Pune",
+    "latitude": 18.531963,
+    "longitude": 73.848058,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Asia/Kolkata",
+    "source_label_rank": 1,
+    "source_population": 4672000
+  },
+  {
+    "title": "Boston",
+    "latitude": 42.331906,
+    "longitude": -71.07196,
+    "minimum_zoom": 2.705,
+    "source_timezone": "America/New_York",
+    "source_label_rank": 1,
+    "source_population": 4467000
+  },
+  {
+    "title": "Detroit",
+    "latitude": 42.331906,
+    "longitude": -83.082002,
+    "minimum_zoom": 2.705,
+    "source_timezone": "America/Detroit",
+    "source_label_rank": 1,
+    "source_population": 4101000
+  },
+  {
+    "title": "Porto Alegre",
+    "latitude": -30.048069,
+    "longitude": -51.201958,
+    "minimum_zoom": 2.705,
+    "source_timezone": "America/Sao_Paulo",
+    "source_label_rank": 1,
+    "source_population": 3917000
+  },
+  {
+    "title": "Surat",
+    "latitude": 21.20193,
+    "longitude": 72.838094,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Asia/Kolkata",
+    "source_label_rank": 1,
+    "source_population": 3842000
+  },
+  {
+    "title": "Nanjing",
+    "latitude": 32.051965,
+    "longitude": 118.778029,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Asia/Shanghai",
+    "source_label_rank": 1,
+    "source_population": 3679000
+  },
+  {
+    "title": "Fortaleza",
+    "latitude": -3.748072,
+    "longitude": -38.581927,
+    "minimum_zoom": 2.705,
+    "source_timezone": "America/Fortaleza",
+    "source_label_rank": 1,
+    "source_population": 3602319
+  },
+  {
+    "title": "Phoenix",
+    "latitude": 33.541926,
+    "longitude": -112.071938,
+    "minimum_zoom": 2.705,
+    "source_timezone": "America/Phoenix",
+    "source_label_rank": 1,
+    "source_population": 3551000
+  },
+  {
+    "title": "Changchun",
+    "latitude": 43.866954,
+    "longitude": 125.338042,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Asia/Harbin",
+    "source_label_rank": 1,
+    "source_population": 3183000
+  },
+  {
+    "title": "Kanpur",
+    "latitude": 26.461945,
+    "longitude": 80.31805,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Asia/Kolkata",
+    "source_label_rank": 1,
+    "source_population": 3162000
+  },
+  {
+    "title": "Curitiba",
+    "latitude": -25.418067,
+    "longitude": -49.321944,
+    "minimum_zoom": 2.705,
+    "source_timezone": "America/Sao_Paulo",
+    "source_label_rank": 1,
+    "source_population": 3084000
+  },
+  {
+    "title": "Seattle",
+    "latitude": 47.571948,
+    "longitude": -122.341931,
+    "minimum_zoom": 2.705,
+    "source_timezone": "America/Los_Angeles",
+    "source_label_rank": 1,
+    "source_population": 3074000
+  },
+  {
+    "title": "Hangzhou",
+    "latitude": 30.25192,
+    "longitude": 120.168073,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Asia/Shanghai",
+    "source_label_rank": 1,
+    "source_population": 3007000
+  },
+  {
+    "title": "Kunming",
+    "latitude": 25.071926,
+    "longitude": 102.678029,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Asia/Chongqing",
+    "source_label_rank": 1,
+    "source_population": 2931000
+  },
+  {
+    "title": "Jaipur",
+    "latitude": 26.923079,
+    "longitude": 75.808042,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Asia/Kolkata",
+    "source_label_rank": 1,
+    "source_population": 2917000
+  },
+  {
+    "title": "San Diego",
+    "latitude": 32.82197,
+    "longitude": -117.181936,
+    "minimum_zoom": 2.705,
+    "source_timezone": "America/Los_Angeles",
+    "source_label_rank": 1,
+    "source_population": 2916000
+  },
+  {
+    "title": "Taiyuan",
+    "latitude": 37.876958,
+    "longitude": 112.543112,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Asia/Chongqing",
+    "source_label_rank": 1,
+    "source_population": 2913000
+  },
+  {
+    "title": "Surabaya",
+    "latitude": -7.24729,
+    "longitude": 112.748887,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Asia/Jakarta",
+    "source_label_rank": 1,
+    "source_population": 2845000
+  },
+  {
+    "title": "Jinan",
+    "latitude": 36.676928,
+    "longitude": 116.993073,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Asia/Shanghai",
+    "source_label_rank": 1,
+    "source_population": 2798000
+  },
+  {
+    "title": "Zhengzhou",
+    "latitude": 34.756942,
+    "longitude": 113.663147,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Asia/Shanghai",
+    "source_label_rank": 1,
+    "source_population": 2636000
+  },
+  {
+    "title": "Minneapolis",
+    "latitude": 44.981925,
+    "longitude": -93.253732,
+    "minimum_zoom": 2.705,
+    "source_timezone": "America/Chicago",
+    "source_label_rank": 1,
+    "source_population": 2616000
+  },
+  {
+    "title": "Lanzhou",
+    "latitude": 36.057974,
+    "longitude": 103.790054,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Asia/Chongqing",
+    "source_label_rank": 1,
+    "source_population": 2561000
+  },
+  {
+    "title": "Nagpur",
+    "latitude": 21.171906,
+    "longitude": 79.088048,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Asia/Kolkata",
+    "source_label_rank": 1,
+    "source_population": 2454000
+  },
+  {
+    "title": "St. Louis",
+    "latitude": 38.636964,
+    "longitude": -90.241926,
+    "minimum_zoom": 2.705,
+    "source_timezone": "America/Chicago",
+    "source_label_rank": 1,
+    "source_population": 2199000
+  },
+  {
+    "title": "Belém",
+    "latitude": -1.448057,
+    "longitude": -48.481969,
+    "minimum_zoom": 2.705,
+    "source_timezone": "America/Belem",
+    "source_label_rank": 1,
+    "source_population": 2167000
+  },
+  {
+    "title": "Nanning",
+    "latitude": 22.821934,
+    "longitude": 108.318099,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Asia/Chongqing",
+    "source_label_rank": 1,
+    "source_population": 2167000
+  },
+  {
+    "title": "Medan",
+    "latitude": 3.58192,
+    "longitude": 98.648094,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Asia/Jakarta",
+    "source_label_rank": 1,
+    "source_population": 2115000
+  },
+  {
+    "title": "Baotou",
+    "latitude": 40.654153,
+    "longitude": 109.820074,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Asia/Chongqing",
+    "source_label_rank": 1,
+    "source_population": 2036000
+  },
+  {
+    "title": "Portland",
+    "latitude": 45.52197,
+    "longitude": -122.681936,
+    "minimum_zoom": 2.705,
+    "source_timezone": "America/Los_Angeles",
+    "source_label_rank": 1,
+    "source_population": 1875000
+  },
+  {
+    "title": "Manaus",
+    "latitude": -3.098086,
+    "longitude": -60.001963,
+    "minimum_zoom": 2.705,
+    "source_timezone": "America/Manaus",
+    "source_label_rank": 1,
+    "source_population": 1753000
+  },
+  {
+    "title": "Qiqihar",
+    "latitude": 47.346923,
+    "longitude": 123.988046,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Asia/Harbin",
+    "source_label_rank": 1,
+    "source_population": 1641000
+  },
+  {
+    "title": "Salt Lake City",
+    "latitude": 40.776962,
+    "longitude": -111.931998,
+    "minimum_zoom": 2.705,
+    "source_timezone": "America/Denver",
+    "source_label_rank": 1,
+    "source_population": 966000
+  },
+  {
+    "title": "Honolulu",
+    "latitude": 21.308822,
+    "longitude": -157.859944,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Pacific/Honolulu",
+    "source_label_rank": 1,
+    "source_population": 786000
+  },
+  {
+    "title": "New Orleans",
+    "latitude": 29.996948,
+    "longitude": -90.041913,
+    "minimum_zoom": 2.705,
+    "source_timezone": "America/Chicago",
+    "source_label_rank": 1,
+    "source_population": 785000
+  },
+  {
+    "title": "Hotan",
+    "latitude": 37.099711,
+    "longitude": 79.926945,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Asia/Kashgar",
+    "source_label_rank": 1,
+    "source_population": 408894
+  },
+  {
+    "title": "Lhasa",
+    "latitude": 29.645024,
+    "longitude": 91.10001,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Asia/Chongqing",
+    "source_label_rank": 1,
+    "source_population": 219599
+  },
+  {
+    "title": "Fairbanks",
+    "latitude": 64.836984,
+    "longitude": -147.710659,
+    "minimum_zoom": 2.705,
+    "source_timezone": "America/Juneau",
+    "source_label_rank": 1,
+    "source_population": 56993
+  },
+  {
+    "title": "Juneau",
+    "latitude": 58.314127,
+    "longitude": -134.419997,
+    "minimum_zoom": 2.705,
+    "source_timezone": "America/Juneau",
+    "source_label_rank": 1,
+    "source_population": 30711
+  },
+  {
+    "title": "Nome",
+    "latitude": 64.5061,
+    "longitude": -165.406374,
+    "minimum_zoom": 2.705,
+    "source_timezone": "America/Juneau",
+    "source_label_rank": 1,
+    "source_population": 3485
+  },
+  {
+    "title": "Dhaka",
+    "latitude": 23.725006,
+    "longitude": 90.406634,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Asia/Dhaka",
+    "source_label_rank": 2,
+    "source_population": 12797394
+  },
+  {
+    "title": "Karachi",
+    "latitude": 24.871938,
+    "longitude": 66.988063,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Asia/Karachi",
+    "source_label_rank": 2,
+    "source_population": 12130000
+  },
+  {
+    "title": "Lahore",
+    "latitude": 31.561917,
+    "longitude": 74.348079,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Asia/Karachi",
+    "source_label_rank": 2,
+    "source_population": 6577000
+  },
+  {
+    "title": "Chattogram",
+    "latitude": 22.331938,
+    "longitude": 91.798022,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Asia/Dhaka",
+    "source_label_rank": 2,
+    "source_population": 4529000
+  },
+  {
+    "title": "Guadalajara",
+    "latitude": 20.671962,
+    "longitude": -103.33198,
+    "minimum_zoom": 2.705,
+    "source_timezone": "America/Mexico_City",
+    "source_label_rank": 2,
+    "source_population": 4198000
+  },
+  {
+    "title": "Montreal",
+    "latitude": 45.501945,
+    "longitude": -73.585243,
+    "minimum_zoom": 2.705,
+    "source_timezone": "America/Montreal",
+    "source_label_rank": 2,
+    "source_population": 3678000
+  },
+  {
+    "title": "Sapporo",
+    "latitude": 43.076925,
+    "longitude": 141.338099,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Asia/Tokyo",
+    "source_label_rank": 2,
+    "source_population": 2544000
+  },
+  {
+    "title": "Puebla City",
+    "latitude": 19.051906,
+    "longitude": -98.201983,
+    "minimum_zoom": 2.705,
+    "source_timezone": "America/Mexico_City",
+    "source_label_rank": 2,
+    "source_population": 2195000
+  },
+  {
+    "title": "Hiroshima",
+    "latitude": 34.389781,
+    "longitude": 132.440967,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Asia/Tokyo",
+    "source_label_rank": 2,
+    "source_population": 2045000
+  },
+  {
+    "title": "Abuja",
+    "latitude": 9.085279,
+    "longitude": 7.531382,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Africa/Lagos",
+    "source_label_rank": 2,
+    "source_population": 1576000
+  },
+  {
+    "title": "Calgary",
+    "latitude": 51.084938,
+    "longitude": -114.081944,
+    "minimum_zoom": 2.705,
+    "source_timezone": "America/Edmonton",
+    "source_label_rank": 2,
+    "source_population": 1110000
+  },
+  {
+    "title": "Edmonton",
+    "latitude": 53.551971,
+    "longitude": -113.501928,
+    "minimum_zoom": 2.705,
+    "source_timezone": "America/Edmonton",
+    "source_label_rank": 2,
+    "source_population": 1058000
+  },
+  {
+    "title": "Perm",
+    "latitude": 58.001906,
+    "longitude": 56.248047,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Asia/Yekaterinburg",
+    "source_label_rank": 2,
+    "source_population": 997000
+  },
+  {
+    "title": "Volgograd",
+    "latitude": 48.711956,
+    "longitude": 44.498015,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Europe/Volgograd",
+    "source_label_rank": 2,
+    "source_population": 984000
+  },
+  {
+    "title": "Chihuahua City",
+    "latitude": 28.646927,
+    "longitude": -106.086928,
+    "minimum_zoom": 2.705,
+    "source_timezone": "America/Chihuahua",
+    "source_label_rank": 2,
+    "source_population": 793000
+  },
+  {
+    "title": "Winnipeg",
+    "latitude": 49.882988,
+    "longitude": -97.165992,
+    "minimum_zoom": 2.705,
+    "source_timezone": "America/Winnipeg",
+    "source_label_rank": 2,
+    "source_population": 632063
+  },
+  {
+    "title": "Quebec City",
+    "latitude": 46.839969,
+    "longitude": -71.24561,
+    "minimum_zoom": 2.705,
+    "source_timezone": "America/Montreal",
+    "source_label_rank": 2,
+    "source_population": 624177
+  },
+  {
+    "title": "Cancun",
+    "latitude": 21.16996,
+    "longitude": -86.830008,
+    "minimum_zoom": 2.705,
+    "source_timezone": "America/Cancun",
+    "source_label_rank": 2,
+    "source_population": 542043
+  },
+  {
+    "title": "Tomsk",
+    "latitude": 56.494987,
+    "longitude": 84.975009,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Asia/Krasnoyarsk",
+    "source_label_rank": 2,
+    "source_population": 535479
+  },
+  {
+    "title": "Surgut",
+    "latitude": 61.259942,
+    "longitude": 73.425017,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Asia/Yekaterinburg",
+    "source_label_rank": 2,
+    "source_population": 400000
+  },
+  {
+    "title": "Halifax",
+    "latitude": 44.650025,
+    "longitude": -63.600005,
+    "minimum_zoom": 2.705,
+    "source_timezone": "America/Halifax",
+    "source_label_rank": 2,
+    "source_population": 359111
+  },
+  {
+    "title": "Arkhangelsk",
+    "latitude": 64.574959,
+    "longitude": 40.545008,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Europe/Moscow",
+    "source_label_rank": 2,
+    "source_population": 356051
+  },
+  {
+    "title": "Yakutsk",
+    "latitude": 62.034959,
+    "longitude": 129.735016,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Asia/Yakutsk",
+    "source_label_rank": 2,
+    "source_population": 235600
+  },
+  {
+    "title": "St. John's",
+    "latitude": 47.584988,
+    "longitude": -52.681007,
+    "minimum_zoom": 2.705,
+    "source_timezone": "America/St_Johns",
+    "source_label_rank": 2,
+    "source_population": 131469
+  },
+  {
+    "title": "Whitehorse",
+    "latitude": 60.716719,
+    "longitude": -135.049984,
+    "minimum_zoom": 2.705,
+    "source_timezone": "America/Whitehorse",
+    "source_label_rank": 2,
+    "source_population": 23276
+  },
+  {
+    "title": "Yellowknife",
+    "latitude": 62.442014,
+    "longitude": -114.396981,
+    "minimum_zoom": 2.705,
+    "source_timezone": "America/Yellowknife",
+    "source_label_rank": 2,
+    "source_population": 19234
+  },
+  {
+    "title": "Prince Rupert",
+    "latitude": 54.31667,
+    "longitude": -130.329988,
+    "minimum_zoom": 2.705,
+    "source_timezone": "America/Vancouver",
+    "source_label_rank": 2,
+    "source_population": 14708
+  },
+  {
+    "title": "Tiksi",
+    "latitude": 71.626886,
+    "longitude": 128.834967,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Asia/Yakutsk",
+    "source_label_rank": 2,
+    "source_population": 5700
+  },
+  {
+    "title": "Churchill",
+    "latitude": 58.765985,
+    "longitude": -94.165994,
+    "minimum_zoom": 2.705,
+    "source_timezone": null,
+    "source_label_rank": 2,
+    "source_population": 1000
+  },
+  {
+    "title": "Naujaat",
+    "latitude": 66.529467,
+    "longitude": -86.282935,
+    "minimum_zoom": 2.705,
+    "source_timezone": null,
+    "source_label_rank": 2,
+    "source_population": 1000
+  },
+  {
+    "title": "Barcelona",
+    "latitude": 41.385245,
+    "longitude": 2.181425,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Europe/Madrid",
+    "source_label_rank": 3,
+    "source_population": 4920000
+  },
+  {
+    "title": "Alexandria",
+    "latitude": 31.201965,
+    "longitude": 29.94805,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Africa/Cairo",
+    "source_label_rank": 3,
+    "source_population": 4165000
+  },
+  {
+    "title": "Frankfurt",
+    "latitude": 50.099977,
+    "longitude": 8.675015,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Europe/Berlin",
+    "source_label_rank": 3,
+    "source_population": 2895000
+  },
+  {
+    "title": "Durban",
+    "latitude": -29.863067,
+    "longitude": 30.978065,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Africa/Johannesburg",
+    "source_label_rank": 3,
+    "source_population": 2729000
+  },
+  {
+    "title": "Brisbane",
+    "latitude": -27.453085,
+    "longitude": 153.033147,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Australia/Brisbane",
+    "source_label_rank": 3,
+    "source_population": 1860000
+  },
+  {
+    "title": "Córdoba",
+    "latitude": -31.398012,
+    "longitude": -64.18424,
+    "minimum_zoom": 2.705,
+    "source_timezone": "America/Argentina/Cordoba",
+    "source_label_rank": 3,
+    "source_population": 1452000
+  },
+  {
+    "title": "Canberra",
+    "latitude": -35.283029,
+    "longitude": 149.129026,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Australia/Sydney",
+    "source_label_rank": 3,
+    "source_population": 327700
+  },
+  {
+    "title": "Antofagasta",
+    "latitude": -23.649992,
+    "longitude": -70.400003,
+    "minimum_zoom": 2.705,
+    "source_timezone": "America/Santiago",
+    "source_label_rank": 3,
+    "source_population": 309832
+  },
+  {
+    "title": "Valdivia",
+    "latitude": -39.795001,
+    "longitude": -73.245023,
+    "minimum_zoom": 2.705,
+    "source_timezone": "America/Santiago",
+    "source_label_rank": 3,
+    "source_population": 159599
+  },
+  {
+    "title": "Ho Chi Minh City",
+    "latitude": 10.781971,
+    "longitude": 106.693081,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Asia/Ho_Chi_Minh",
+    "source_label_rank": 5,
+    "source_population": 5314000
+  },
+  {
+    "title": "Khartoum",
+    "latitude": 15.590024,
+    "longitude": 32.532233,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Africa/Khartoum",
+    "source_label_rank": 5,
+    "source_population": 4754000
+  },
+  {
+    "title": "Hanoi",
+    "latitude": 21.035273,
+    "longitude": 105.848068,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Asia/Ho_Chi_Minh",
+    "source_label_rank": 5,
+    "source_population": 4378000
+  },
+  {
+    "title": "Yangon",
+    "latitude": 16.7853,
+    "longitude": 96.164732,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Asia/Rangoon",
+    "source_label_rank": 5,
+    "source_population": 4088000
+  },
+  {
+    "title": "Ankara",
+    "latitude": 39.929184,
+    "longitude": 32.862446,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Europe/Istanbul",
+    "source_label_rank": 5,
+    "source_population": 3716000
+  },
+  {
+    "title": "Algiers",
+    "latitude": 36.765011,
+    "longitude": 3.048607,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Africa/Algiers",
+    "source_label_rank": 5,
+    "source_population": 3354000
+  },
+  {
+    "title": "Medellin",
+    "latitude": 6.276949,
+    "longitude": -75.576956,
+    "minimum_zoom": 2.705,
+    "source_timezone": "America/Bogota",
+    "source_label_rank": 5,
+    "source_population": 3297000
+  },
+  {
+    "title": "Jeddah",
+    "latitude": 21.518835,
+    "longitude": 39.217252,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Asia/Riyadh",
+    "source_label_rank": 5,
+    "source_population": 3012000
+  },
+  {
+    "title": "Dar es Salaam",
+    "latitude": -6.798067,
+    "longitude": 39.266396,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Africa/Dar_es_Salaam",
+    "source_label_rank": 5,
+    "source_population": 2930000
+  },
+  {
+    "title": "Mashhad",
+    "latitude": 36.271966,
+    "longitude": 59.568051,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Asia/Tehran",
+    "source_label_rank": 5,
+    "source_population": 2469000
+  },
+  {
+    "title": "Cali",
+    "latitude": 3.401905,
+    "longitude": -76.501912,
+    "minimum_zoom": 2.705,
+    "source_timezone": "America/Bogota",
+    "source_label_rank": 5,
+    "source_population": 2254000
+  },
+  {
+    "title": "Warsaw",
+    "latitude": 52.251947,
+    "longitude": 20.998054,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Europe/Warsaw",
+    "source_label_rank": 5,
+    "source_population": 1707000
+  },
+  {
+    "title": "Glasgow",
+    "latitude": 55.876351,
+    "longitude": -4.252653,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Europe/London",
+    "source_label_rank": 5,
+    "source_population": 1160000
+  },
+  {
+    "title": "Cebu City",
+    "latitude": 10.321922,
+    "longitude": 123.898129,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Asia/Manila",
+    "source_label_rank": 5,
+    "source_population": 815000
+  },
+  {
+    "title": "Trujillo",
+    "latitude": -8.120035,
+    "longitude": -79.019968,
+    "minimum_zoom": 2.705,
+    "source_timezone": "America/Lima",
+    "source_label_rank": 5,
+    "source_population": 765171
+  },
+  {
+    "title": "Sevastopol",
+    "latitude": 44.599977,
+    "longitude": 33.464975,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Europe/Simferopol",
+    "source_label_rank": 5,
+    "source_population": 379200
+  },
+  {
+    "title": "Cuzco",
+    "latitude": -13.525029,
+    "longitude": -71.972155,
+    "minimum_zoom": 2.705,
+    "source_timezone": "America/Lima",
+    "source_label_rank": 5,
+    "source_population": 361182
+  },
+  {
+    "title": "Luanda",
+    "latitude": -8.83634,
+    "longitude": 13.232481,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Africa/Luanda",
+    "source_label_rank": 6,
+    "source_population": 5172900
+  },
+  {
+    "title": "Lisbon",
+    "latitude": 38.724669,
+    "longitude": -9.146812,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Europe/Lisbon",
+    "source_label_rank": 6,
+    "source_population": 2812000
+  },
+  {
+    "title": "Havana",
+    "latitude": 23.133905,
+    "longitude": -82.366128,
+    "minimum_zoom": 2.705,
+    "source_timezone": "America/Havana",
+    "source_label_rank": 6,
+    "source_population": 2174000
+  },
+  {
+    "title": "Accra",
+    "latitude": 5.551981,
+    "longitude": -0.218662,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Africa/Accra",
+    "source_label_rank": 6,
+    "source_population": 2121000
+  },
+  {
+    "title": "Maracaibo",
+    "latitude": 10.731923,
+    "longitude": -71.661924,
+    "minimum_zoom": 2.705,
+    "source_timezone": "America/Caracas",
+    "source_label_rank": 6,
+    "source_population": 2072000
+  },
+  {
+    "title": "Sanaa",
+    "latitude": 15.356679,
+    "longitude": 44.204648,
+    "minimum_zoom": 2.705,
+    "source_timezone": null,
+    "source_label_rank": 6,
+    "source_population": 2008000
+  },
+  {
+    "title": "Bucharest",
+    "latitude": 44.435318,
+    "longitude": 26.098001,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Europe/Bucharest",
+    "source_label_rank": 6,
+    "source_population": 1942000
+  },
+  {
+    "title": "La Paz",
+    "latitude": -16.496028,
+    "longitude": -68.151931,
+    "minimum_zoom": 2.705,
+    "source_timezone": "America/La_Paz",
+    "source_label_rank": 6,
+    "source_population": 1590000
+  },
+  {
+    "title": "Harare",
+    "latitude": -17.815844,
+    "longitude": 31.042764,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Africa/Harare",
+    "source_label_rank": 6,
+    "source_population": 1572000
+  },
+  {
+    "title": "Bamako",
+    "latitude": 12.651961,
+    "longitude": -8.001985,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Africa/Bamako",
+    "source_label_rank": 6,
+    "source_population": 1494000
+  },
+  {
+    "title": "Kuala Lumpur",
+    "latitude": 3.168612,
+    "longitude": 101.698037,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Asia/Kuala_Lumpur",
+    "source_label_rank": 6,
+    "source_population": 1448000
+  },
+  {
+    "title": "Lusaka",
+    "latitude": -15.414698,
+    "longitude": 28.281382,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Africa/Lusaka",
+    "source_label_rank": 6,
+    "source_population": 1328000
+  },
+  {
+    "title": "Nur-Sultan",
+    "latitude": 51.181125,
+    "longitude": 71.427774,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Asia/Qyzylorda",
+    "source_label_rank": 6,
+    "source_population": 345604
+  },
+  {
+    "title": "Tripoli",
+    "latitude": 32.8925,
+    "longitude": 13.180012,
+    "minimum_zoom": 2.705,
+    "source_timezone": null,
+    "source_label_rank": 7,
+    "source_population": 2189000
+  },
+  {
+    "title": "Asunción",
+    "latitude": -25.294457,
+    "longitude": -57.643451,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Asia/Manila",
+    "source_label_rank": 7,
+    "source_population": 1870000
+  },
+  {
+    "title": "Quito",
+    "latitude": -0.213042,
+    "longitude": -78.501997,
+    "minimum_zoom": 2.705,
+    "source_timezone": "America/Guayaquil",
+    "source_label_rank": 7,
+    "source_population": 1701000
+  },
+  {
+    "title": "Helsinki",
+    "latitude": 60.177509,
+    "longitude": 24.932181,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Europe/Helsinki",
+    "source_label_rank": 7,
+    "source_population": 1115000
+  },
+  {
+    "title": "Ulaanbaatar",
+    "latitude": 47.918619,
+    "longitude": 106.91467,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Asia/Ulaanbaatar",
+    "source_label_rank": 7,
+    "source_population": 885000
+  },
+  {
+    "title": "Oslo",
+    "latitude": 59.918636,
+    "longitude": 10.748033,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Europe/Oslo",
+    "source_label_rank": 7,
+    "source_population": 835000
+  },
+  {
+    "title": "Trondheim",
+    "latitude": 63.416658,
+    "longitude": 10.416666,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Europe/Oslo",
+    "source_label_rank": 7,
+    "source_population": 147139
+  },
+  {
+    "title": "Abidjan",
+    "latitude": 5.321943,
+    "longitude": -4.041994,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Africa/Abidjan",
+    "source_label_rank": 8,
+    "source_population": 3802000
+  },
+  {
+    "title": "Tel Aviv",
+    "latitude": 32.081937,
+    "longitude": 34.768066,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Asia/Jerusalem",
+    "source_label_rank": 8,
+    "source_population": 3112000
+  },
+  {
+    "title": "Santo Domingo",
+    "latitude": 18.472019,
+    "longitude": -69.902031,
+    "minimum_zoom": 2.705,
+    "source_timezone": "America/Bogota",
+    "source_label_rank": 8,
+    "source_population": 2154000
+  },
+  {
+    "title": "Kuwait City",
+    "latitude": 29.371664,
+    "longitude": 47.976355,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Asia/Kuwait",
+    "source_label_rank": 8,
+    "source_population": 2063000
+  },
+  {
+    "title": "Montevideo",
+    "latitude": -34.856096,
+    "longitude": -56.172998,
+    "minimum_zoom": 2.705,
+    "source_timezone": "America/Chicago",
+    "source_label_rank": 8,
+    "source_population": 1513000
+  },
+  {
+    "title": "Mogadishu",
+    "latitude": 2.068627,
+    "longitude": 45.364732,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Africa/Mogadishu",
+    "source_label_rank": 8,
+    "source_population": 1100000
+  },
+  {
+    "title": "Copenhagen",
+    "latitude": 55.68051,
+    "longitude": 12.56154,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Europe/Copenhagen",
+    "source_label_rank": 8,
+    "source_population": 1085000
+  },
+  {
+    "title": "Dublin",
+    "latitude": 53.335007,
+    "longitude": -6.250852,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Europe/Dublin",
+    "source_label_rank": 8,
+    "source_population": 1059000
+  },
+  {
+    "title": "Monrovia",
+    "latitude": 6.314582,
+    "longitude": -10.79966,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Africa/Monrovia",
+    "source_label_rank": 8,
+    "source_population": 1041000
+  },
+  {
+    "title": "Riga",
+    "latitude": 56.950024,
+    "longitude": 24.099965,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Europe/Riga",
+    "source_label_rank": 8,
+    "source_population": 742572
+  },
+  {
+    "title": "Wellington",
+    "latitude": -41.299988,
+    "longitude": 174.783266,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Pacific/Auckland",
+    "source_label_rank": 8,
+    "source_population": 393400
+  },
+  {
+    "title": "Christchurch",
+    "latitude": -43.535022,
+    "longitude": 172.630023,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Pacific/Auckland",
+    "source_label_rank": 8,
+    "source_population": 363200
+  },
+  {
+    "title": "Port Moresby",
+    "latitude": -9.464708,
+    "longitude": 147.192504,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Pacific/Port_Moresby",
+    "source_label_rank": 8,
+    "source_population": 283733
+  },
+  {
+    "title": "Georgetown",
+    "latitude": 6.801974,
+    "longitude": -58.167029,
+    "minimum_zoom": 2.705,
+    "source_timezone": "America/Guyana",
+    "source_label_rank": 8,
+    "source_population": 264350
+  },
+  {
+    "title": "Cayenne",
+    "latitude": 4.932992,
+    "longitude": -52.330021,
+    "minimum_zoom": 2.705,
+    "source_timezone": "America/Cayenne",
+    "source_label_rank": 8,
+    "source_population": 61550
+  },
+  {
+    "title": "Port Vila",
+    "latitude": -17.73335,
+    "longitude": 168.316641,
+    "minimum_zoom": 2.705,
+    "source_timezone": "Pacific/Efate",
+    "source_label_rank": 8,
+    "source_population": 44040
+  },
+  {
+    "title": "Nuuk",
+    "latitude": 64.198282,
+    "longitude": -51.732659,
+    "minimum_zoom": 2.705,
+    "source_timezone": "America/Godthab",
+    "source_label_rank": 8,
+    "source_population": 14798
+  },
+  {
+    "title": "Rothera Research Station",
+    "latitude": -67.564776,
+    "longitude": -68.123541,
+    "minimum_zoom": 2.705,
+    "source_timezone": null,
+    "source_label_rank": 99,
+    "source_population": 130
+  },
+  {
+    "title": "Dumont d'Urville Station",
+    "latitude": -66.775051,
+    "longitude": 139.963684,
+    "minimum_zoom": 2.705,
+    "source_timezone": null,
+    "source_label_rank": 99,
+    "source_population": 120
+  },
+  {
+    "title": "Palmer Station",
+    "latitude": -64.762413,
+    "longitude": -64.046876,
+    "minimum_zoom": 2.705,
+    "source_timezone": null,
+    "source_label_rank": 99,
+    "source_population": 46
+  },
+  {
+    "title": "Milan",
+    "latitude": 45.471921,
+    "longitude": 9.203063,
+    "minimum_zoom": 3.3,
+    "source_timezone": "Europe/Rome",
+    "source_label_rank": 3,
+    "source_population": 2945000
+  },
+  {
+    "title": "Munich",
+    "latitude": 48.131888,
+    "longitude": 11.573048,
+    "minimum_zoom": 3.3,
+    "source_timezone": "Europe/Berlin",
+    "source_label_rank": 3,
+    "source_population": 1275000
+  },
+  {
+    "title": "Pyongyang",
+    "latitude": 39.021385,
+    "longitude": 125.752745,
+    "minimum_zoom": 3.3,
+    "source_timezone": "Asia/Pyongyang",
+    "source_label_rank": 6,
+    "source_population": 3300000
+  },
+  {
+    "title": "Damascus",
+    "latitude": 33.50198,
+    "longitude": 36.29805,
+    "minimum_zoom": 3.3,
+    "source_timezone": null,
+    "source_label_rank": 6,
+    "source_population": 2466000
+  },
+  {
+    "title": "Budapest",
+    "latitude": 47.501952,
+    "longitude": 19.081375,
+    "minimum_zoom": 3.3,
+    "source_timezone": "Europe/Budapest",
+    "source_label_rank": 6,
+    "source_population": 1679000
+  },
+  {
+    "title": "Sucre",
+    "latitude": -19.040971,
+    "longitude": -65.259516,
+    "minimum_zoom": 3.3,
+    "source_timezone": "America/La_Paz",
+    "source_label_rank": 6,
+    "source_population": 224838
+  },
+  {
+    "title": "Prague",
+    "latitude": 50.085283,
+    "longitude": 14.464034,
+    "minimum_zoom": 3.3,
+    "source_timezone": "America/Chicago",
+    "source_label_rank": 7,
+    "source_population": 1162000
+  },
+  {
+    "title": "Zürich",
+    "latitude": 47.381934,
+    "longitude": 8.548064,
+    "minimum_zoom": 3.3,
+    "source_timezone": "Europe/Zurich",
+    "source_label_rank": 7,
+    "source_population": 1108000
+  },
+  {
+    "title": "Brussels",
+    "latitude": 50.835263,
+    "longitude": 4.331371,
+    "minimum_zoom": 3.3,
+    "source_timezone": "Europe/Brussels",
+    "source_label_rank": 8,
+    "source_population": 1743000
+  },
+  {
+    "title": "Islamabad",
+    "latitude": 33.701942,
+    "longitude": 73.164689,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Asia/Karachi",
+    "source_label_rank": 2,
+    "source_population": 780000
+  },
+  {
+    "title": "Hamburg",
+    "latitude": 53.551971,
+    "longitude": 9.998053,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Europe/Berlin",
+    "source_label_rank": 3,
+    "source_population": 1757000
+  },
+  {
+    "title": "Pretoria",
+    "latitude": -25.704975,
+    "longitude": 28.227483,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Africa/Johannesburg",
+    "source_label_rank": 3,
+    "source_population": 1338000
+  },
+  {
+    "title": "Bloemfontein",
+    "latitude": -29.119994,
+    "longitude": 26.229913,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Africa/Johannesburg",
+    "source_label_rank": 3,
+    "source_population": 463064
+  },
+  {
+    "title": "Rabat",
+    "latitude": 34.025307,
+    "longitude": -6.836408,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Africa/Casablanca",
+    "source_label_rank": 5,
+    "source_population": 1705000
+  },
+  {
+    "title": "Kampala",
+    "latitude": 0.318605,
+    "longitude": 32.581378,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Africa/Kampala",
+    "source_label_rank": 5,
+    "source_population": 1420000
+  },
+  {
+    "title": "Naypyidaw",
+    "latitude": 19.768503,
+    "longitude": 96.116673,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Asia/Rangoon",
+    "source_label_rank": 5,
+    "source_population": 930000
+  },
+  {
+    "title": "Minsk",
+    "latitude": 53.901923,
+    "longitude": 27.564681,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Europe/Minsk",
+    "source_label_rank": 6,
+    "source_population": 1805000
+  },
+  {
+    "title": "Antananarivo",
+    "latitude": -18.914692,
+    "longitude": 47.514678,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Indian/Antananarivo",
+    "source_label_rank": 6,
+    "source_population": 1697000
+  },
+  {
+    "title": "Yaoundé",
+    "latitude": 3.868647,
+    "longitude": 11.514705,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Africa/Douala",
+    "source_label_rank": 6,
+    "source_population": 1611000
+  },
+  {
+    "title": "Maputo",
+    "latitude": -25.953332,
+    "longitude": 32.587217,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Africa/Maputo",
+    "source_label_rank": 6,
+    "source_population": 1446000
+  },
+  {
+    "title": "Niamey",
+    "latitude": 13.518652,
+    "longitude": 2.11471,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Africa/Niamey",
+    "source_label_rank": 6,
+    "source_population": 915000
+  },
+  {
+    "title": "Kathmandu",
+    "latitude": 27.718638,
+    "longitude": 85.314696,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Asia/Kathmandu",
+    "source_label_rank": 6,
+    "source_population": 895000
+  },
+  {
+    "title": "Windhoek",
+    "latitude": -22.570006,
+    "longitude": 17.083546,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Africa/Windhoek",
+    "source_label_rank": 6,
+    "source_population": 268132
+  },
+  {
+    "title": "Colombo",
+    "latitude": 6.931966,
+    "longitude": 79.857751,
+    "minimum_zoom": 3.555,
+    "source_timezone": "America/Sao_Paulo",
+    "source_label_rank": 6,
+    "source_population": 217000
+  },
+  {
+    "title": "Tunis",
+    "latitude": 36.802778,
+    "longitude": 10.179678,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Africa/Tunis",
+    "source_label_rank": 7,
+    "source_population": 2412500
+  },
+  {
+    "title": "Brazzaville",
+    "latitude": -4.25724,
+    "longitude": 15.282744,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Africa/Brazzaville",
+    "source_label_rank": 7,
+    "source_population": 1355000
+  },
+  {
+    "title": "Sofia",
+    "latitude": 42.685295,
+    "longitude": 23.314708,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Europe/Sofia",
+    "source_label_rank": 7,
+    "source_population": 1185000
+  },
+  {
+    "title": "N'Djamena",
+    "latitude": 12.115042,
+    "longitude": 15.047203,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Africa/Ndjamena",
+    "source_label_rank": 7,
+    "source_population": 989000
+  },
+  {
+    "title": "Bangui",
+    "latitude": 4.366644,
+    "longitude": 18.558288,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Africa/Bangui",
+    "source_label_rank": 7,
+    "source_population": 831925
+  },
+  {
+    "title": "Nouakchott",
+    "latitude": 18.086427,
+    "longitude": -15.97534,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Africa/Nouakchott",
+    "source_label_rank": 7,
+    "source_population": 742144
+  },
+  {
+    "title": "Libreville",
+    "latitude": 0.385389,
+    "longitude": 9.457965,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Africa/Libreville",
+    "source_label_rank": 7,
+    "source_population": 578156
+  },
+  {
+    "title": "Gaborone",
+    "latitude": -24.646314,
+    "longitude": 25.911948,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Africa/Gaborone",
+    "source_label_rank": 7,
+    "source_population": 208411
+  },
+  {
+    "title": "Baku",
+    "latitude": 40.397218,
+    "longitude": 49.860271,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Asia/Baku",
+    "source_label_rank": 8,
+    "source_population": 2122300
+  },
+  {
+    "title": "Port-au-Prince",
+    "latitude": 18.542971,
+    "longitude": -72.33798,
+    "minimum_zoom": 3.555,
+    "source_timezone": "America/Port-au-Prince",
+    "source_label_rank": 8,
+    "source_population": 1998000
+  },
+  {
+    "title": "Beirut",
+    "latitude": 33.873921,
+    "longitude": 35.507762,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Asia/Beirut",
+    "source_label_rank": 8,
+    "source_population": 1846000
+  },
+  {
+    "title": "Conakry",
+    "latitude": 9.533469,
+    "longitude": -13.682181,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Africa/Conakry",
+    "source_label_rank": 8,
+    "source_population": 1494000
+  },
+  {
+    "title": "Phnom Penh",
+    "latitude": 11.551976,
+    "longitude": 104.914689,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Asia/Phnom_Penh",
+    "source_label_rank": 8,
+    "source_population": 1466000
+  },
+  {
+    "title": "Lomé",
+    "latitude": 6.133883,
+    "longitude": 1.220811,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Africa/Lome",
+    "source_label_rank": 8,
+    "source_population": 1452000
+  },
+  {
+    "title": "San Salvador",
+    "latitude": 13.711948,
+    "longitude": -89.204987,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Asia/Manila",
+    "source_label_rank": 8,
+    "source_population": 1433000
+  },
+  {
+    "title": "San José",
+    "latitude": 9.936958,
+    "longitude": -84.085997,
+    "minimum_zoom": 3.555,
+    "source_timezone": "America/Bogota",
+    "source_label_rank": 8,
+    "source_population": 1284000
+  },
+  {
+    "title": "Panama City",
+    "latitude": 8.969963,
+    "longitude": -79.534983,
+    "minimum_zoom": 3.555,
+    "source_timezone": "America/Panama",
+    "source_label_rank": 8,
+    "source_population": 1281000
+  },
+  {
+    "title": "Ouagadougou",
+    "latitude": 12.372262,
+    "longitude": -1.52667,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Africa/Ouagadougou",
+    "source_label_rank": 8,
+    "source_population": 1149000
+  },
+  {
+    "title": "Yerevan",
+    "latitude": 40.183097,
+    "longitude": 44.511606,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Asia/Yerevan",
+    "source_label_rank": 8,
+    "source_population": 1102000
+  },
+  {
+    "title": "Tbilisi",
+    "latitude": 41.726956,
+    "longitude": 44.78885,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Asia/Tbilisi",
+    "source_label_rank": 8,
+    "source_population": 1100000
+  },
+  {
+    "title": "Belgrade",
+    "latitude": 44.820591,
+    "longitude": 20.466045,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Europe/Belgrade",
+    "source_label_rank": 8,
+    "source_population": 1099000
+  },
+  {
+    "title": "Dushanbe",
+    "latitude": 38.560035,
+    "longitude": 68.773879,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Asia/Dushanbe",
+    "source_label_rank": 8,
+    "source_population": 1086244
+  },
+  {
+    "title": "Amman",
+    "latitude": 31.951971,
+    "longitude": 35.931354,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Asia/Amman",
+    "source_label_rank": 8,
+    "source_population": 1060000
+  },
+  {
+    "title": "Guatemala City",
+    "latitude": 14.623081,
+    "longitude": -90.528911,
+    "minimum_zoom": 3.555,
+    "source_timezone": "America/Guatemala",
+    "source_label_rank": 8,
+    "source_population": 1024000
+  },
+  {
+    "title": "Tegucigalpa",
+    "latitude": 14.103991,
+    "longitude": -87.219475,
+    "minimum_zoom": 3.555,
+    "source_timezone": "America/Tegucigalpa",
+    "source_label_rank": 8,
+    "source_population": 946000
+  },
+  {
+    "title": "Kingston",
+    "latitude": 17.977077,
+    "longitude": -76.767434,
+    "minimum_zoom": 3.555,
+    "source_timezone": "America/Jamaica",
+    "source_label_rank": 8,
+    "source_population": 937700
+  },
+  {
+    "title": "Managua",
+    "latitude": 12.154962,
+    "longitude": -86.270438,
+    "minimum_zoom": 3.555,
+    "source_timezone": "America/Managua",
+    "source_label_rank": 8,
+    "source_population": 920000
+  },
+  {
+    "title": "Tirana",
+    "latitude": 41.327541,
+    "longitude": 19.818883,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Europe/Tirane",
+    "source_label_rank": 8,
+    "source_population": 895350
+  },
+  {
+    "title": "Bishkek",
+    "latitude": 42.875025,
+    "longitude": 74.583258,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Asia/Bishkek",
+    "source_label_rank": 8,
+    "source_population": 837000
+  },
+  {
+    "title": "Freetown",
+    "latitude": 8.471957,
+    "longitude": -13.236162,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Africa/Freetown",
+    "source_label_rank": 8,
+    "source_population": 827000
+  },
+  {
+    "title": "Cotonou",
+    "latitude": 6.401954,
+    "longitude": 2.518045,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Africa/Porto-Novo",
+    "source_label_rank": 8,
+    "source_population": 762000
+  },
+  {
+    "title": "Vientiane",
+    "latitude": 17.966693,
+    "longitude": 102.59998,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Asia/Vientiane",
+    "source_label_rank": 8,
+    "source_population": 754000
+  },
+  {
+    "title": "Muscat",
+    "latitude": 23.613325,
+    "longitude": 58.593312,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Asia/Muscat",
+    "source_label_rank": 8,
+    "source_population": 734697
+  },
+  {
+    "title": "Ashgabat",
+    "latitude": 37.949995,
+    "longitude": 58.383299,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Asia/Ashgabat",
+    "source_label_rank": 8,
+    "source_population": 727700
+  },
+  {
+    "title": "Zagreb",
+    "latitude": 45.800007,
+    "longitude": 15.999995,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Europe/Zagreb",
+    "source_label_rank": 8,
+    "source_population": 722526
+  },
+  {
+    "title": "Sarajevo",
+    "latitude": 43.850022,
+    "longitude": 18.383002,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Europe/Sarajevo",
+    "source_label_rank": 8,
+    "source_population": 696731
+  },
+  {
+    "title": "Chișinău",
+    "latitude": 47.005024,
+    "longitude": 28.857711,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Europe/Chisinau",
+    "source_label_rank": 8,
+    "source_population": 688134
+  },
+  {
+    "title": "Lilongwe",
+    "latitude": -13.983295,
+    "longitude": 33.783302,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Africa/Blantyre",
+    "source_label_rank": 8,
+    "source_population": 646750
+  },
+  {
+    "title": "Asmara",
+    "latitude": 15.333339,
+    "longitude": 38.933324,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Africa/Asmara",
+    "source_label_rank": 8,
+    "source_population": 620802
+  },
+  {
+    "title": "Abu Dhabi",
+    "latitude": 24.466684,
+    "longitude": 54.366593,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Asia/Dubai",
+    "source_label_rank": 8,
+    "source_population": 603492
+  },
+  {
+    "title": "Vilnius",
+    "latitude": 54.683366,
+    "longitude": 25.316635,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Europe/Vilnius",
+    "source_label_rank": 8,
+    "source_population": 542366
+  },
+  {
+    "title": "Bissau",
+    "latitude": 11.865024,
+    "longitude": -15.598361,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Africa/Bissau",
+    "source_label_rank": 8,
+    "source_population": 403339
+  },
+  {
+    "title": "Tallinn",
+    "latitude": 59.433877,
+    "longitude": 24.728041,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Europe/Tallinn",
+    "source_label_rank": 8,
+    "source_population": 394024
+  },
+  {
+    "title": "Maseru",
+    "latitude": -29.316674,
+    "longitude": 27.483273,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Africa/Maseru",
+    "source_label_rank": 8,
+    "source_population": 361324
+  },
+  {
+    "title": "Bandar Seri Begawan",
+    "latitude": 4.883331,
+    "longitude": 114.933284,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Asia/Brunei",
+    "source_label_rank": 8,
+    "source_population": 296500
+  },
+  {
+    "title": "Paramaribo",
+    "latitude": 5.83503,
+    "longitude": -55.167031,
+    "minimum_zoom": 3.555,
+    "source_timezone": "America/Paramaribo",
+    "source_label_rank": 8,
+    "source_population": 254169
+  },
+  {
+    "title": "Dili",
+    "latitude": -8.559388,
+    "longitude": 125.579456,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Asia/Dili",
+    "source_label_rank": 8,
+    "source_population": 234331
+  },
+  {
+    "title": "Yamoussoukro",
+    "latitude": 6.818381,
+    "longitude": -5.275503,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Africa/Abidjan",
+    "source_label_rank": 8,
+    "source_population": 206499
+  },
+  {
+    "title": "Hargeisa",
+    "latitude": 9.560022,
+    "longitude": 44.06531,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Africa/Mogadishu",
+    "source_label_rank": 99,
+    "source_population": 477876
+  },
+  {
+    "title": "Valletta",
+    "latitude": 35.899733,
+    "longitude": 14.514711,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Europe/Malta",
+    "source_label_rank": 99,
+    "source_population": 368250
+  },
+  {
+    "title": "Nassau",
+    "latitude": 25.08339,
+    "longitude": -77.350044,
+    "minimum_zoom": 3.555,
+    "source_timezone": "America/Nassau",
+    "source_label_rank": 99,
+    "source_population": 227940
+  },
+  {
+    "title": "Nicosia",
+    "latitude": 35.166677,
+    "longitude": 33.366635,
+    "minimum_zoom": 3.555,
+    "source_timezone": "Asia/Nicosia",
+    "source_label_rank": 99,
+    "source_population": 224300
+  },
+  {
+    "title": "Bratislava",
+    "latitude": 48.150018,
+    "longitude": 17.116981,
+    "minimum_zoom": 3.64,
+    "source_timezone": "Europe/Bratislava",
+    "source_label_rank": 7,
+    "source_population": 423737
+  },
+  {
+    "title": "Port of Spain",
+    "latitude": 10.651997,
+    "longitude": -61.517031,
+    "minimum_zoom": 3.64,
+    "source_timezone": "America/Port_of_Spain",
+    "source_label_rank": 8,
+    "source_population": 294934
+  },
+  {
+    "title": "Kigali",
+    "latitude": -1.951644,
+    "longitude": 30.058586,
+    "minimum_zoom": 3.64,
+    "source_timezone": "Africa/Kigali",
+    "source_label_rank": 99,
+    "source_population": 860000
+  },
+  {
+    "title": "Bern",
+    "latitude": 46.916683,
+    "longitude": 7.466976,
+    "minimum_zoom": 4.065,
+    "source_timezone": "Europe/Zurich",
+    "source_label_rank": 7,
+    "source_population": 275329
+  },
+  {
+    "title": "Doha",
+    "latitude": 25.286556,
+    "longitude": 51.532968,
+    "minimum_zoom": 4.065,
+    "source_timezone": "Asia/Qatar",
+    "source_label_rank": 8,
+    "source_population": 1450000
+  },
+  {
+    "title": "Djibouti",
+    "latitude": 11.595015,
+    "longitude": 43.148002,
+    "minimum_zoom": 4.065,
+    "source_timezone": "Africa/Djibouti",
+    "source_label_rank": 8,
+    "source_population": 923000
+  },
+  {
+    "title": "Skopje",
+    "latitude": 42.000006,
+    "longitude": 21.433462,
+    "minimum_zoom": 4.065,
+    "source_timezone": "Europe/Skopje",
+    "source_label_rank": 8,
+    "source_population": 494087
+  },
+  {
+    "title": "Pristina",
+    "latitude": 42.66671,
+    "longitude": 21.165984,
+    "minimum_zoom": 4.065,
+    "source_timezone": "Europe/Belgrade",
+    "source_label_rank": 8,
+    "source_population": 465186
+  },
+  {
+    "title": "Bujumbura",
+    "latitude": -3.376087,
+    "longitude": 29.360006,
+    "minimum_zoom": 4.065,
+    "source_timezone": "Africa/Bujumbura",
+    "source_label_rank": 8,
+    "source_population": 331700
+  },
+  {
+    "title": "Ljubljana",
+    "latitude": 46.055288,
+    "longitude": 14.514969,
+    "minimum_zoom": 4.065,
+    "source_timezone": "Europe/Ljubljana",
+    "source_label_rank": 8,
+    "source_population": 314807
+  },
+  {
+    "title": "Port Louis",
+    "latitude": -20.166639,
+    "longitude": 57.499994,
+    "minimum_zoom": 4.065,
+    "source_timezone": "Indian/Mauritius",
+    "source_label_rank": 99,
+    "source_population": 595491
+  },
+  {
+    "title": "Manama",
+    "latitude": 26.236136,
+    "longitude": 50.583052,
+    "minimum_zoom": 4.065,
+    "source_timezone": "Asia/Bahrain",
+    "source_label_rank": 99,
+    "source_population": 563920
+  }
+]

@@ -141,9 +141,10 @@ from the locked `tzf-rs` source and compares it byte for byte.
 
 `scripts/build-globe-shader.sh --check` compiles the globe fragment shader with
 Qt Shader Tools and compares the generated QSB package byte for byte. QML owns
-the transient projection, motion, and label placement; Rust supplies live
-featured-city times and offline coordinates. The precompiled package avoids a
-runtime shader-compiler dependency.
+the transient projection, motion, zoom-dependent city reveal, and collision
+aware label placement. Rust supplies live featured-city times and resolves the
+generated Natural Earth city catalogue through the embedded timezone grid.
+The precompiled package avoids a runtime shader-compiler dependency.
 
 `scripts/build-world-map.sh --check` renders the committed SVG geography into
 the 8192×4096 PNG used by the GPU and verifies it byte for byte. The larger

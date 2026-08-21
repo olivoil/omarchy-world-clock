@@ -66,6 +66,11 @@ Panel {
 
   readonly property var barIdentity: hostWidget || root
   readonly property color contentForeground: bar ? bar.foreground : Color.foreground
+  readonly property bool mapUsesLightLabels:
+    contentForeground.r * 0.2126 + contentForeground.g * 0.7152 + contentForeground.b * 0.0722
+      >= Color.background.r * 0.2126 + Color.background.g * 0.7152 + Color.background.b * 0.0722
+  readonly property color mapLabelForeground: mapUsesLightLabels
+    ? Qt.lighter(contentForeground, 1.20) : Qt.darker(contentForeground, 1.20)
   readonly property string contentFontFamily: bar ? bar.fontFamily : Style.font.family
   readonly property color searchSurfaceColor: {
     var mixed = root.mixColor(Color.popups.background, root.contentForeground, 0.025)
@@ -109,19 +114,19 @@ Panel {
   }
   readonly property var globeLocations: {
     var entries = []
-    var seenTimezones = ({})
+    var seenPlaces = ({})
     for (var savedIndex = 0; savedIndex < mapClocks.length; savedIndex++) {
       var saved = mapClocks[savedIndex]
-      var savedTimezone = String(saved.timezone || "")
+      var savedKey = root.mapLocationKey(saved)
       entries.push({ location: saved, configured: true })
-      if (savedTimezone) seenTimezones[savedTimezone] = true
+      if (savedKey) seenPlaces[savedKey] = true
     }
     for (var cityIndex = 0; cityIndex < featuredCities.length; cityIndex++) {
       var city = featuredCities[cityIndex]
-      var cityTimezone = String(city.timezone || "")
-      if (!root.hasMapCoordinate(city) || seenTimezones[cityTimezone]) continue
-      entries.push({ location: city, configured: false })
-      if (cityTimezone) seenTimezones[cityTimezone] = true
+      var cityKey = root.mapLocationKey(city)
+      if (!root.hasMapCoordinate(city) || seenPlaces[cityKey]) continue
+      entries.push({ location: city, configured: false, featured: true })
+      if (cityKey) seenPlaces[cityKey] = true
     }
     return entries
   }
@@ -541,7 +546,7 @@ Panel {
   }
 
   function mapRectsOverlap(left, right) {
-    var gap = Style.space(4)
+    var gap = Style.space(5)
     return left.x - gap < right.x + right.width
       && left.x + left.width + gap > right.x
       && left.y - gap < right.y + right.height
@@ -552,32 +557,36 @@ Panel {
     var titleLength = String(location && location.title || "").length
     var metadataLength = String(location
       && (location.time || location.timezone || location.subtitle) || "").length
-    return Math.max(Style.space(68), Math.min(Style.space(148),
-      Math.max(titleLength, metadataLength) * Style.spaceReal(7.1) + Style.space(18)))
+    return Math.max(Style.space(76), Math.min(Style.space(176),
+      Math.max(titleLength, metadataLength) * Style.spaceReal(8.2) + Style.space(20)))
   }
 
-  function globeLabelLayout(targetIndex, width, height) {
+  function mapLocationKey(location) {
+    if (!location) return ""
+    var timezone = String(location.timezone || "").trim().toLowerCase()
+    var title = String(location.title || location.label || "").trim().toLowerCase()
+    return timezone && title ? timezone + "\u001f" + title : ""
+  }
+
+  function globeLocationReveal(wrapper) {
+    if (!wrapper || wrapper.searchResult === true || wrapper.configured === true) return 1
+    var minimumZoom = Number(wrapper.location && wrapper.location.minimum_zoom)
+    if (!isFinite(minimumZoom)) minimumZoom = mapCanvas.minimumZoom
+    return Math.max(0, Math.min(1, (mapCanvas.zoom - minimumZoom) / 0.24))
+  }
+
+  function globeLabelLayouts(width, height) {
     var placed = []
-    var featuredPlaced = 0
-    var target = {
-      visible: false,
-      labelVisible: false,
-      x: 0,
-      y: 0,
-      width: 0,
-      height: 0,
-      pointX: 0,
-      pointY: 0,
-      depth: -1
-    }
-    var labelHeight = Style.space(38)
+    var layouts = []
+    var labelHeight = Style.space(42)
     var edge = Style.space(8)
     var pointGap = Style.space(12)
 
-    for (var i = 0; i <= targetIndex && i < mapLocations.length; i++) {
+    for (var i = 0; i < mapLocations.length; i++) {
       var wrapper = mapLocations[i]
       var location = wrapper.location
       var projection = mapCanvas.project(location.latitude, location.longitude)
+      var reveal = globeLocationReveal(wrapper)
       var layout = {
         visible: false,
         labelVisible: false,
@@ -587,15 +596,16 @@ Panel {
         height: labelHeight,
         pointX: projection.x,
         pointY: projection.y,
-        depth: projection.depth
+        depth: projection.depth,
+        reveal: reveal
       }
-      if (!projection.visible) {
-        if (i === targetIndex) target = layout
+      layouts.push(layout)
+      if (!projection.visible || reveal <= 0.01) {
         continue
       }
 
       var mayPlaceLabel = wrapper.searchResult === true
-        || wrapper.configured || featuredPlaced < 7
+        || wrapper.configured || reveal >= 0.72
       var labelWidth = layout.width
       var candidates = [
         { x: projection.x - labelWidth / 2, y: projection.y - labelHeight - pointGap },
@@ -632,13 +642,10 @@ Panel {
         layout.y = chosen.y
         layout.labelVisible = true
         placed.push(chosen)
-        if (!wrapper.configured) featuredPlaced++
       }
-      layout.visible = wrapper.searchResult === true
-        || wrapper.configured || layout.labelVisible
-      if (i === targetIndex) target = layout
+      layout.visible = true
     }
-    return target
+    return layouts
   }
 
   function requestMapLocation(latitude, longitude, x, y) {
@@ -1521,6 +1528,7 @@ Panel {
               anchors.fill: parent
               clip: true
               interactive: root.canAdd && !actionProcess.running
+              property var markerLayouts: root.globeLabelLayouts(width, height)
               diameterRatio: 0.63
               oceanColor: root.mixColor(Color.background, root.contentForeground, 0.07)
               landColor: root.mixColor(Color.background, root.contentForeground, 0.68)
@@ -1624,12 +1632,27 @@ Panel {
                   readonly property var location: modelData.location
                   readonly property bool configured: modelData.configured === true
                   readonly property bool searchResult: modelData.searchResult === true
-                  readonly property var layout:
-                    root.globeLabelLayout(index, mapCanvas.width, mapCanvas.height)
+                  readonly property var layout: mapCanvas.markerLayouts[index] || ({
+                    visible: false,
+                    labelVisible: false,
+                    x: 0,
+                    y: 0,
+                    width: 0,
+                    height: 0,
+                    pointX: 0,
+                    pointY: 0,
+                    depth: -1,
+                    reveal: 0
+                  })
                   anchors.fill: parent
-                  visible: layout.visible
+                  visible: layout && layout.visible
                   z: 4
-                  opacity: Math.max(0.42, Math.min(1, 0.46 + layout.depth * 0.62))
+                  opacity: layout ? layout.reveal * (searchResult || configured
+                    ? 1 : Math.max(0.88, Math.min(1, 0.88 + layout.depth * 0.14))) : 0
+
+                  Behavior on opacity {
+                    NumberAnimation { duration: 160; easing.type: Easing.OutQuint }
+                  }
 
                   Rectangle {
                     id: cityLabel
@@ -1644,18 +1667,20 @@ Panel {
                       : "transparent"
 
                     Column {
-                      anchors.fill: parent
                       anchors.leftMargin: Style.space(6)
                       anchors.rightMargin: Style.space(6)
+                      anchors.left: parent.left
+                      anchors.right: parent.right
+                      anchors.verticalCenter: parent.verticalCenter
                       spacing: Style.space(1)
 
                       Text {
                         width: parent.width
                         text: mapMarker.location.title
                         horizontalAlignment: Text.AlignHCenter
-                        color: root.contentForeground
+                        color: root.mapLabelForeground
                         font.family: root.contentFontFamily
-                        font.pixelSize: Style.font.bodySmall
+                        font.pixelSize: Style.font.title
                         font.bold: true
                         style: Text.Outline
                         styleColor: Color.background
@@ -1668,10 +1693,11 @@ Panel {
                           || mapMarker.location.timezone
                           || mapMarker.location.subtitle
                         horizontalAlignment: Text.AlignHCenter
-                        color: Qt.darker(root.contentForeground, 1.35)
+                        color: root.mapLabelForeground
+                        opacity: 0.88
                         font.family: root.contentFontFamily
-                        font.pixelSize: Style.font.caption
-                        font.bold: mapMarker.configured
+                        font.pixelSize: Style.font.bodySmall
+                        font.bold: false
                         style: Text.Outline
                         styleColor: Color.background
                         elide: Text.ElideRight

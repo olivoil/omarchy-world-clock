@@ -113,7 +113,12 @@ fn bundled_backend_supports_the_complete_quattro_command_protocol() {
         .as_array()
         .unwrap()
         .iter()
-        .any(|city| city["timezone"] == "Asia/Tokyo"));
+        .any(|city| city["title"] == "Tokyo"));
+    assert!(snapshot["featured_cities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|city| city["timezone"] == "Asia/Tokyo" && city["title"] != "Tokyo"));
 
     let conversion = Command::new(backend)
         .args([

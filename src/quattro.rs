@@ -1,125 +1,35 @@
 use crate::config::{
-    place_coordinate, AppConfig, TimezoneEntry, TimezoneSearchResult, CLOCK_CARD_LIMIT,
+    canonical_timezone_name, is_valid_timezone, place_coordinate, AppConfig, TimezoneEntry,
+    TimezoneSearchResult, CLOCK_CARD_LIMIT,
 };
 use crate::time::{
     format_display_time, format_timezone_notation, friendly_timezone_name, zoned_datetime,
 };
+use crate::timezone_grid::timezone_at;
 use chrono::{DateTime, Utc};
-use serde::Serialize;
-use std::collections::BTreeMap;
+use serde::{Deserialize, Serialize};
+use std::{collections::BTreeMap, sync::OnceLock};
 
 pub const SNAPSHOT_SCHEMA_VERSION: u64 = 1;
 pub const BACKEND_PROTOCOL_VERSION: u64 = 1;
 const QUATTRO_CLOCK_LIMIT: usize = CLOCK_CARD_LIMIT;
 
+#[derive(Debug, Deserialize)]
 struct FeaturedCity {
-    timezone: &'static str,
-    title: &'static str,
+    title: String,
     latitude: f64,
     longitude: f64,
+    minimum_zoom: f64,
+    source_timezone: Option<String>,
 }
 
-// Ordered by visual priority rather than longitude. The frontend shows only
-// the highest-priority cities that fit on the visible hemisphere, which keeps
-// the globe useful without turning it into a label cloud.
-const FEATURED_CITIES: &[FeaturedCity] = &[
-    FeaturedCity {
-        timezone: "America/New_York",
-        title: "New York",
-        latitude: 40.7128,
-        longitude: -74.006,
-    },
-    FeaturedCity {
-        timezone: "Europe/London",
-        title: "London",
-        latitude: 51.5072,
-        longitude: -0.1276,
-    },
-    FeaturedCity {
-        timezone: "Asia/Tokyo",
-        title: "Tokyo",
-        latitude: 35.6762,
-        longitude: 139.6503,
-    },
-    FeaturedCity {
-        timezone: "America/Los_Angeles",
-        title: "Los Angeles",
-        latitude: 34.0522,
-        longitude: -118.2437,
-    },
-    FeaturedCity {
-        timezone: "Europe/Paris",
-        title: "Paris",
-        latitude: 48.8566,
-        longitude: 2.3522,
-    },
-    FeaturedCity {
-        timezone: "Asia/Singapore",
-        title: "Singapore",
-        latitude: 1.3521,
-        longitude: 103.8198,
-    },
-    FeaturedCity {
-        timezone: "Australia/Sydney",
-        title: "Sydney",
-        latitude: -33.8688,
-        longitude: 151.2093,
-    },
-    FeaturedCity {
-        timezone: "America/Mexico_City",
-        title: "Mexico City",
-        latitude: 19.4326,
-        longitude: -99.1332,
-    },
-    FeaturedCity {
-        timezone: "America/Sao_Paulo",
-        title: "São Paulo",
-        latitude: -23.5505,
-        longitude: -46.6333,
-    },
-    FeaturedCity {
-        timezone: "Asia/Kolkata",
-        title: "New Delhi",
-        latitude: 28.6139,
-        longitude: 77.209,
-    },
-    FeaturedCity {
-        timezone: "Asia/Dubai",
-        title: "Dubai",
-        latitude: 25.2048,
-        longitude: 55.2708,
-    },
-    FeaturedCity {
-        timezone: "Africa/Cairo",
-        title: "Cairo",
-        latitude: 30.0444,
-        longitude: 31.2357,
-    },
-    FeaturedCity {
-        timezone: "Africa/Johannesburg",
-        title: "Johannesburg",
-        latitude: -26.2041,
-        longitude: 28.0473,
-    },
-    FeaturedCity {
-        timezone: "Asia/Seoul",
-        title: "Seoul",
-        latitude: 37.5665,
-        longitude: 126.978,
-    },
-    FeaturedCity {
-        timezone: "Pacific/Auckland",
-        title: "Auckland",
-        latitude: -36.8509,
-        longitude: 174.7645,
-    },
-    FeaturedCity {
-        timezone: "Pacific/Honolulu",
-        title: "Honolulu",
-        latitude: 21.3099,
-        longitude: -157.8581,
-    },
-];
+fn featured_city_catalog() -> &'static [FeaturedCity] {
+    static CITIES: OnceLock<Vec<FeaturedCity>> = OnceLock::new();
+    CITIES.get_or_init(|| {
+        serde_json::from_str(include_str!("../data/featured-cities.json"))
+            .expect("bundled featured-city catalogue should be valid")
+    })
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct QuattroModulePayload {
@@ -194,6 +104,7 @@ pub struct QuattroMapLocation {
     pub subtitle: String,
     pub latitude: f64,
     pub longitude: f64,
+    pub minimum_zoom: f64,
     pub time: String,
     pub notation: String,
     pub relative_label: String,
@@ -358,6 +269,7 @@ pub fn build_map_location(
         subtitle: result.subtitle.clone(),
         latitude,
         longitude,
+        minimum_zoom: 0.0,
         time: format_display_time(&zoned, time_format),
         notation: format_timezone_notation(&zoned),
         relative_label: relative_label(relative_minutes),
@@ -370,31 +282,38 @@ fn build_featured_cities(
     local_timezone: &str,
     time_format: &str,
 ) -> Vec<QuattroMapLocation> {
-    FEATURED_CITIES
+    featured_city_catalog()
         .iter()
-        .filter(|city| {
-            !config
-                .timezones
-                .iter()
-                .any(|entry| entry.timezone == city.timezone)
-        })
-        .map(|city| {
+        .filter_map(|city| {
+            let timezone = timezone_at(city.latitude, city.longitude)
+                .or_else(|| city.source_timezone.clone())?;
+            let timezone = canonical_timezone_name(&timezone);
+            if !is_valid_timezone(&timezone)
+                || config
+                    .timezones
+                    .iter()
+                    .any(|entry| entry.matches_location(&timezone, &city.title))
+            {
+                return None;
+            }
             let result = TimezoneSearchResult {
-                timezone: city.timezone.to_string(),
-                title: city.title.to_string(),
-                subtitle: city.timezone.to_string(),
+                timezone: timezone.clone(),
+                title: city.title.clone(),
+                subtitle: timezone,
                 latitude: Some(city.latitude),
                 longitude: Some(city.longitude),
                 open_meteo_attribution: false,
             };
-            build_map_location(
+            let mut location = build_map_location(
                 &result,
                 city.latitude,
                 city.longitude,
                 reference_utc,
                 local_timezone,
                 time_format,
-            )
+            );
+            location.minimum_zoom = city.minimum_zoom;
+            Some(location)
         })
         .collect()
 }
@@ -603,12 +522,14 @@ mod tests {
         assert_eq!(tokyo.timezone, "Asia/Tokyo");
         assert_eq!(tokyo.time, "20:05");
         assert_eq!(tokyo.notation, "JST");
-        assert_eq!(tokyo.latitude, 35.6762);
-        assert_eq!(tokyo.longitude, 139.6503);
+        assert_eq!(tokyo.latitude, 35.686963);
+        assert_eq!(tokyo.longitude, 139.749462);
+        assert_eq!(tokyo.minimum_zoom, 0.75);
+        assert!(snapshot.featured_cities.len() >= 300);
     }
 
     #[test]
-    fn snapshot_hides_a_featured_timezone_that_is_already_configured() {
+    fn snapshot_hides_only_the_configured_place_from_a_shared_timezone() {
         let config = AppConfig {
             timezones: vec![
                 entry("America/Cancun", "Cancun"),
@@ -624,7 +545,35 @@ mod tests {
         assert!(!snapshot
             .featured_cities
             .iter()
-            .any(|city| city.timezone == "Asia/Tokyo"));
+            .any(|city| city.title == "Tokyo"));
+        assert!(snapshot
+            .featured_cities
+            .iter()
+            .any(|city| city.timezone == "Asia/Tokyo" && city.title != "Tokyo"));
+    }
+
+    #[test]
+    fn snapshot_keeps_a_featured_city_when_a_different_place_shares_its_timezone() {
+        let config = AppConfig {
+            timezones: vec![
+                entry("America/Cancun", "Cancun"),
+                entry("Europe/Paris", "Rennes"),
+            ],
+            pinned_location: None,
+            disable_open_meteo_geolocation: false,
+        };
+        let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
+
+        let snapshot = build_snapshot(&config, now, "America/Cancun", "24h");
+
+        assert!(snapshot
+            .featured_cities
+            .iter()
+            .any(|city| city.title == "Paris" && city.timezone == "Europe/Paris"));
+        assert!(snapshot
+            .featured_cities
+            .iter()
+            .any(|city| city.title == "Prague" && city.timezone == "Europe/Prague"));
     }
 
     #[test]

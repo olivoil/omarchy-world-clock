@@ -96,6 +96,7 @@ binary_size_bytes=$(stat -c %s "$candidate")
 binary_sha256=$(sha256sum "$candidate" | awk '{ print $1 }')
 cargo_lock_sha256=$(sha256sum Cargo.lock | awk '{ print $1 }')
 timezone_grid_sha256=$(sha256sum data/timezone-grid.bin | awk '{ print $1 }')
+featured_cities_sha256=$(sha256sum data/featured-cities.json | awk '{ print $1 }')
 EOF
 
 if [[ $mode == check ]]; then

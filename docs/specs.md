@@ -191,10 +191,17 @@ Rules:
   dominating the initial view.
 - Drag rotates it. Mouse-wheel angle deltas and trackpad pixel deltas both
   zoom it across an extended range; zooming out reveals the complete sphere.
-- Configured places and a curated set of unconfigured major cities appear as
-  front-hemisphere markers with live local times.
-- Configured markers take label priority. Featured labels are capped and
-  collision-aware so dense regions stay legible.
+- Configured places and a ranked catalogue of more than 300 capitals and
+  major cities appear as front-hemisphere markers with live local times.
+- Major world cities remain visible at regional scale. More capitals and
+  agglomerations fade in as the globe zooms closer, using Natural Earth's
+  label priority and zoom guidance.
+- Configured markers take label priority. Featured labels are collision-aware;
+  eligible cities whose labels do not fit remain as quiet location dots.
+- Map labels use a larger bold place name over a smaller regular-weight time,
+  with adaptive high-contrast text for the active light or dark theme. Search
+  and configured labels remain fully opaque, while browsing markers receive
+  only a subtle horizon fade.
 - Clicking a featured marker adds it without requiring network access.
 - Saved coordinates are preferred for marker placement. Bundled timezone
   coordinates are used when saved coordinates are absent.

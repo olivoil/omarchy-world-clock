@@ -372,6 +372,7 @@ Item {
   }
 
   Image {
+    id: fallbackMap
     anchors.fill: parent
     visible: !root.shaderAvailable
     source: root.textureEnabled ? Qt.resolvedUrl("../assets/world-map.png") : ""
@@ -445,12 +446,12 @@ Item {
   }
 
   TapHandler {
-    parent: sphere
+    parent: root.shaderAvailable ? sphere : fallbackMap
     enabled: root.interactive
     acceptedButtons: Qt.LeftButton
     gesturePolicy: TapHandler.DragThreshold
     onTapped: function(eventPoint) {
-      var rootPoint = sphere.mapToItem(root, eventPoint.position)
+      var rootPoint = parent.mapToItem(root, eventPoint.position)
       var viewX = rootPoint.x
       var viewY = rootPoint.y
       var location = root.locationAt(viewX, viewY)

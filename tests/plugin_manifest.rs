@@ -282,8 +282,11 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     let globe = fs::read_to_string(&globe_path).expect("read globe component");
     assert!(globe.contains("ShaderEffect"));
     assert!(globe.contains("DragHandler"));
-    assert!(globe.contains("TapHandler {\n    parent: sphere"));
-    assert!(globe.contains("var rootPoint = sphere.mapToItem(root, eventPoint.position)"));
+    assert!(globe.contains("id: fallbackMap"));
+    assert!(globe.contains(
+        "TapHandler {\n    parent: root.shaderAvailable ? sphere : fallbackMap"
+    ));
+    assert!(globe.contains("var rootPoint = parent.mapToItem(root, eventPoint.position)"));
     assert!(globe.contains("WheelHandler"));
     assert!(globe.contains("function project(latitudeDegrees, longitudeDegrees)"));
     assert!(globe.contains("function locationAt(viewX, viewY)"));

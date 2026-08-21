@@ -352,7 +352,9 @@ Item {
 
   function focusOnLocations(locations) {
     var view = fittedView(locations)
-    if (view) focusOn(view.latitude, view.longitude, view.zoom)
+    if (!view) return
+    var targetZoom = locations.length === 1 ? Math.max(zoom, view.zoom) : view.zoom
+    focusOn(view.latitude, view.longitude, targetZoom)
   }
 
   function settleOn(latitudeDegrees, longitudeDegrees) {

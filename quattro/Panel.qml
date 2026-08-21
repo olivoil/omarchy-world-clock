@@ -67,6 +67,10 @@ Panel {
   readonly property var barIdentity: hostWidget || root
   readonly property color contentForeground: bar ? bar.foreground : Color.foreground
   readonly property string contentFontFamily: bar ? bar.fontFamily : Style.font.family
+  readonly property color searchSurfaceColor: {
+    var mixed = root.mixColor(Color.popups.background, root.contentForeground, 0.025)
+    return Qt.rgba(mixed.r, mixed.g, mixed.b, 1)
+  }
   readonly property var clocks: snapshot && Array.isArray(snapshot.clocks) ? snapshot.clocks : []
   readonly property var timeline: snapshot && Array.isArray(snapshot.timeline) ? snapshot.timeline : []
   readonly property var featuredCities: snapshot && Array.isArray(snapshot.featured_cities)
@@ -165,7 +169,7 @@ Panel {
     return Math.ceil(contentWidth + Style.spacing.rowPaddingX * 2 + Style.space(8))
   }
 
-  function searchResultOverlayWidth(availableWidth) {
+  function searchModuleWidth(availableWidth) {
     var available = Math.max(1, Number(availableWidth))
     return Math.max(available * 0.38,
       Math.min(available * 0.75, measuredSearchResultWidth()))
@@ -1368,15 +1372,14 @@ Panel {
               visible: root.searchVisible
               anchors.top: parent.top
               anchors.topMargin: Style.space(12)
-              anchors.left: addBackButton.right
-              anchors.leftMargin: Style.space(12)
-              anchors.right: addSearchButton.left
+              anchors.right: parent.right
               anchors.rightMargin: Style.space(12)
+              width: root.searchModuleWidth(Math.max(1,
+                parent.width - addBackButton.width - Style.space(36)))
               height: addSearchButton.height
               z: 29
               radius: Style.cornerRadius
-              color: root.mixColor(Color.popups.background,
-                root.contentForeground, 0.025)
+              color: root.searchSurfaceColor
               border.width: Style.spacing.hairline
               border.color: root.mixColor(Color.popups.background,
                 root.contentForeground, 0.26)
@@ -1385,27 +1388,41 @@ Panel {
               Behavior on opacity {
                 NumberAnimation { duration: 160; easing.type: Easing.OutCubic }
               }
-            }
 
-            TextField {
-              id: addField
-              visible: root.searchVisible
-              anchors.fill: addSearchSurface
-              z: 30
-              opacity: root.searchVisible ? 1 : 0
-              placeholderText: "Search for a city or timezone"
-              foreground: root.contentForeground
-              enabled: root.searchVisible && root.canAdd && !actionProcess.running
-              onTextChanged: root.searchTextChanged()
-              onAccepted: root.addFirstResult()
-              onActiveFocusChanged: root.editorActive = activeFocus
-              Keys.onEscapePressed: function(event) {
-                root.closeSearch()
-                event.accepted = true
+              TextField {
+                id: addField
+                anchors.fill: parent
+                z: 1
+                rightPadding: addSearchCloseButton.width + Style.spacing.controlPaddingX
+                placeholderText: "Search for a city or timezone"
+                foreground: root.contentForeground
+                enabled: root.searchVisible && root.canAdd && !actionProcess.running
+                onTextChanged: root.searchTextChanged()
+                onAccepted: root.addFirstResult()
+                onActiveFocusChanged: root.editorActive = activeFocus
+                Keys.onEscapePressed: function(event) {
+                  root.closeSearch()
+                  event.accepted = true
+                }
               }
 
-              Behavior on opacity {
-                NumberAnimation { duration: 160; easing.type: Easing.OutCubic }
+              Button {
+                id: addSearchCloseButton
+                anchors.right: parent.right
+                anchors.rightMargin: Style.space(2)
+                anchors.verticalCenter: parent.verticalCenter
+                width: Style.space(38)
+                height: width
+                z: 2
+                radius: height / 2
+                iconText: "󰅖"
+                iconSize: Style.font.iconLarge
+                tooltipText: "Close search"
+                foreground: root.contentForeground
+                background: "transparent"
+                horizontalPadding: 0
+                verticalPadding: 0
+                onClicked: root.closeSearch()
               }
             }
 
@@ -1432,6 +1449,7 @@ Panel {
 
             Button {
               id: addSearchButton
+              visible: !root.searchVisible
               anchors.top: parent.top
               anchors.right: parent.right
               anchors.margins: Style.space(12)
@@ -1439,19 +1457,16 @@ Panel {
               height: width
               z: 31
               radius: height / 2
-              iconText: root.searchVisible ? "󰅖" : "󰍉"
+              iconText: "󰍉"
               iconSize: Style.font.iconLarge
-              tooltipText: root.searchVisible ? "Close search" : "Search locations"
+              tooltipText: "Search locations"
               foreground: root.contentForeground
               background: root.mixColor(Color.popups.background,
                 root.contentForeground, 0.025)
               bordered: true
               horizontalPadding: 0
               verticalPadding: 0
-              onClicked: {
-                if (root.searchVisible) root.closeSearch()
-                else root.openSearch()
-              }
+              onClicked: root.openSearch()
             }
 
             Rectangle {
@@ -1492,14 +1507,13 @@ Panel {
               Rectangle {
                 id: searchResultOverlay
                 visible: root.searchVisible && root.searchResults.length > 0
-                x: addField.x
-                y: addField.y + addField.height + Style.space(8)
-                width: root.searchResultOverlayWidth(addField.width)
+                x: addSearchSurface.x
+                y: addSearchSurface.y + addSearchSurface.height + Style.space(8)
+                width: addSearchSurface.width
                 height: Math.min(root.searchResults.length * Style.space(48), Style.space(240))
                 z: 29
                 radius: Style.cornerRadius
-                color: root.mixColor(Color.popups.background,
-                  root.contentForeground, 0.025)
+                color: root.searchSurfaceColor
                 border.width: Style.spacing.hairline
                 border.color: root.mixColor(Color.background, root.contentForeground, 0.24)
                 clip: true

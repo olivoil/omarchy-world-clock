@@ -77,10 +77,14 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("id: searchResultTitleMetrics"));
     assert!(panel.contains("id: searchResultSubtitleMetrics"));
     assert!(panel.contains("function measuredSearchResultWidth()"));
-    assert!(panel.contains("function searchResultOverlayWidth(availableWidth)"));
-    assert!(panel.contains("width: root.searchResultOverlayWidth(addField.width)"));
+    assert!(panel.contains("function searchModuleWidth(availableWidth)"));
+    assert!(panel.contains("width: root.searchModuleWidth(Math.max(1,"));
+    assert!(panel.contains("anchors.right: parent.right"));
+    assert!(panel.contains("x: addSearchSurface.x"));
+    assert!(panel.contains("width: addSearchSurface.width"));
     assert!(panel.contains("available * 0.38"));
     assert!(panel.contains("available * 0.75"));
+    assert!(!panel.contains("function searchResultOverlayWidth(availableWidth)"));
     assert!(!panel.contains("width: Math.min(addField.width, Style.space(520))"));
     assert!(panel.contains(
         "height: Math.min(root.searchResults.length * Style.space(48), Style.space(240))"
@@ -136,11 +140,20 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("id: addBackButton"));
     assert!(panel.contains("id: addSearchButton"));
     assert!(panel.contains("id: addSearchSurface"));
-    assert!(panel.contains("Color.popups.background"));
-    assert!(panel.contains("visible: root.searchVisible"));
+    assert!(panel.contains("id: addSearchCloseButton"));
     assert!(
-        panel.contains("tooltipText: root.searchVisible ? \"Close search\" : \"Search locations\"")
+        panel.contains("rightPadding: addSearchCloseButton.width + Style.spacing.controlPaddingX")
     );
+    assert!(panel.contains("Color.popups.background"));
+    assert!(panel.contains("readonly property color searchSurfaceColor"));
+    assert!(panel.contains("return Qt.rgba(mixed.r, mixed.g, mixed.b, 1)"));
+    assert!(panel.contains("color: root.searchSurfaceColor"));
+    assert!(panel.contains("visible: root.searchVisible"));
+    assert!(panel.contains("visible: !root.searchVisible"));
+    assert!(panel.contains("tooltipText: \"Close search\""));
+    assert!(panel.contains("tooltipText: \"Search locations\""));
+    assert!(!panel
+        .contains("tooltipText: root.searchVisible ? \"Close search\" : \"Search locations\""));
     assert!(panel.contains("diameterRatio: 0.63"));
     assert!(panel.contains("mapCanvas.focusOnLocations(root.searchResults)"));
     assert!(!panel.contains("onHovered: function(isHovered)"));

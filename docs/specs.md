@@ -160,9 +160,12 @@ Rules:
 - remote search is skipped when `disable_open_meteo_geolocation` is true
 - remote timezones are canonicalized and validated
 - results are de-duplicated by canonical timezone and normalized place label
-- the result surface fits its widest title or subtitle, constrained to 38–75%
-  of the search-field width so short results preserve the map and long results
-  remain readable
+- the upper-right search capsule and its result surface share a width fitted
+  to the widest title or subtitle, constrained to 38–75% of the space between
+  the back control and right edge so short results preserve the map and long
+  results remain readable
+- the close action lives inside the search field; closing it restores the
+  standalone Search control
 - while a query is present, the result coordinates replace every configured
   and featured marker; the camera fits the full result set instead of chasing
   a single hovered result

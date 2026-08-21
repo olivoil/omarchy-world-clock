@@ -106,6 +106,19 @@ fn bundled_backend_supports_the_complete_quattro_command_protocol() {
     assert_eq!(snapshot["schema_version"], 1);
     assert_eq!(snapshot["pinned_timezone"], "Asia/Tokyo");
     assert_eq!(snapshot["configured_count"], 2);
+    assert!(snapshot["featured_cities"]
+        .as_array()
+        .is_some_and(|cities| !cities.is_empty()));
+    assert!(!snapshot["featured_cities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|city| city["title"] == "Tokyo"));
+    assert!(snapshot["featured_cities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|city| city["timezone"] == "Asia/Tokyo" && city["title"] != "Tokyo"));
 
     let conversion = Command::new(backend)
         .args([
@@ -127,7 +140,7 @@ fn bundled_backend_supports_the_complete_quattro_command_protocol() {
     assert_eq!(conversion["normalized_input"], "09:00");
 
     let search = Command::new(backend)
-        .args(["search", "Tokyo"])
+        .args(["search", "Tokyo", "--at", "2026-08-11T11:05:00Z"])
         .env("HOME", &home)
         .env("OMARCHY_WORLD_CLOCK_CONFIG", &config_path)
         .output()
@@ -136,6 +149,11 @@ fn bundled_backend_supports_the_complete_quattro_command_protocol() {
     let search: serde_json::Value =
         serde_json::from_slice(&search.stdout).expect("parse search results");
     assert_eq!(search[0]["timezone"], "Asia/Tokyo");
+    assert_eq!(search[0]["time"], "20:05");
+    assert!(search[0]["day"].as_str().is_some_and(|day| !day.is_empty()));
+    assert!(search[0]["relative_label"]
+        .as_str()
+        .is_some_and(|label| !label.is_empty()));
 
     let locate = Command::new(backend)
         .args([

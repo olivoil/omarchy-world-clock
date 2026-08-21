@@ -15,6 +15,8 @@ post-install hook, GTK application, or Waybar integration in new releases.
 omarchy-shell
   └─ quattro/WorldClock.qml       bar lifecycle and module status
        └─ quattro/Panel.qml       native panel, input, rendering, processes
+            ├─ quattro/WorldClockKeyCatcher.qml
+            ├─ quattro/Globe.qml  projection, motion, high-resolution texture
             └─ bin/omarchy-world-clock-backend
                  ├─ timezone/DST and conversion logic
                  ├─ search and optional Open-Meteo request
@@ -73,7 +75,7 @@ The executable exposes a deliberately small command/JSON boundary:
 | `module` | bar tooltip, pinned label/time, compatibility handshake | JSON |
 | `snapshot` | complete read/edit model at now or `--at` | JSON |
 | `convert` | parse a local input and return a converted snapshot | JSON |
-| `search` | local search with optional remote fallback | JSON array |
+| `search` | local search with optional remote fallback and live display context | JSON array |
 | `locate` | map coordinate to a timezone and display model | JSON/null |
 | `add` | persist a location | no output |
 | `remove` | remove a matching location | no output |
@@ -95,7 +97,13 @@ the official `omarchy plugin` and `omarchy bar` commands.
 manifest.json
 quattro/WorldClock.qml
 quattro/Panel.qml
+quattro/Globe.qml
+quattro/WorldClockKeyCatcher.qml
 assets/world-map.png
+assets/world-map.svg
+assets/NATURAL_EARTH.md
+assets/globe.frag
+assets/globe.frag.qsb
 bin/omarchy-world-clock-backend
 bin/BUILDINFO
 bin/SHA256SUMS
@@ -126,9 +134,35 @@ Omarchy platform. `scripts/build-plugin-backend.sh` enforces:
 - checksums for the binary, lockfile, and embedded map
 - exact `BUILDINFO` provenance
 
-Both artifact scripts run inside the same digest-pinned official Rust/Alpine
-container. `scripts/build-timezone-grid.sh --check` regenerates the compact map
-database from the locked `tzf-rs` source and compares it byte for byte.
+The backend and timezone-grid artifact scripts run inside the same
+digest-pinned official Rust/Alpine container.
+`scripts/build-timezone-grid.sh --check` regenerates the compact map database
+from the locked `tzf-rs` source and compares it byte for byte.
+
+`scripts/check-globe-artifacts.sh` runs the shader and texture freshness checks
+inside a digest-pinned official Ubuntu image with exact Qt Shader Tools,
+SPIR-V Tools, and librsvg package versions. `scripts/build-globe-shader.sh
+--check` compiles the globe fragment shader there and compares the generated
+QSB package byte for byte. QML owns the transient projection, motion,
+zoom-dependent city reveal, and collision-aware label placement. Rust supplies
+live featured-city times and resolves the generated Natural Earth city
+catalogue through the embedded timezone grid. The precompiled package avoids a
+runtime shader-compiler dependency.
+
+`scripts/build-world-map.sh --check` renders the committed SVG geography into
+the 8192×4096 PNG used by the GPU and verifies it byte for byte. The larger
+texture keeps coastlines and boundaries crisp through the globe's extended
+zoom range without adding a runtime SVG-rendering dependency.
+
+`scripts/build-world-map-source.mjs` regenerates that SVG from checksum-pinned
+Natural Earth v5.1.2 country and minor-island GeoJSON, while
+`scripts/build-featured-cities.mjs` regenerates the zoom-ranked city catalogue
+from the corresponding populated-place data. CI runs both generators in check
+mode before validating the derived shader and PNG. The 1:10m inputs retain
+roughly 87 times as many geographic points as the original simplified source,
+while the 8K derived PNG deliberately trades additional texture memory for
+crisper coastlines at the extended zoom ceiling. Natural Earth publishes the
+source map data in the public domain.
 
 The full upstream polygon database made the backend unnecessarily large. The
 derived 0.1-degree row-run-length grid preserves click-to-add accuracy at the

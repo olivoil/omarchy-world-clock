@@ -80,6 +80,9 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("(mapCanvas.zoom - minimumZoom) / 0.24"));
     assert!(panel.contains("layout.reveal * (searchResult || configured"));
     assert!(panel.contains("function mapLocationKey(location)"));
+    assert!(panel.contains("function mapLocationSelected(location)"));
+    assert!(panel.contains("var mayPlaceLabel = !mapLocationSelected(location)"));
+    assert!(panel.contains("visible: mapMarker.layout.labelVisible && !mapMarker.selected"));
     assert!(!panel.contains("featuredPlaced < 7"));
     assert!(panel.contains("readonly property var mapLocations: searchHasQuery"));
     assert!(panel.contains("model: root.mapLocations"));
@@ -88,7 +91,10 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert_eq!(panel.matches("if (mapMarker.selectable)").count(), 2);
     assert!(panel.contains("hoverEnabled: mapMarker.selectable"));
     assert!(panel.contains("property bool globeDetailRequested: false"));
-    assert!(panel.contains("globeDetailRequested = true"));
+    assert!(panel.contains("function requestGlobeDetailWhenReady()"));
+    assert!(panel.contains("!mapCanvas.previewReady"));
+    assert!(panel.contains("onPreviewReadyChanged:"));
+    assert!(panel.contains("if (previewReady) root.requestGlobeDetailWhenReady()"));
     assert!(panel.contains("if (!opened) {\n      globeDetailRequested = false"));
     assert!(panel.contains("highResolutionEnabled: root.opened && root.globeDetailRequested"));
     assert!(panel.contains("if (!root.mapClickPending) return\n      if (exitCode !== 0)"));
@@ -383,6 +389,16 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(globe.contains("property real openingZoom:"));
     assert!(globe.contains("property real maximumZoom: 4.8"));
     assert!(globe.contains("property bool highResolutionEnabled: true"));
+    assert!(globe.contains("property bool previewReady: false"));
+    assert!(globe.contains("function updatePreviewReadiness()"));
+    assert!(globe.contains("mapTexture.status !== Image.Ready"));
+    assert!(globe.contains("fallbackMap.status !== Image.Ready"));
+    assert_eq!(
+        globe
+            .matches("onStatusChanged: root.updatePreviewReadiness()")
+            .count(),
+        2
+    );
     assert!(globe.contains("readonly property url textureSource: highResolutionEnabled"));
     assert!(globe.contains("Qt.resolvedUrl(\"../assets/world-map-preview.png\")"));
     assert!(globe.contains("readonly property int textureWidth: highResolutionEnabled"));

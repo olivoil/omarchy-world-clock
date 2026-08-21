@@ -1,5 +1,6 @@
 use crate::config::{
-    detect_local_timezone, system_time_format, ConfigManager, RemotePlaceSearch, TimezoneResolver,
+    detect_local_timezone, resolve_omarchy_weather_unit, system_time_format, ConfigManager,
+    RemotePlaceSearch, TimezoneResolver,
 };
 use crate::quattro::{
     build_map_location, build_module_payload, build_search_location, build_snapshot,
@@ -7,20 +8,32 @@ use crate::quattro::{
 };
 use crate::time::parse_manual_reference_details;
 use crate::timezone_grid::timezone_at;
+use crate::weather::current_weather;
 use anyhow::{bail, Context, Result};
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 
-pub const USAGE: &str = "Usage: omarchy-world-clock-backend <module|snapshot|convert|search|locate|add|rename|remove|pin|unpin|version>";
+pub const USAGE: &str = "Usage: omarchy-world-clock-backend <module|snapshot|convert|weather|search|locate|add|rename|remove|pin|unpin|version>";
 
 fn optional_flag(args: &[String], flag: &str) -> Result<Option<String>> {
-    let Some(index) = args.iter().position(|arg| arg == flag) else {
-        return Ok(None);
-    };
-    let Some(value) = args.get(index + 1) else {
-        bail!("missing value for flag {flag}");
-    };
-    Ok(Some(value.clone()))
+    let mut index = 0;
+    while index < args.len() {
+        let argument = &args[index];
+        if !argument.starts_with("--") {
+            index += 1;
+            continue;
+        }
+
+        let Some(value) = args.get(index + 1) else {
+            bail!("missing value for flag {argument}");
+        };
+        if argument == flag {
+            return Ok(Some(value.clone()));
+        }
+        index += 2;
+    }
+
+    Ok(None)
 }
 
 fn required_flag(args: &[String], flag: &str) -> Result<String> {
@@ -53,12 +66,15 @@ fn parse_reference_utc(raw: Option<String>) -> Result<DateTime<Utc>> {
 
 fn current_snapshot(reference_utc: DateTime<Utc>) -> Result<QuattroSnapshot> {
     let config = ConfigManager::new(None).load()?;
-    Ok(build_snapshot(
+    let local_timezone = detect_local_timezone();
+    let mut snapshot = build_snapshot(
         &config,
         reference_utc,
-        &detect_local_timezone(),
+        &local_timezone,
         &system_time_format(),
-    ))
+    );
+    snapshot.weather_unit = resolve_omarchy_weather_unit(None, None, None, &local_timezone);
+    Ok(snapshot)
 }
 
 #[derive(Serialize)]
@@ -92,6 +108,12 @@ pub fn execute(args: &[String]) -> Result<Option<String>> {
                 normalized_input: parsed.normalized_text,
                 snapshot: current_snapshot(parsed.reference_utc)?,
             })?)
+        }
+        "weather" => {
+            let config = ConfigManager::new(None).load()?;
+            let reference_utc = parse_reference_utc(optional_flag(remaining_args, "--at")?)?;
+            let payload = current_weather(&config, &detect_local_timezone(), reference_utc)?;
+            Some(serde_json::to_string(&payload)?)
         }
         "search" => {
             let query = remaining_args

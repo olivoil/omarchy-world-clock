@@ -16,8 +16,14 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert_eq!(manifest["version"], env!("CARGO_PKG_VERSION"));
     assert_eq!(manifest["license"], "MIT AND ODbL-1.0");
     assert_eq!(manifest["kinds"], serde_json::json!(["bar-widget"]));
-    assert!(manifest.pointer("/barWidget/defaults").is_none());
-    assert!(manifest.pointer("/barWidget/schema").is_none());
+    assert_eq!(manifest["barWidget"]["defaults"]["showWeather"], true);
+    assert_eq!(manifest["barWidget"]["schema"][0]["key"], "showWeather");
+    assert_eq!(manifest["barWidget"]["schema"][0]["type"], "boolean");
+    assert_eq!(
+        manifest["barWidget"]["schema"][0]["label"],
+        "Show current weather"
+    );
+    assert_eq!(manifest["barWidget"]["schema"][0]["defaultValue"], true);
 
     let entry_point = manifest
         .pointer("/entryPoints/barWidget")
@@ -141,6 +147,19 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(!panel.contains("visible: cardLabelInput.activeFocus"));
     assert!(!panel.contains("visible: summaryLabelInput.activeFocus"));
     assert!(!panel.contains("enabled: !root.labelEditorActive && !actionProcess.running"));
+    assert!(panel.contains("function handlePanelPointerTap(panelX, panelY)"));
+    assert!(panel.contains("function pointerInsideActiveEditor(panelX, panelY)"));
+    assert!(panel.contains("id: focusDismissHandler"));
+    assert!(panel.contains("parent: keyCatcher"));
+    assert!(panel.contains("onTapped: function(eventPoint)"));
+    assert!(
+        panel.contains("root.handlePanelPointerTap(eventPoint.position.x, eventPoint.position.y)")
+    );
+    assert!(panel.contains(
+        "keyboardCursorActive = false\n    keyboardClockIndex = -1\n    var pointerX = Number(panelX)"
+    ));
+    assert!(panel.contains("root.pointerInsideActiveEditor(pointerX, pointerY)"));
+    assert!(panel.contains("keyCatcher.forceActiveFocus(Qt.MouseFocusReason)"));
     assert!(panel.contains("Accessible.description: \"Press Enter to save or Escape to cancel\""));
     assert!(panel.contains("id: timelineTickRepeater"));
     assert!(panel.contains("function focusSummaryEditor()"));
@@ -236,8 +255,10 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(!panel.contains("resultButton.modelData.open_meteo_attribution"));
     assert!(panel.contains("readonly property string currentLocationTitle"));
     assert!(panel.contains("readonly property string currentTimezoneMetadata"));
+    assert!(panel.contains("spacing: Style.space(root.mode === \"add\" ? 14 : 8)"));
     assert!(panel.contains("visible: root.mode !== \"add\""));
     assert!(panel.contains("text: root.currentLocationTitle"));
+    assert!(panel.contains("font.pixelSize: Style.space(18)"));
     assert!(panel.contains("text: root.currentTimezoneMetadata"));
     assert!(panel.contains("id: clockRows"));
     assert!(panel.contains("anchors.horizontalCenter: parent.horizontalCenter"));
@@ -246,6 +267,58 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("? Style.hoverFillFor(root.contentForeground, Color.accent)"));
     assert!(panel.contains(": Style.normalFillFor(root.contentForeground, Color.accent)"));
     assert!(panel.contains("radius: Style.cornerRadius"));
+    assert!(panel.contains("backendCommand, \"weather\""));
+    assert!(panel.contains("property bool weatherRequestPending: false"));
+    assert!(panel.contains("weatherRefreshMilliseconds: 15 * 60 * 1000"));
+    assert!(panel.contains("weatherFreshnessCheckMilliseconds: 30 * 1000"));
+    assert!(panel.contains("function weatherFor(clock)"));
+    assert!(panel.contains("function weatherGlyph(item)"));
+    assert!(panel.contains("function weatherTemperatureCompact(value)"));
+    assert!(panel.contains("readonly property bool weatherEnabled:"));
+    assert!(panel.contains("root.setting(\"showWeather\", true) !== false"));
+    assert!(panel.contains("function clearWeatherState()"));
+    assert!(panel.contains("if (!weatherEnabled)"));
+    assert!(panel.contains("onWeatherEnabledChanged:"));
+    assert!(panel.contains("readonly property string weatherUnitOverride"));
+    assert!(panel.contains("snapshot.weather_unit"));
+    assert!(panel.contains("weatherUnitOverride === \"imperial\""));
+    assert!(panel.contains("weatherUnitOverride !== \"metric\""));
+    assert!(panel.contains("function localeTerritory(localeName)"));
+    assert!(panel.contains("var parts = name.split(/[-_]/)"));
+    assert!(panel.contains("[\"US\", \"LR\", \"MM\"].indexOf(territory) !== -1"));
+    assert!(!panel.contains("/^en[_-]US"));
+    assert!(panel.contains("id: summaryMetadataLine"));
+    assert!(panel.contains("height: Style.space(92)"));
+    assert!(panel.contains("id: summaryWeatherLine"));
+    assert!(panel.contains("id: cardTitle"));
+    assert!(panel.contains("id: cardMetadataRow"));
+    assert!(panel.contains("id: cardWeatherBlock"));
+    assert!(panel.contains("id: cardWeatherTemperature"));
+    assert!(panel.contains("id: cardWeatherGlyph"));
+    assert!(panel.contains("anchors.baseline: cardWeatherTemperature.baseline"));
+    assert!(panel.contains("anchors.verticalCenter: parent.verticalCenter"));
+    assert!(panel.contains("id: weatherProviderAttribution"));
+    assert!(panel.contains(
+        "id: weatherProviderAttribution\n                anchors.verticalCenter: parent.verticalCenter"
+    ));
+    assert!(panel.contains("visible: root.mode !== \"add\" && root.weatherEnabled && root.live"));
+    assert!(panel.contains("? \"Open-Meteo\""));
+    assert!(panel.contains("tooltipText: \"Weather data by Open-Meteo\""));
+    assert!(panel.contains("background: \"transparent\""));
+    assert!(panel.contains("fontSize: Style.fontPx(0.75)"));
+    assert!(panel.contains("horizontalPadding: Style.space(4)"));
+    assert!(panel.contains("verticalPadding: Style.space(1)"));
+    assert!(!panel.contains("id: weatherAttributionSlot"));
+    let header_start = panel.find("id: headerStart").unwrap();
+    let attribution = panel.find("id: weatherProviderAttribution").unwrap();
+    let read_page = panel.find("id: readPage").unwrap();
+    assert!(header_start < attribution && attribution < read_page);
+    assert!(panel.contains("function mixColor("));
+    assert!(panel.contains("onClicked: Qt.openUrlExternally(\"https://open-meteo.com/\")"));
+    assert!(!panel.contains("&& (root.weatherLocations.length > 0 || root.weatherError)"));
+    assert!(panel.contains("&& root.weather.disabled !== true"));
+    assert!(panel.contains("interval: root.weatherFreshnessCheckMilliseconds"));
+    assert!(panel.contains("onTriggered: root.requestWeather(false)"));
 
     let city_data_path = root.join("data/featured-cities.json");
     let city_data: Value = serde_json::from_str(

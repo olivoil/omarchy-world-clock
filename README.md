@@ -1,6 +1,6 @@
 # Omarchy World Clock
 
-A native Omarchy Quattro world clock. Hover over the bar widget icon for a quick view of your timezones, add new timezones, pin one to be always visible, enter any time to convert from one timezone to the others.
+A native Omarchy Quattro world clock. Open the bar widget for current time and weather across your places, add new timezones, pin one to be always visible, or enter any time to convert from one timezone to the others.
 
 <p>
   <img src="preview.png" alt="Omarchy World Clock panel with a pinned home time, proportional timezone timeline, and six location clocks" width="960">
@@ -61,6 +61,8 @@ the AUR package is no longer required.
 
 - Up to nine non-local places in a compact three-column view.
 - A proportional timezone timeline with day and offset context.
+- Optional current temperature and conditions for every place with a known
+  coordinate.
 - Multiple named places in the same timezone, such as Boston and New York.
 - Personal labels for saved locations, such as a person's name or "Home".
 - One pinned home/place clock in the bar.
@@ -72,6 +74,8 @@ the AUR package is no longer required.
   drag-to-rotate, extended mouse-wheel or trackpad zoom, and offline
   click-to-add.
 - Automatic 12/24-hour display matching the Omarchy clock or system locale.
+- Automatic temperature units matching Omarchy Weather's effective preference,
+  including its configured home location, then the system locale.
 - Persistent state in `~/.config/omarchy-world-clock/config.json`.
 
 ## Why QML and Rust?
@@ -122,7 +126,7 @@ Example:
 }
 ```
 
-To keep all search local, add:
+To prevent all Open-Meteo requests, add:
 
 ```json
 {
@@ -130,18 +134,28 @@ To keep all search local, add:
 }
 ```
 
-Existing coordinates remain usable when remote search is disabled.
+This disables both remote city search and current weather. Existing coordinates
+remain usable for the map.
+
+The widget's native `Show current weather` setting controls weather separately.
+Turning it off suppresses weather requests, conditions, and attribution while
+leaving optional Open-Meteo city search available.
 
 ## Privacy and third-party data
 
-Local timezone searches and map clicks do not call a remote service. When a
-typed place query has no local result, World Clock may send that query directly
-from the user's machine to Open-Meteo's Geocoding API. Remote results are
-attributed in the panel. Set `disable_open_meteo_geolocation` to `true` to opt
-out.
+Local timezone searches and map clicks do not call a remote service. In live
+read mode, World Clock sends the saved coordinates for visible places directly
+from the user's machine to Open-Meteo in one batched request. Results are cached
+for 15 minutes while the panel stays loaded and are attributed beside the
+weather display. When a typed place query has no local result, World Clock may
+also send that query to Open-Meteo's Geocoding API.
+
+Set `disable_open_meteo_geolocation` to `true` to disable both requests. Weather
+is hidden in converted-time views because it always represents current
+conditions.
 
 See Open-Meteo's [Terms & Privacy](https://open-meteo.com/en/terms) and
-[Licence](https://open-meteo.com/en/licence).
+[Licence](https://open-meteo.com/en/license).
 
 ## Uninstall
 
@@ -167,6 +181,7 @@ Exercise the JSON protocol:
 ```bash
 cargo run --locked --bin omarchy-world-clock-backend -- module
 cargo run --locked --bin omarchy-world-clock-backend -- snapshot
+cargo run --locked --bin omarchy-world-clock-backend -- weather
 ```
 
 Rebuild checked-in artifacts after relevant source or dependency changes:

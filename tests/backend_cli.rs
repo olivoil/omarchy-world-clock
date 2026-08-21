@@ -64,7 +64,10 @@ fn bundled_backend_supports_the_complete_quattro_command_protocol() {
   "bar": {
     "layout": {
       "left": [],
-      "center": [{ "id": "omarchy.clock", "format": "HH:mm" }],
+      "center": [
+        { "id": "omarchy.clock", "format": "HH:mm" },
+        { "id": "omarchy.weather", "unit": "metric" }
+      ],
       "right": []
     }
   }
@@ -106,6 +109,7 @@ fn bundled_backend_supports_the_complete_quattro_command_protocol() {
     assert_eq!(snapshot["schema_version"], 1);
     assert_eq!(snapshot["pinned_timezone"], "Asia/Tokyo");
     assert_eq!(snapshot["configured_count"], 2);
+    assert_eq!(snapshot["weather_unit"], "metric");
     assert!(snapshot["featured_cities"]
         .as_array()
         .is_some_and(|cities| !cities.is_empty()));
@@ -138,6 +142,7 @@ fn bundled_backend_supports_the_complete_quattro_command_protocol() {
     let conversion: serde_json::Value =
         serde_json::from_slice(&conversion.stdout).expect("parse conversion");
     assert_eq!(conversion["normalized_input"], "09:00");
+    assert_eq!(conversion["snapshot"]["weather_unit"], "metric");
 
     let search = Command::new(backend)
         .args(["search", "Tokyo", "--at", "2026-08-11T11:05:00Z"])
@@ -193,6 +198,47 @@ fn bundled_backend_supports_the_complete_quattro_command_protocol() {
         .status()
         .expect("add location");
     assert!(add.success());
+
+    let add_flag_named_label = Command::new(backend)
+        .args(["add", "Europe/London", "--label", "--new-label"])
+        .env("HOME", &home)
+        .env("OMARCHY_WORLD_CLOCK_CONFIG", &config_path)
+        .status()
+        .expect("add location with a flag-like label");
+    assert!(add_flag_named_label.success());
+
+    let rename_flag_named_label = Command::new(backend)
+        .args([
+            "rename",
+            "Europe/London",
+            "--label",
+            "--new-label",
+            "--new-label",
+            "Office",
+        ])
+        .env("HOME", &home)
+        .env("OMARCHY_WORLD_CLOCK_CONFIG", &config_path)
+        .status()
+        .expect("rename location whose label resembles a flag");
+    assert!(rename_flag_named_label.success());
+
+    let renamed_flag_snapshot = Command::new(backend)
+        .args(["snapshot", "--at", "2026-08-11T11:05:00Z"])
+        .env("HOME", &home)
+        .env("OMARCHY_WORLD_CLOCK_CONFIG", &config_path)
+        .output()
+        .expect("render snapshot after renaming a flag-like label");
+    assert!(renamed_flag_snapshot.status.success());
+    let renamed_flag_snapshot: serde_json::Value =
+        serde_json::from_slice(&renamed_flag_snapshot.stdout)
+            .expect("parse renamed flag-like label snapshot");
+    let renamed_flag_clock = renamed_flag_snapshot["clocks"]
+        .as_array()
+        .expect("snapshot clocks")
+        .iter()
+        .find(|clock| clock["timezone"] == "Europe/London")
+        .expect("renamed flag-like location clock");
+    assert_eq!(renamed_flag_clock["label"], "Office");
 
     let rename = Command::new(backend)
         .args([
@@ -257,4 +303,109 @@ fn bundled_backend_supports_the_complete_quattro_command_protocol() {
         .status()
         .expect("unpin timezone");
     assert!(unpin.success());
+}
+
+#[test]
+fn automatic_weather_unit_follows_the_omarchy_weather_location_country() {
+    let sandbox = tempfile::tempdir().expect("create sandbox");
+    let home = sandbox.path().join("home");
+    let config_path = sandbox.path().join("config.json");
+    let shell_config = home.join(".config/omarchy/shell.json");
+    let weather_state = home.join(".local/state/omarchy/settings/weather.json");
+    let zoneinfo = sandbox.path().join("zoneinfo");
+    fs::create_dir_all(shell_config.parent().expect("shell config parent"))
+        .expect("create shell config directory");
+    fs::create_dir_all(weather_state.parent().expect("weather state parent"))
+        .expect("create weather state directory");
+    fs::create_dir_all(&zoneinfo).expect("create zoneinfo directory");
+    fs::write(
+        &shell_config,
+        r#"{
+  "bar": {
+    "layout": {
+      "center": [
+        { "id": "omarchy.weather" }
+      ]
+    }
+  }
+}
+"#,
+    )
+    .expect("write shell config");
+    fs::write(
+        &weather_state,
+        r#"{
+  "name": "Lagos del Sol",
+  "latitude": 21.05417,
+  "longitude": -86.84861
+}
+"#,
+    )
+    .expect("write weather state");
+    fs::write(
+        zoneinfo.join("zone.tab"),
+        "MX\t+2105-08646\tAmerica/Cancun\tQuintana Roo\n",
+    )
+    .expect("write zone table");
+    fs::write(
+        &config_path,
+        r#"{
+  "version": 6,
+  "timezones": [
+    { "timezone": "America/Cancun", "label": "Home" }
+  ]
+}
+"#,
+    )
+    .expect("write config");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_omarchy-world-clock-backend"))
+        .args(["snapshot", "--at", "2026-08-20T20:18:00Z"])
+        .env("HOME", &home)
+        .env("TZDIR", &zoneinfo)
+        .env("OMARCHY_WORLD_CLOCK_CONFIG", &config_path)
+        .output()
+        .expect("render snapshot");
+
+    assert!(output.status.success());
+    let snapshot: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("parse snapshot");
+    assert_eq!(snapshot["weather_unit"], "metric");
+}
+
+#[test]
+fn weather_command_honors_the_open_meteo_opt_out_without_network_access() {
+    let sandbox = tempfile::tempdir().expect("create sandbox");
+    let config_path = sandbox.path().join("config.json");
+    fs::write(
+        &config_path,
+        r#"{
+  "version": 6,
+  "disable_open_meteo_geolocation": true,
+  "timezones": [
+    {
+      "timezone": "America/Cancun",
+      "label": "Home",
+      "latitude": 21.1619,
+      "longitude": -86.8515
+    }
+  ]
+}
+"#,
+    )
+    .expect("write config");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_omarchy-world-clock-backend"))
+        .arg("weather")
+        .args(["--at", "2026-08-21T15:00:00Z"])
+        .env("OMARCHY_WORLD_CLOCK_CONFIG", &config_path)
+        .output()
+        .expect("request weather with remote data disabled");
+
+    assert!(output.status.success());
+    let payload: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("parse weather payload");
+    assert_eq!(payload["source"], "Open-Meteo");
+    assert_eq!(payload["disabled"], true);
+    assert_eq!(payload["locations"], serde_json::json!([]));
 }

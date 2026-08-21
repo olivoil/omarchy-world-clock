@@ -22,6 +22,7 @@ Panel {
     reference_utc: "",
     local_timezone: "",
     time_format: "24h",
+    weather_unit: "",
     configured_count: 0,
     local_configured: false,
     pinned_timezone: null,
@@ -63,6 +64,19 @@ Panel {
   property real mapCursorY: 0
   property bool mapSelectionCardOnRight: true
   property bool mapClickPending: false
+  property var weather: ({
+    source: "Open-Meteo",
+    attribution_url: "https://open-meteo.com/",
+    disabled: false,
+    locations: []
+  })
+  property bool weatherError: false
+  property bool weatherRequestPending: false
+  property string weatherLoadedSignature: ""
+  property string weatherActiveSignature: ""
+  property string weatherAttemptSignature: ""
+  property double weatherLastUpdatedAt: 0
+  property double weatherLastAttemptAt: 0
   property bool globeInitialized: false
   property bool searchVisible: false
   property bool keyboardCursorActive: false
@@ -85,6 +99,21 @@ Panel {
   readonly property var featuredCities: snapshot && Array.isArray(snapshot.featured_cities)
     ? snapshot.featured_cities : []
   readonly property var summary: snapshot && snapshot.summary ? snapshot.summary : ({ time: "--:--", title: "", timezone: "", day: "", notation: "" })
+  readonly property var weatherLocations: weather && Array.isArray(weather.locations)
+    ? weather.locations : []
+  readonly property bool weatherEnabled:
+    root.setting("showWeather", true) !== false
+  readonly property bool weatherLoading: root.weatherEnabled && weatherProcess.running
+  readonly property string weatherUnitOverride:
+    String(snapshot.weather_unit || "").trim().toLowerCase()
+  readonly property bool weatherUseImperial: weatherUnitOverride === "imperial"
+    || (weatherUnitOverride !== "metric"
+      && root.localeUsesImperial(Qt.locale().name))
+  readonly property bool weatherPresentationActive: root.weatherEnabled && root.live
+    && weather.disabled !== true
+    && (root.weatherLoading || root.weatherLocations.length > 0)
+  readonly property int weatherRefreshMilliseconds: 15 * 60 * 1000
+  readonly property int weatherFreshnessCheckMilliseconds: 30 * 1000
   readonly property string currentLocationTitle: {
     var title = String(summary.title || summary.label || "").trim()
     return title || "World Clock"
@@ -282,6 +311,39 @@ Panel {
     controller.hide()
   }
 
+  function itemContainsPanelPoint(item, panelX, panelY) {
+    if (!item || !item.visible || !item.enabled) return false
+    var local = keyCatcher.mapToItem(item, panelX, panelY)
+    return local.x >= 0 && local.y >= 0
+      && local.x <= item.width && local.y <= item.height
+  }
+
+  function pointerInsideActiveEditor(panelX, panelY) {
+    if (summaryInput.activeFocus
+        && itemContainsPanelPoint(summaryInput, panelX, panelY)) return true
+    if (summaryLabelInput.activeFocus
+        && itemContainsPanelPoint(summaryLabelInput, panelX, panelY)) return true
+    if (addField.activeFocus
+        && itemContainsPanelPoint(addField, panelX, panelY)) return true
+    for (var clockIndex = 0; clockIndex < clocks.length; clockIndex++) {
+      var cell = clockCellAt(clockIndex)
+      if (cell && cell.pointerInsideActiveEditor(panelX, panelY)) return true
+    }
+    return false
+  }
+
+  function handlePanelPointerTap(panelX, panelY) {
+    keyboardCursorActive = false
+    keyboardClockIndex = -1
+    var pointerX = Number(panelX)
+    var pointerY = Number(panelY)
+    Qt.callLater(function() {
+      if (!root.opened || !root.editorActive
+          || root.pointerInsideActiveEditor(pointerX, pointerY)) return
+      keyCatcher.forceActiveFocus(Qt.MouseFocusReason)
+    })
+  }
+
   function mixColor(base, tint, amount) {
     var ratio = Math.max(0, Math.min(1, Number(amount)))
     return Qt.rgba(
@@ -436,6 +498,127 @@ Panel {
     return String(clock.timezone || "") + "\u001f" + String(label || "")
   }
 
+  function localeTerritory(localeName) {
+    var name = String(localeName || "").split(/[.@]/)[0]
+    var parts = name.split(/[-_]/)
+    if (parts.length < 2) return ""
+    var territory = String(parts[parts.length - 1] || "").toUpperCase()
+    return /^[A-Z]{2}$/.test(territory) ? territory : ""
+  }
+
+  function localeUsesImperial(localeName) {
+    var territory = localeTerritory(localeName)
+    return ["US", "LR", "MM"].indexOf(territory) !== -1
+  }
+
+  function weatherSignature() {
+    if (!snapshotLoaded) return ""
+    var entries = [summary].concat(clocks)
+    var signatures = []
+    for (var i = 0; i < entries.length; i++) {
+      var entry = entries[i]
+      signatures.push(conversionSource(entry)
+        + "\u001f" + String(entry.latitude)
+        + "\u001f" + String(entry.longitude))
+    }
+    signatures.sort()
+    return signatures.join("\u001e")
+  }
+
+  function weatherFor(clock) {
+    var key = conversionSource(clock)
+    for (var i = 0; i < weatherLocations.length; i++) {
+      if (conversionSource(weatherLocations[i]) === key) return weatherLocations[i]
+    }
+    return null
+  }
+
+  function weatherTemperature(value) {
+    var celsius = Number(value)
+    if (!isFinite(celsius)) return ""
+    var temperature = weatherUseImperial ? celsius * 9 / 5 + 32 : celsius
+    return String(Math.round(temperature)) + "°" + (weatherUseImperial ? "F" : "C")
+  }
+
+  function weatherTemperatureCompact(value) {
+    return weatherTemperature(value).replace(/[FC]$/, "")
+  }
+
+  // Match the weather-icons glyph vocabulary already used by Omarchy's
+  // native weather panel, including day/night-aware clear and cloud icons.
+  function weatherGlyph(item) {
+    if (!item) return ""
+    var code = Number(item.weather_code)
+    var night = item.is_day === false
+    if (code === 0) return night ? "" : ""
+    if (code === 1 || code === 2) return night ? "" : ""
+    if (code === 3) return ""
+    if (code === 45 || code === 48) return night ? "" : ""
+    if (code === 51 || code === 53 || code === 55 || code === 56
+        || code === 57 || code === 61) return ""
+    if (code === 63 || code === 65 || code === 66 || code === 67
+        || code === 80 || code === 81 || code === 82) return ""
+    if (code === 71 || code === 73 || code === 75 || code === 77
+        || code === 85 || code === 86) return ""
+    if (code === 95 || code === 96 || code === 99) return ""
+    return ""
+  }
+
+  function weatherText(item) {
+    if (!item) return "WEATHER UNAVAILABLE"
+    return weatherTemperature(item.temperature_celsius)
+  }
+
+  function clearWeatherState() {
+    weather = ({
+      source: "Open-Meteo",
+      attribution_url: "https://open-meteo.com/",
+      disabled: false,
+      locations: []
+    })
+    weatherError = false
+    weatherRequestPending = false
+    weatherLoadedSignature = ""
+    weatherActiveSignature = ""
+    weatherAttemptSignature = ""
+    weatherLastUpdatedAt = 0
+    weatherLastAttemptAt = 0
+  }
+
+  function requestWeather(force) {
+    if (!weatherEnabled) {
+      weatherRequestPending = false
+      return
+    }
+    if (!opened || !snapshotLoaded || !live) return
+    var signature = weatherSignature()
+    if (!signature) return
+    var fresh = !weatherError && signature === weatherLoadedSignature
+      && Date.now() - weatherLastUpdatedAt < weatherRefreshMilliseconds
+    var recentlyAttempted = signature === weatherAttemptSignature
+      && Date.now() - weatherLastAttemptAt < 2 * 60 * 1000
+    if (force !== true && (fresh || recentlyAttempted)) return
+    if (weatherProcess.running) {
+      weatherRequestPending = true
+      return
+    }
+    weatherRequestPending = false
+    weatherActiveSignature = signature
+    weatherAttemptSignature = signature
+    weatherLastAttemptAt = Date.now()
+    var command = [backendCommand, "weather"]
+    if (snapshot && snapshot.reference_utc)
+      command.push("--at", String(snapshot.reference_utc))
+    weatherProcess.command = command
+    weatherProcess.running = true
+  }
+
+  function flushWeatherRequest() {
+    if (!weatherRequestPending || weatherProcess.running) return
+    weatherRequestPending = false
+    requestWeather(false)
+  }
+
   function clearConversionError(source) {
     if (invalidConversionSource !== String(source || "")) return
     invalidConversionSource = ""
@@ -466,6 +649,7 @@ Panel {
         mode = "add"
       clearStatus()
       if (summaryFocusPending) Qt.callLater(root.focusSummaryEditor)
+      requestWeather(false)
       if (mode === "add") Qt.callLater(root.initializeGlobe)
     } catch (error) {
       setStatus("World Clock backend returned invalid data.", true)
@@ -542,6 +726,7 @@ Panel {
     invalidConversionSource = ""
     live = true
     requestLiveSnapshot()
+    requestWeather(false)
   }
 
   function convertFrom(timezone, value, source) {
@@ -849,7 +1034,17 @@ Panel {
     return Math.max(0, Math.min(width - itemWidth, center - itemWidth / 2))
   }
 
-  onOpenedChanged: if (opened) refresh()
+  onOpenedChanged: if (opened) {
+    refresh()
+    requestWeather(false)
+  }
+  onWeatherEnabledChanged: {
+    if (!weatherEnabled) {
+      clearWeatherState()
+    } else if (opened && snapshotLoaded && live) {
+      Qt.callLater(function() { root.requestWeather(true) })
+    }
+  }
   onTimeEditorActiveChanged: {
     if (!timeEditorActive && editorRefreshPending)
       Qt.callLater(root.flushEditorRefresh)
@@ -895,6 +1090,38 @@ Panel {
       root.snapshotActiveReference = ""
       Qt.callLater(root.flushSnapshotRequest)
       Qt.callLater(root.flushEditorRefresh)
+    }
+  }
+
+  Process {
+    id: weatherProcess
+    stdout: StdioCollector { id: weatherOutput; waitForEnd: true }
+    stderr: StdioCollector { waitForEnd: true }
+    onExited: function(exitCode) {
+      var signature = root.weatherActiveSignature
+      root.weatherActiveSignature = ""
+      if (!root.weatherEnabled) {
+        root.weatherRequestPending = false
+        return
+      }
+      if (signature !== root.weatherSignature()) {
+        root.weatherRequestPending = true
+      } else if (exitCode !== 0) {
+        root.weatherError = true
+      } else {
+        try {
+          var payload = JSON.parse(String(weatherOutput.text || ""))
+          if (!payload || !Array.isArray(payload.locations))
+            throw new Error("Unsupported weather response")
+          root.weather = payload
+          root.weatherError = false
+          root.weatherLoadedSignature = signature
+          root.weatherLastUpdatedAt = Date.now()
+        } catch (error) {
+          root.weatherError = true
+        }
+      }
+      Qt.callLater(root.flushWeatherRequest)
     }
   }
 
@@ -1049,6 +1276,14 @@ Panel {
     onTriggered: root.startSearch()
   }
 
+  Timer {
+    interval: root.weatherFreshnessCheckMilliseconds
+    running: root.weatherEnabled && root.opened && root.live
+      && root.weather.disabled !== true
+    repeat: true
+    onTriggered: root.requestWeather(false)
+  }
+
   KeyboardPanel {
     id: panel
     anchorItem: root.anchorItem
@@ -1089,6 +1324,18 @@ Panel {
         else if (text === "r" || text === "R") root.returnToLive()
       }
 
+      // Observe pointer taps without covering the controls below. Empty
+      // panel space otherwise lands on KeyboardPanel's click-swallowing
+      // layer, which intentionally does not move keyboard focus.
+      TapHandler {
+        id: focusDismissHandler
+        parent: keyCatcher
+        acceptedButtons: Qt.LeftButton
+        onTapped: function(eventPoint) {
+          root.handlePanelPointerTap(eventPoint.position.x, eventPoint.position.y)
+        }
+      }
+
       Flickable {
         id: panelScroll
         anchors.fill: parent
@@ -1101,7 +1348,7 @@ Panel {
         Column {
           id: panelColumn
           width: panelScroll.width
-          spacing: Style.space(14)
+          spacing: Style.space(root.mode === "add" ? 14 : 8)
 
           Item {
             visible: root.mode !== "add"
@@ -1125,6 +1372,26 @@ Panel {
                 horizontalPadding: Style.space(8)
                 verticalPadding: Style.space(5)
                 onClicked: root.returnToLive()
+              }
+
+              Button {
+                id: weatherProviderAttribution
+                anchors.verticalCenter: parent.verticalCenter
+                visible: root.mode !== "add" && root.weatherEnabled && root.live
+                  && root.weather.disabled !== true
+                text: root.weatherLocations.length > 0 || !root.weatherError
+                  ? "Open-Meteo"
+                    + (root.weatherError ? "  ·  Update unavailable" : "")
+                  : "Weather unavailable"
+                tooltipText: "Weather data by Open-Meteo"
+                foreground: Qt.darker(root.contentForeground, 1.35)
+                background: "transparent"
+                fontFamily: root.contentFontFamily
+                fontSize: Style.fontPx(0.75)
+                focusable: true
+                horizontalPadding: Style.space(4)
+                verticalPadding: Style.space(1)
+                onClicked: Qt.openUrlExternally("https://open-meteo.com/")
               }
 
               Button {
@@ -1176,7 +1443,7 @@ Panel {
                 text: root.currentLocationTitle
                 color: root.contentForeground
                 font.family: root.contentFontFamily
-                font.pixelSize: Style.font.title
+                font.pixelSize: Style.space(18)
                 font.bold: true
               }
 
@@ -1192,7 +1459,7 @@ Panel {
                 selectionColor: Style.selectionFill
                 selectedTextColor: root.contentForeground
                 font.family: root.contentFontFamily
-                font.pixelSize: Style.font.title
+                font.pixelSize: Style.space(18)
                 font.bold: true
                 selectByMouse: true
                 clip: true
@@ -1272,6 +1539,8 @@ Panel {
             spacing: Style.space(14)
 
             Item {
+              id: summaryClock
+              readonly property var weatherData: root.weatherFor(root.summary)
               width: parent.width
               height: Style.space(92)
 
@@ -1315,16 +1584,78 @@ Panel {
                   : Style.focusStateColor(root.contentForeground, Color.accent)
               }
 
-              Text {
-              anchors.top: summaryInput.bottom
-              anchors.topMargin: Style.space(7)
-              anchors.horizontalCenter: parent.horizontalCenter
-              text: root.currentTimezoneMetadata
-                color: Qt.darker(root.contentForeground, 1.45)
-                font.family: root.contentFontFamily
-                font.pixelSize: Style.font.bodySmall
-                font.bold: true
-                font.letterSpacing: 1.1
+              Row {
+                id: summaryMetadataLine
+                anchors.top: summaryInput.bottom
+                anchors.topMargin: Style.space(7)
+                anchors.horizontalCenter: parent.horizontalCenter
+                spacing: Style.space(8)
+
+                Text {
+                  id: summaryMetadata
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: root.currentTimezoneMetadata
+                  color: Qt.darker(root.contentForeground, 1.45)
+                  font.family: root.contentFontFamily
+                  font.pixelSize: Style.font.bodySmall
+                  font.bold: true
+                  font.letterSpacing: 1.1
+                }
+
+                Text {
+                  visible: summaryWeatherLine.visible
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: "·"
+                  color: Qt.darker(root.contentForeground, 1.45)
+                  font.family: root.contentFontFamily
+                  font.pixelSize: Style.font.bodySmall
+                }
+
+                Item {
+                  id: summaryWeatherLine
+                  visible: root.weatherPresentationActive
+                  width: Math.max(summaryWeatherText.implicitWidth,
+                    summaryWeatherSkeleton.implicitWidth)
+                  height: Style.space(16)
+
+                  Text {
+                    id: summaryWeatherText
+                    visible: summaryClock.weatherData || !root.weatherLoading
+                    anchors.centerIn: parent
+                    text: root.weatherGlyph(summaryClock.weatherData)
+                      + (summaryClock.weatherData ? "  " : "")
+                      + root.weatherText(summaryClock.weatherData)
+                    color: Qt.darker(root.contentForeground, 1.45)
+                    font.family: root.contentFontFamily
+                    font.pixelSize: Style.font.bodySmall
+                    font.letterSpacing: 0.3
+                  }
+
+                  Row {
+                    id: summaryWeatherSkeleton
+                    visible: !summaryClock.weatherData && root.weatherLoading
+                    anchors.centerIn: parent
+                    spacing: Style.space(7)
+
+                    Rectangle {
+                      anchors.verticalCenter: parent.verticalCenter
+                      width: Style.space(12)
+                      height: Style.space(8)
+                      radius: height / 2
+                      color: root.contentForeground
+                      opacity: 0.12
+                    }
+
+                    Rectangle {
+                      anchors.verticalCenter: parent.verticalCenter
+                      width: Style.space(30)
+                      height: Style.space(6)
+                      radius: height / 2
+                      color: root.contentForeground
+                      opacity: 0.12
+                    }
+                  }
+                }
               }
             }
 
@@ -1487,6 +1818,9 @@ Panel {
                       required property int index
                       readonly property var clockData:
                         root.clocks[clockRow.startIndex + index]
+                      readonly property var weatherData: root.weatherFor(clockData)
+                      readonly property bool showWeather: root.weatherPresentationActive
+                        && (weatherData !== null || root.weatherLoading)
                       readonly property int clockIndex: clockRow.startIndex + index
                       readonly property bool hasKeyboardCursor:
                         root.keyboardCursorActive
@@ -1511,11 +1845,21 @@ Panel {
                             cardLabelInput.selectAll()
                         })
                       }
+                      function pointerInsideActiveEditor(panelX, panelY) {
+                        if (cardTimeInput.activeFocus)
+                          return root.itemContainsPanelPoint(
+                            cardTimeInput, panelX, panelY)
+                        if (cardLabelInput.activeFocus)
+                          return root.itemContainsPanelPoint(
+                            cardLabelInput, panelX, panelY)
+                        return false
+                      }
                       onClockDataChanged: {
                         if (!cardLabelInput.activeFocus) cardLabelInput.resetText()
                       }
                       width: clockRow.cellWidth
                       height: clockRow.height
+                      clip: true
 
                       Rectangle {
                         id: clockSurface
@@ -1531,6 +1875,7 @@ Panel {
                       }
 
                       Column {
+                        id: cardContent
                         anchors.fill: parent
                         anchors.leftMargin: Style.space(10)
                         anchors.rightMargin: Style.space(10)
@@ -1554,7 +1899,7 @@ Panel {
                             text: String(clockCell.clockData.title || "").toUpperCase()
                             color: root.contentForeground
                             font.family: root.contentFontFamily
-                            font.pixelSize: Style.font.caption
+                            font.pixelSize: Style.font.bodySmall
                             font.bold: true
                             font.letterSpacing: 1
                             elide: Text.ElideRight
@@ -1575,7 +1920,7 @@ Panel {
                             selectionColor: Style.selectionFill
                             selectedTextColor: root.contentForeground
                             font.family: root.contentFontFamily
-                            font.pixelSize: Style.font.caption
+                            font.pixelSize: Style.font.bodySmall
                             font.bold: true
                             font.capitalization: Font.AllUppercase
                             font.letterSpacing: 1
@@ -1703,16 +2048,78 @@ Panel {
                           }
                         }
 
-                        Text {
+                        Item {
+                          id: cardMetadataRow
                           width: parent.width
-                          text: String(clockCell.clockData.day || "").toUpperCase()
-                            + "  ·  "
-                            + String(clockCell.clockData.relative_label || "").toUpperCase()
-                          color: Qt.darker(root.contentForeground, 1.5)
-                          font.family: root.contentFontFamily
-                          font.pixelSize: Style.font.caption
-                          font.letterSpacing: 0.6
-                          elide: Text.ElideRight
+                          height: Math.max(cardRelativeMetadata.implicitHeight,
+                            cardWeatherBlock.implicitHeight)
+
+                          Text {
+                            id: cardRelativeMetadata
+                            anchors.left: parent.left
+                            anchors.right: cardWeatherBlock.left
+                            anchors.rightMargin: cardWeatherBlock.visible
+                              ? Style.space(8) : 0
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: String(clockCell.clockData.day || "").toUpperCase()
+                              + "  ·  "
+                              + String(clockCell.clockData.relative_label || "").toUpperCase()
+                            color: Qt.darker(root.contentForeground, 1.5)
+                            font.family: root.contentFontFamily
+                            font.pixelSize: Style.font.caption
+                            font.letterSpacing: 0.6
+                            elide: Text.ElideRight
+                          }
+
+                          Item {
+                            id: cardWeatherBlock
+                            visible: clockCell.showWeather
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            implicitWidth: Style.space(64)
+                            implicitHeight: Style.space(14)
+                            width: visible ? implicitWidth : 0
+                            height: implicitHeight
+
+                            Text {
+                              id: cardWeatherTemperature
+                              visible: clockCell.weatherData !== null
+                              anchors.right: parent.right
+                              anchors.verticalCenter: parent.verticalCenter
+                              text: clockCell.weatherData === null ? ""
+                                : root.weatherTemperatureCompact(
+                                  clockCell.weatherData.temperature_celsius)
+                              color: Qt.darker(root.contentForeground, 1.5)
+                              font.family: root.contentFontFamily
+                              font.pixelSize: Style.font.caption
+                              font.letterSpacing: 0.2
+                            }
+
+                            Text {
+                              id: cardWeatherGlyph
+                              visible: clockCell.weatherData !== null
+                              anchors.right: cardWeatherTemperature.left
+                              anchors.rightMargin: Style.space(4)
+                              anchors.baseline: cardWeatherTemperature.baseline
+                              text: clockCell.weatherData === null ? ""
+                                : root.weatherGlyph(clockCell.weatherData)
+                              color: Qt.darker(root.contentForeground, 1.5)
+                              font.family: root.contentFontFamily
+                              font.pixelSize: Style.font.bodySmall
+                            }
+
+                            Rectangle {
+                              visible: clockCell.weatherData === null
+                                && root.weatherLoading
+                              anchors.right: parent.right
+                              anchors.verticalCenter: parent.verticalCenter
+                              width: Style.space(42)
+                              height: Style.space(6)
+                              radius: height / 2
+                              color: root.contentForeground
+                              opacity: 0.09
+                            }
+                          }
                         }
                       }
                     }

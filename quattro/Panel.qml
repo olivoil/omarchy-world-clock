@@ -62,6 +62,7 @@ Panel {
   property real mapCursorY: 0
   property bool mapClickPending: false
   property bool globeInitialized: false
+  property bool searchVisible: false
 
   readonly property var barIdentity: hostWidget || root
   readonly property color contentForeground: bar ? bar.foreground : Color.foreground
@@ -113,6 +114,19 @@ Panel {
     }
     return entries
   }
+  readonly property bool searchHasQuery: root.searchVisible
+    && String(addField.text || "").trim() !== ""
+  readonly property var searchMapLocations: {
+    var entries = []
+    for (var resultIndex = 0; resultIndex < searchResults.length; resultIndex++) {
+      var result = searchResults[resultIndex]
+      if (root.hasMapCoordinate(result))
+        entries.push({ location: result, configured: false, searchResult: true })
+    }
+    return entries
+  }
+  readonly property var mapLocations: searchHasQuery
+    ? searchMapLocations : globeLocations
   readonly property int timelineExtent: {
     var extent = 60
     for (var i = 0; i < timeline.length; i++)
@@ -154,20 +168,45 @@ Panel {
     Qt.callLater(root.focusSummaryEditor)
   }
 
-  function focusAddField() {
+  function focusAddField(selectExisting) {
     Qt.callLater(function() {
-      if (!opened || mode !== "add" || !canAdd) return
+      if (!opened || mode !== "add" || !searchVisible || !canAdd) return
       addField.forceActiveFocus(Qt.ShortcutFocusReason)
-      addField.selectAll()
+      if (selectExisting === false)
+        addField.cursorPosition = addField.text.length
+      else
+        addField.selectAll()
+    })
+  }
+
+  function openSearch(initialText) {
+    if (mode !== "add" || !canAdd) return
+    var seed = String(initialText || "")
+    searchVisible = true
+    clearStatus()
+    if (seed) addField.text = seed
+    focusAddField(seed === "")
+  }
+
+  function closeSearch() {
+    searchVisible = false
+    searchDebounce.stop()
+    searchResults = []
+    searchResultsQuery = ""
+    searchSubmitQuery = ""
+    addField.text = ""
+    editorActive = false
+    Qt.callLater(function() {
+      if (opened && mode === "add") keyCatcher.forceActiveFocus(Qt.ShortcutFocusReason)
     })
   }
 
   function openAdd() {
     mode = "add"
+    searchVisible = false
     var alreadyOpened = opened
     controller.show()
     if (alreadyOpened) refresh()
-    focusAddField()
   }
 
   function close() {
@@ -176,6 +215,7 @@ Panel {
     searchResults = []
     searchResultsQuery = ""
     searchSubmitQuery = ""
+    searchVisible = false
     mapSelection = null
     mapClickPending = false
     globeInitialized = false
@@ -406,6 +446,13 @@ Panel {
   }
 
   function searchTextChanged() {
+    if (!searchVisible) {
+      searchDebounce.stop()
+      searchResults = []
+      searchResultsQuery = ""
+      searchSubmitQuery = ""
+      return
+    }
     searchResults = []
     searchResultsQuery = ""
     searchSubmitQuery = ""
@@ -413,7 +460,7 @@ Panel {
   }
 
   function startSearch() {
-    if (mode !== "add") return
+    if (mode !== "add" || !searchVisible) return
     var query = String(addField.text || "").trim()
     if (!query) {
       searchResults = []
@@ -428,7 +475,8 @@ Panel {
 
   function addFirstResult() {
     var query = String(addField.text || "").trim()
-    if (mode !== "add" || !query || !canAdd || actionProcess.running) return
+    if (mode !== "add" || !searchVisible || !query || !canAdd
+        || actionProcess.running) return
     if (searchResultsQuery === query) {
       if (searchResults.length > 0)
         runAction("add", searchResults[0].timezone, searchResults[0])
@@ -467,9 +515,10 @@ Panel {
 
   function globeLabelWidth(location) {
     var titleLength = String(location && location.title || "").length
-    var timeLength = String(location && location.time || "").length
+    var metadataLength = String(location
+      && (location.time || location.timezone || location.subtitle) || "").length
     return Math.max(Style.space(68), Math.min(Style.space(148),
-      Math.max(titleLength, timeLength) * Style.spaceReal(7.1) + Style.space(18)))
+      Math.max(titleLength, metadataLength) * Style.spaceReal(7.1) + Style.space(18)))
   }
 
   function globeLabelLayout(targetIndex, width, height) {
@@ -490,8 +539,8 @@ Panel {
     var edge = Style.space(8)
     var pointGap = Style.space(12)
 
-    for (var i = 0; i <= targetIndex && i < globeLocations.length; i++) {
-      var wrapper = globeLocations[i]
+    for (var i = 0; i <= targetIndex && i < mapLocations.length; i++) {
+      var wrapper = mapLocations[i]
       var location = wrapper.location
       var projection = mapCanvas.project(location.latitude, location.longitude)
       var layout = {
@@ -510,7 +559,8 @@ Panel {
         continue
       }
 
-      var mayPlaceLabel = wrapper.configured || featuredPlaced < 7
+      var mayPlaceLabel = wrapper.searchResult === true
+        || wrapper.configured || featuredPlaced < 7
       var labelWidth = layout.width
       var candidates = [
         { x: projection.x - labelWidth / 2, y: projection.y - labelHeight - pointGap },
@@ -549,7 +599,8 @@ Panel {
         placed.push(chosen)
         if (!wrapper.configured) featuredPlaced++
       }
-      layout.visible = wrapper.configured || layout.labelVisible
+      layout.visible = wrapper.searchResult === true
+        || wrapper.configured || layout.labelVisible
       if (i === targetIndex) target = layout
     }
     return target
@@ -603,9 +654,11 @@ Panel {
   }
   onModeChanged: {
     if (mode === "add") {
-      focusAddField()
+      searchVisible = false
       Qt.callLater(root.initializeGlobe)
     } else {
+      searchVisible = false
+      addField.text = ""
       searchDebounce.stop()
       searchResults = []
       searchResultsQuery = ""
@@ -614,6 +667,7 @@ Panel {
       mapClickPending = false
     }
   }
+  onCanAddChanged: if (!canAdd && searchVisible) closeSearch()
 
   Process {
     id: snapshotProcess
@@ -693,7 +747,7 @@ Panel {
     stdout: StdioCollector { id: searchOutput; waitForEnd: true }
     stderr: StdioCollector { waitForEnd: true }
     onExited: function(exitCode) {
-      if (root.mode !== "add") {
+      if (root.mode !== "add" || !root.searchVisible) {
         root.searchResults = []
         root.searchResultsQuery = ""
         root.searchSubmitQuery = ""
@@ -723,7 +777,7 @@ Panel {
           root.setStatus("No matching location.", false)
         } else {
           root.clearStatus()
-          root.focusGlobeOn(root.searchResults[0], 1.95)
+          mapCanvas.focusOnLocations(root.searchResults)
           if (root.mode === "add"
               && root.searchSubmitQuery === root.searchResultsQuery && root.canAdd) {
             root.searchSubmitQuery = ""
@@ -791,20 +845,30 @@ Panel {
     contentWidth: panel.fittedContentWidth(Style.space(960))
     contentHeight: panel.fittedContentHeight(panelColumn.implicitHeight, Style.space(680))
 
-    PanelKeyCatcher {
+    WorldClockKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
       blocked: root.editorActive || addField.activeFocus
+      directTextInput: root.mode === "add" && !addField.activeFocus
       onCloseRequested: {
-        if (root.mode === "read") root.close()
+        if (root.mode === "add" && root.searchVisible) root.closeSearch()
+        else if (root.mode === "read") root.close()
         else root.mode = "read"
       }
       onTabRequested: function(direction) { root.switchPanel(direction) }
       onReturnRequested: {
         if (root.mode === "read") root.focusSummaryEditor()
-        else if (root.mode === "add") root.focusAddField()
+        else if (root.mode === "add") root.openSearch()
       }
       onTextKey: function(text) {
+        if (root.mode === "add") {
+          if (!root.searchVisible) root.openSearch(text)
+          else {
+            addField.text += text
+            root.focusAddField(false)
+          }
+          return
+        }
         if (text === "a" || text === "A") root.mode = "add"
         else if (text === "e" || text === "E") root.mode = root.mode === "edit" ? "read" : "edit"
         else if (text === "r" || text === "R") root.returnToLive()
@@ -825,8 +889,12 @@ Panel {
           spacing: Style.space(14)
 
           Item {
+            visible: root.mode !== "add"
             width: parent.width
-            height: Math.max(headerTitle.implicitHeight, headerStart.implicitHeight, headerActions.implicitHeight)
+            height: visible
+              ? Math.max(headerTitle.implicitHeight, headerStart.implicitHeight,
+                headerActions.implicitHeight)
+              : 0
 
             Row {
               id: headerStart
@@ -835,15 +903,12 @@ Panel {
               spacing: Style.space(6)
 
               Button {
-                iconText: root.mode === "add" ? "󰅁" : "󰑐"
-                active: root.mode !== "add" && !root.live
-                tooltipText: root.mode === "add" ? "Back to world clock" : "Return to live time"
+                iconText: "󰑐"
+                active: !root.live
+                tooltipText: "Return to live time"
                 horizontalPadding: Style.space(8)
                 verticalPadding: Style.space(5)
-                onClicked: {
-                  if (root.mode === "add") root.mode = "read"
-                  else root.returnToLive()
-                }
+                onClicked: root.returnToLive()
               }
 
               Button {
@@ -861,7 +926,7 @@ Panel {
             Text {
               id: headerTitle
               anchors.centerIn: parent
-              text: root.mode === "add" ? "Add a Location" : root.currentLocationTitle
+              text: root.currentLocationTitle
               color: root.contentForeground
               font.family: root.contentFontFamily
               font.pixelSize: Style.font.title
@@ -1259,42 +1324,134 @@ Panel {
             }
           }
 
-          Column {
+          Item {
             id: addPage
             visible: root.mode === "add"
             width: parent.width
-            spacing: Style.space(12)
+            height: Math.max(Style.space(360),
+              (panel.availableCardHeight > 0
+                ? Math.min(panel.availableCardHeight, Style.space(680))
+                : Style.space(680)) - panel.verticalContentInset)
+            clip: true
+
+            Rectangle {
+              id: addSearchSurface
+              visible: root.searchVisible
+              anchors.top: parent.top
+              anchors.topMargin: Style.space(12)
+              anchors.left: addBackButton.right
+              anchors.leftMargin: Style.space(12)
+              anchors.right: addSearchButton.left
+              anchors.rightMargin: Style.space(12)
+              height: addSearchButton.height
+              z: 29
+              radius: Style.cornerRadius
+              color: root.mixColor(Color.popups.background,
+                root.contentForeground, 0.025)
+              border.width: Style.spacing.hairline
+              border.color: root.mixColor(Color.popups.background,
+                root.contentForeground, 0.26)
+              opacity: root.searchVisible ? 1 : 0
+
+              Behavior on opacity {
+                NumberAnimation { duration: 160; easing.type: Easing.OutCubic }
+              }
+            }
 
             TextField {
               id: addField
-              anchors.horizontalCenter: parent.horizontalCenter
-              width: Math.min(parent.width, Style.space(760))
+              visible: root.searchVisible
+              anchors.fill: addSearchSurface
+              z: 30
+              opacity: root.searchVisible ? 1 : 0
               placeholderText: "Search for a city or timezone"
               foreground: root.contentForeground
-              enabled: root.canAdd && !actionProcess.running
+              enabled: root.searchVisible && root.canAdd && !actionProcess.running
               onTextChanged: root.searchTextChanged()
               onAccepted: root.addFirstResult()
               onActiveFocusChanged: root.editorActive = activeFocus
+              Keys.onEscapePressed: function(event) {
+                root.closeSearch()
+                event.accepted = true
+              }
+
+              Behavior on opacity {
+                NumberAnimation { duration: 160; easing.type: Easing.OutCubic }
+              }
             }
 
-            Text {
+            Button {
+              id: addBackButton
+              anchors.top: parent.top
+              anchors.left: parent.left
+              anchors.margins: Style.space(12)
+              width: Style.space(42)
+              height: width
+              z: 31
+              radius: height / 2
+              iconText: "󰅁"
+              iconSize: Style.font.iconLarge
+              tooltipText: "Back to world clock"
+              foreground: root.contentForeground
+              background: root.mixColor(Color.popups.background,
+                root.contentForeground, 0.025)
+              bordered: true
+              horizontalPadding: 0
+              verticalPadding: 0
+              onClicked: root.mode = "read"
+            }
+
+            Button {
+              id: addSearchButton
+              anchors.top: parent.top
+              anchors.right: parent.right
+              anchors.margins: Style.space(12)
+              width: Style.space(42)
+              height: width
+              z: 31
+              radius: height / 2
+              iconText: root.searchVisible ? "󰅖" : "󰍉"
+              iconSize: Style.font.iconLarge
+              tooltipText: root.searchVisible ? "Close search" : "Search locations"
+              foreground: root.contentForeground
+              background: root.mixColor(Color.popups.background,
+                root.contentForeground, 0.025)
+              bordered: true
+              horizontalPadding: 0
+              verticalPadding: 0
+              onClicked: {
+                if (root.searchVisible) root.closeSearch()
+                else root.openSearch()
+              }
+            }
+
+            Rectangle {
               visible: !root.canAdd
-              width: parent.width
-              horizontalAlignment: Text.AlignHCenter
-              text: "Remove a location before adding another."
-              color: Qt.darker(root.contentForeground, 1.45)
-              font.family: root.contentFontFamily
-              font.pixelSize: Style.font.body
+              anchors.centerIn: parent
+              width: capacityLabel.implicitWidth + Style.space(28)
+              height: capacityLabel.implicitHeight + Style.space(16)
+              z: 25
+              radius: height / 2
+              color: root.mixColor(Color.background, root.contentForeground, 0.035)
+              border.width: Style.spacing.hairline
+              border.color: root.mixColor(Color.background, root.contentForeground, 0.24)
+
+              Text {
+                id: capacityLabel
+                anchors.centerIn: parent
+                text: "Remove a location before adding another."
+                color: root.contentForeground
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.font.body
+              }
             }
 
             Globe {
               id: mapCanvas
-              visible: root.canAdd
-              anchors.horizontalCenter: parent.horizontalCenter
-              width: Math.min(parent.width, Style.space(760))
-              height: Style.space(430)
+              anchors.fill: parent
               clip: true
               interactive: root.canAdd && !actionProcess.running
+              diameterRatio: 0.63
               oceanColor: root.mixColor(Color.background, root.contentForeground, 0.07)
               landColor: root.mixColor(Color.background, root.contentForeground, 0.68)
               boundaryColor: root.mixColor(Color.background, root.contentForeground, 0.40)
@@ -1305,13 +1462,17 @@ Panel {
 
               Rectangle {
                 id: searchResultOverlay
-                visible: root.searchResults.length > 0
-                anchors.top: parent.top
-                anchors.horizontalCenter: parent.horizontalCenter
-                width: Math.min(parent.width, Style.space(720))
+                visible: root.searchVisible && root.searchResults.length > 0
+                x: addField.x
+                y: addField.y + addField.height + Style.space(8)
+                width: Math.min(addField.width, Style.space(520))
                 height: Math.min(root.searchResults.length * Style.space(48), Style.space(240))
-                z: 10
-                color: Color.background
+                z: 29
+                radius: Style.cornerRadius
+                color: root.mixColor(Color.popups.background,
+                  root.contentForeground, 0.025)
+                border.width: Style.spacing.hairline
+                border.color: root.mixColor(Color.background, root.contentForeground, 0.24)
                 clip: true
 
                 ListView {
@@ -1332,9 +1493,6 @@ Panel {
                     leftAlign: true
                     text: ""
                     onClicked: root.runAction("add", resultButton.modelData.timezone, resultButton.modelData)
-                    onHovered: function(isHovered) {
-                      if (isHovered) root.focusGlobeOn(resultButton.modelData, 1.95)
-                    }
 
                     Column {
                       anchors.left: parent.left
@@ -1373,7 +1531,7 @@ Panel {
               }
 
               Repeater {
-                model: root.globeLocations
+                model: root.mapLocations
 
                 Item {
                   id: mapMarker
@@ -1381,6 +1539,7 @@ Panel {
                   required property var modelData
                   readonly property var location: modelData.location
                   readonly property bool configured: modelData.configured === true
+                  readonly property bool searchResult: modelData.searchResult === true
                   readonly property var layout:
                     root.globeLabelLayout(index, mapCanvas.width, mapCanvas.height)
                   anchors.fill: parent
@@ -1422,6 +1581,8 @@ Panel {
                       Text {
                         width: parent.width
                         text: mapMarker.location.time
+                          || mapMarker.location.timezone
+                          || mapMarker.location.subtitle
                         horizontalAlignment: Text.AlignHCenter
                         color: Qt.darker(root.contentForeground, 1.35)
                         font.family: root.contentFontFamily
@@ -1449,23 +1610,29 @@ Panel {
                   Rectangle {
                     x: mapMarker.layout.pointX - width / 2
                     y: mapMarker.layout.pointY - height / 2
-                    width: mapMarker.configured ? Style.space(11) : Style.space(9)
+                    width: mapMarker.searchResult ? Style.space(12)
+                      : (mapMarker.configured ? Style.space(11) : Style.space(9))
                     height: width
                     radius: width / 2
-                    color: mapMarker.configured
+                    color: mapMarker.searchResult
+                      ? Style.selectedFillFor(root.contentForeground, Color.accent)
+                      : mapMarker.configured
                       ? Style.selectedFillFor(root.contentForeground, Color.accent)
                       : root.mixColor(Color.background, root.contentForeground, 0.22)
                     border.width: 1
-                    border.color: mapMarker.configured
+                    border.color: mapMarker.searchResult
+                      ? Style.selectedStateColor(root.contentForeground, Color.accent)
+                      : mapMarker.configured
                       ? Style.selectedStateColor(root.contentForeground, Color.accent)
                       : root.mixColor(Color.background, root.contentForeground, 0.72)
 
                     Rectangle {
                       anchors.centerIn: parent
-                      width: mapMarker.configured ? Style.space(5) : Style.space(3)
+                      width: mapMarker.searchResult || mapMarker.configured
+                        ? Style.space(5) : Style.space(3)
                       height: width
                       radius: width / 2
-                      color: mapMarker.configured
+                      color: mapMarker.searchResult || mapMarker.configured
                         ? Style.selectedStateColor(root.contentForeground, Color.accent)
                         : root.contentForeground
                     }
@@ -1507,24 +1674,43 @@ Panel {
                   font.pixelSize: Style.font.bodySmall
                 }
               }
-            }
 
-            Text {
-              visible: root.canAdd
-              anchors.horizontalCenter: parent.horizontalCenter
-              width: mapCanvas.width
-              horizontalAlignment: Text.AlignHCenter
-              text: mapCanvas.shaderAvailable
-                ? "Drag to rotate  ·  Scroll to zoom  ·  Click a city or land"
-                : "Search by city or timezone, or click a land region on the map."
-              color: Qt.darker(root.contentForeground, 1.55)
-              font.family: root.contentFontFamily
-              font.pixelSize: Style.font.bodySmall
+              Rectangle {
+                visible: root.statusText !== ""
+                  && !mapProcess.running
+                  && !(root.mapSelection !== null
+                    && actionProcess.running && root.actionName === "add")
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: Style.space(12)
+                anchors.horizontalCenter: parent.horizontalCenter
+                width: Math.min(parent.width - Style.space(24),
+                  Math.max(Style.space(180), addStatusLabel.implicitWidth + Style.space(28)))
+                height: addStatusLabel.implicitHeight + Style.space(16)
+                z: 25
+                radius: height / 2
+                color: root.mixColor(Color.background, root.contentForeground, 0.035)
+                border.width: Style.spacing.hairline
+                border.color: root.statusError
+                  ? Color.urgent
+                  : root.mixColor(Color.background, root.contentForeground, 0.24)
+
+                Text {
+                  id: addStatusLabel
+                  anchors.centerIn: parent
+                  width: parent.width - Style.space(24)
+                  horizontalAlignment: Text.AlignHCenter
+                  wrapMode: Text.Wrap
+                  text: root.statusText
+                  color: root.statusError ? Color.urgent : root.contentForeground
+                  font.family: root.contentFontFamily
+                  font.pixelSize: Style.font.bodySmall
+                }
+              }
             }
           }
 
           Text {
-            visible: root.statusText !== ""
+            visible: root.mode !== "add" && root.statusText !== ""
             width: parent.width
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.Wrap

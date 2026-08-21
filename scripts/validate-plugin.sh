@@ -38,6 +38,7 @@ ln -s "$OMARCHY_ROOT/shell" "$PLUGIN_LINT_ROOT/qs"
   -I "$PLUGIN_LINT_ROOT" \
   quattro/WorldClock.qml \
   quattro/Panel.qml \
+  quattro/WorldClockKeyCatcher.qml \
   quattro/Globe.qml
 
 printf 'Quattro plugin validation passed.\n'

@@ -51,7 +51,8 @@ AUR package, `PATH` lookup, user-configured backend command, or install hook.
 - Read mode shows the summary clock, proportional relative timeline, and up to
   nine non-local location clocks in a borderless three-column layout.
 - Edit mode preserves the read layout and exposes pin/unpin and remove actions.
-- Add mode shows local/remote search and an interactive rotating globe.
+- Add mode is a map-first surface. The rotating globe fills the panel, with
+  compact Back and Search controls floating above it.
 
 ## Configuration and persistence
 
@@ -152,10 +153,16 @@ Search accepts:
 Rules:
 
 - local search always runs first
+- the search field stays hidden until Search or `Enter` is selected, or a
+  printable key is typed; that first key becomes the first query character
+- closing search returns keyboard focus to the globe surface
 - remote search requires at least three normalized characters
 - remote search is skipped when `disable_open_meteo_geolocation` is true
 - remote timezones are canonicalized and validated
 - results are de-duplicated by canonical timezone and normalized place label
+- while a query is present, the result coordinates replace every configured
+  and featured marker; the camera fits the full result set instead of chasing
+  a single hovered result
 - locally resolved places include bundled coordinates when timezone data has
   them, allowing the globe to focus the first result without a remote request
 - Open-Meteo results include visible attribution
@@ -166,13 +173,15 @@ Rules:
 
 ## Globe and map lookup
 
-- Add mode projects a bundled equirectangular world texture onto an
+- Add mode projects a bundled 6144×3072 equirectangular world texture onto an
   orthographic sphere using a precompiled Qt shader package.
+- The globe occupies the full add surface. Search results and contextual
+  feedback float over it instead of reducing its viewport.
 - The globe opens tightly framed on the local region, with its edge outside
   the viewport so the spherical form emerges through interaction rather than
   dominating the initial view.
 - Drag rotates it. Mouse-wheel angle deltas and trackpad pixel deltas both
-  zoom it; zooming out reveals the complete sphere.
+  zoom it across an extended range; zooming out reveals the complete sphere.
 - Configured places and a curated set of unconfigured major cities appear as
   front-hemisphere markers with live local times.
 - Configured markers take label priority. Featured labels are capped and

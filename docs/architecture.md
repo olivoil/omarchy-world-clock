@@ -15,6 +15,8 @@ post-install hook, GTK application, or Waybar integration in new releases.
 omarchy-shell
   └─ quattro/WorldClock.qml       bar lifecycle and module status
        └─ quattro/Panel.qml       native panel, input, rendering, processes
+            ├─ quattro/WorldClockKeyCatcher.qml
+            ├─ quattro/Globe.qml  projection, motion, high-resolution texture
             └─ bin/omarchy-world-clock-backend
                  ├─ timezone/DST and conversion logic
                  ├─ search and optional Open-Meteo request
@@ -96,7 +98,9 @@ manifest.json
 quattro/WorldClock.qml
 quattro/Panel.qml
 quattro/Globe.qml
+quattro/WorldClockKeyCatcher.qml
 assets/world-map.png
+assets/world-map.svg
 assets/globe.frag
 assets/globe.frag.qsb
 bin/omarchy-world-clock-backend
@@ -139,6 +143,11 @@ Qt Shader Tools and compares the generated QSB package byte for byte. QML owns
 the transient projection, motion, and label placement; Rust supplies live
 featured-city times and offline coordinates. The precompiled package avoids a
 runtime shader-compiler dependency.
+
+`scripts/build-world-map.sh --check` renders the committed SVG geography into
+the 6144×3072 PNG used by the GPU and verifies it byte for byte. The larger
+texture keeps coastlines and boundaries crisp through the globe's extended
+zoom range without adding a runtime SVG-rendering dependency.
 
 The full upstream polygon database made the backend unnecessarily large. The
 derived 0.1-degree row-run-length grid preserves click-to-add accuracy at the

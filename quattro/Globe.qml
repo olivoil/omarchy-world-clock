@@ -17,7 +17,7 @@ Item {
   property real openingZoom: 2.18
   property real zoom: openingZoom
   property real minimumZoom: 0.94
-  property real maximumZoom: 2.8
+  property real maximumZoom: 4.2
   property real diameterRatio: 0.57
   property bool interactive: true
 
@@ -158,6 +158,76 @@ Item {
     focusMotion.restart()
   }
 
+  function fittedView(locations) {
+    var vectors = []
+    var sumX = 0
+    var sumY = 0
+    var sumZ = 0
+    var candidates = Array.isArray(locations) ? locations : []
+    for (var i = 0; i < candidates.length; i++) {
+      var candidate = candidates[i]
+      if (!candidate || candidate.latitude === null
+          || candidate.latitude === undefined || candidate.longitude === null
+          || candidate.longitude === undefined) continue
+      var latitudeValue = radians(candidate.latitude)
+      var longitudeValue = radians(candidate.longitude)
+      var cosLatitude = Math.cos(latitudeValue)
+      var vector = {
+        x: cosLatitude * Math.cos(longitudeValue),
+        y: cosLatitude * Math.sin(longitudeValue),
+        z: Math.sin(latitudeValue)
+      }
+      vectors.push(vector)
+      sumX += vector.x
+      sumY += vector.y
+      sumZ += vector.z
+    }
+    if (vectors.length === 0) return null
+
+    var sumLength = Math.sqrt(sumX * sumX + sumY * sumY + sumZ * sumZ)
+    if (sumLength < 0.0001) {
+      sumX = vectors[0].x
+      sumY = vectors[0].y
+      sumZ = vectors[0].z
+      sumLength = 1
+    }
+    var centerXValue = sumX / sumLength
+    var centerYValue = sumY / sumLength
+    var centerZValue = sumZ / sumLength
+    var centerLatitude = Math.asin(Math.max(-1, Math.min(1, centerZValue)))
+    var centerLongitude = Math.atan2(centerYValue, centerXValue)
+    var sinLatitude = Math.sin(centerLatitude)
+    var cosLatitude = Math.cos(centerLatitude)
+    var sinLongitude = Math.sin(centerLongitude)
+    var cosLongitude = Math.cos(centerLongitude)
+    var maxEast = 0
+    var maxNorth = 0
+    for (var vectorIndex = 0; vectorIndex < vectors.length; vectorIndex++) {
+      var point = vectors[vectorIndex]
+      var east = point.x * -sinLongitude + point.y * cosLongitude
+      var north = point.x * -sinLatitude * cosLongitude
+        + point.y * -sinLatitude * sinLongitude + point.z * cosLatitude
+      maxEast = Math.max(maxEast, Math.abs(east))
+      maxNorth = Math.max(maxNorth, Math.abs(north))
+    }
+
+    var baseRadius = Math.max(1, baseDiameter / 2)
+    var horizontalFit = maxEast > 0.001
+      ? width * 0.39 / (baseRadius * maxEast) : maximumZoom
+    var verticalFit = maxNorth > 0.001
+      ? height * 0.38 / (baseRadius * maxNorth) : maximumZoom
+    return {
+      latitude: degrees(centerLatitude),
+      longitude: degrees(centerLongitude),
+      zoom: clampZoom(Math.min(2.75, horizontalFit, verticalFit))
+    }
+  }
+
+  function focusOnLocations(locations) {
+    var view = fittedView(locations)
+    if (view) focusOn(view.latitude, view.longitude, view.zoom)
+  }
+
   function settleOn(latitudeDegrees, longitudeDegrees) {
     setView(clampLatitude(Number(latitudeDegrees) + 1.5), Number(longitudeDegrees) - 7,
       openingZoom * 1.06)
@@ -190,8 +260,8 @@ Item {
     id: mapTexture
     visible: false
     source: Qt.resolvedUrl("../assets/world-map.png")
-    sourceSize.width: 1800
-    sourceSize.height: 900
+    sourceSize.width: 6144
+    sourceSize.height: 3072
     asynchronous: false
     cache: true
     smooth: true

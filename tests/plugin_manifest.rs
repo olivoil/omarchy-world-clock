@@ -69,6 +69,9 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("Globe {"));
     assert!(panel.contains("snapshot.featured_cities"));
     assert!(panel.contains("root.globeLabelLayout(index, mapCanvas.width, mapCanvas.height)"));
+    assert!(panel.contains("readonly property var mapLocations: searchHasQuery"));
+    assert!(panel.contains("model: root.mapLocations"));
+    assert!(panel.contains("modelData.searchResult === true"));
     assert!(panel.contains("backendCommand, \"locate\""));
     assert!(panel.contains("id: searchResultOverlay"));
     assert!(panel.contains(
@@ -84,7 +87,10 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("if (!snapshotLoaded)"));
     assert!(panel.contains("if (summaryFocusPending) Qt.callLater(root.focusSummaryEditor)"));
     assert!(panel.contains("if (clocks.length === 0 && mode !== \"add\" && !summaryFocusPending)"));
-    assert!(panel.contains("function focusAddField()"));
+    assert!(panel.contains("function focusAddField(selectExisting)"));
+    assert!(panel.contains("property bool searchVisible: false"));
+    assert!(panel.contains("function openSearch(initialText)"));
+    assert!(panel.contains("function closeSearch()"));
     assert!(panel.contains("addField.forceActiveFocus(Qt.ShortcutFocusReason)"));
     assert!(panel.contains("if (mode === \"add\")"));
     assert!(panel.contains("if (root.mode === \"read\") root.focusSummaryEditor()"));
@@ -111,23 +117,34 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("Qt.callLater(root.flushEditorRefresh)"));
     assert!(panel.contains("property string searchResultsQuery: \"\""));
     assert!(panel.contains("property string searchSubmitQuery: \"\""));
-    assert!(panel.contains("if (mode !== \"add\") return"));
-    assert!(panel.contains("if (mode !== \"add\" || !query || !canAdd"));
+    assert!(panel.contains("if (mode !== \"add\" || !searchVisible) return"));
+    assert!(panel.contains("if (mode !== \"add\" || !searchVisible || !query || !canAdd"));
     assert!(panel.contains("searchDebounce.stop()"));
     assert!(panel.contains("searchResultsQuery === query"));
     assert!(panel.contains("searchSubmitQuery = query"));
     assert!(panel.contains("Qt.callLater(root.startSearch)"));
     assert!(panel.contains("if (root.mode === \"add\""));
     assert!(panel.contains("onTextChanged: root.searchTextChanged()"));
+    assert!(panel.contains("id: addBackButton"));
+    assert!(panel.contains("id: addSearchButton"));
+    assert!(panel.contains("id: addSearchSurface"));
+    assert!(panel.contains("Color.popups.background"));
+    assert!(panel.contains("visible: root.searchVisible"));
+    assert!(
+        panel.contains("tooltipText: root.searchVisible ? \"Close search\" : \"Search locations\"")
+    );
+    assert!(panel.contains("diameterRatio: 0.63"));
+    assert!(panel.contains("mapCanvas.focusOnLocations(root.searchResults)"));
+    assert!(!panel.contains("onHovered: function(isHovered)"));
+    assert!(!panel.contains("Drag to rotate  ·  Scroll to zoom"));
     assert!(panel.contains("visible: root.summary.pinned === true"));
     assert!(panel.contains("onClicked: root.togglePin(root.summary)"));
     assert!(panel.contains("https://open-meteo.com/"));
     assert!(panel.contains("onLinkActivated: function(link) { Qt.openUrlExternally(link) }"));
     assert!(panel.contains("readonly property string currentLocationTitle"));
     assert!(panel.contains("readonly property string currentTimezoneMetadata"));
-    assert!(
-        panel.contains("root.mode === \"add\" ? \"Add a Location\" : root.currentLocationTitle")
-    );
+    assert!(panel.contains("visible: root.mode !== \"add\""));
+    assert!(panel.contains("text: root.currentLocationTitle"));
     assert!(panel.contains("text: root.currentTimezoneMetadata"));
     assert!(panel.contains("id: clockRows"));
     assert!(panel.contains("anchors.horizontalCenter: parent.horizontalCenter"));
@@ -144,6 +161,25 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
 
     let map_path = root.join("assets/world-map.png");
     assert!(map_path.is_file(), "missing {}", map_path.display());
+    let map = fs::read(&map_path).expect("read globe texture");
+    assert!(map.len() >= 24, "globe texture is not a complete PNG");
+    assert_eq!(&map[1..4], b"PNG");
+    assert_eq!(u32::from_be_bytes(map[16..20].try_into().unwrap()), 6144);
+    assert_eq!(u32::from_be_bytes(map[20..24].try_into().unwrap()), 3072);
+
+    let key_catcher_path = qml_path.parent().unwrap().join("WorldClockKeyCatcher.qml");
+    assert!(
+        key_catcher_path.is_file(),
+        "missing {}",
+        key_catcher_path.display()
+    );
+    let key_catcher = fs::read_to_string(key_catcher_path).expect("read panel key catcher");
+    assert!(key_catcher.contains("property bool directTextInput: false"));
+    assert!(key_catcher.contains("event.text.trim() !== \"\""));
+    assert!(key_catcher.contains("Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier"));
+    assert!(panel.contains("WorldClockKeyCatcher {"));
+    assert!(panel.contains("directTextInput: root.mode === \"add\" && !addField.activeFocus"));
+    assert!(panel.contains("if (!root.searchVisible) root.openSearch(text)"));
 
     let globe_path = qml_path.parent().unwrap().join("Globe.qml");
     assert!(globe_path.is_file(), "missing {}", globe_path.display());
@@ -154,8 +190,12 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(globe.contains("function project(latitudeDegrees, longitudeDegrees)"));
     assert!(globe.contains("function locationAt(viewX, viewY)"));
     assert!(globe.contains("function normalizedWheelDelta(angleDelta, pixelDelta)"));
+    assert!(globe.contains("function focusOnLocations(locations)"));
     assert!(globe.contains("event.pixelDelta.y"));
     assert!(globe.contains("property real openingZoom:"));
+    assert!(globe.contains("property real maximumZoom: 4.2"));
+    assert!(globe.contains("sourceSize.width: 6144"));
+    assert!(globe.contains("sourceSize.height: 3072"));
     assert!(globe.contains("../assets/globe.frag.qsb"));
     assert!(globe.contains("visible: !root.shaderAvailable"));
 

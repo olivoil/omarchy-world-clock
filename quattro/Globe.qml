@@ -62,7 +62,8 @@ Item {
   }
 
   function nearestLongitude(target) {
-    var delta = (Number(target) - longitude + 540) % 360 - 180
+    var rawDelta = Number(target) - longitude
+    var delta = ((rawDelta + 180) % 360 + 360) % 360 - 180
     return longitude + delta
   }
 

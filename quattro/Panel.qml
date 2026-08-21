@@ -95,6 +95,7 @@ Panel {
     && weather.disabled !== true
     && (root.weatherLoading || root.weatherLocations.length > 0)
   readonly property int weatherRefreshMilliseconds: 15 * 60 * 1000
+  readonly property int weatherFreshnessCheckMilliseconds: 30 * 1000
   readonly property string currentLocationTitle: {
     var title = String(summary.title || summary.label || "").trim()
     return title || "World Clock"
@@ -317,7 +318,10 @@ Panel {
     weatherActiveSignature = signature
     weatherAttemptSignature = signature
     weatherLastAttemptAt = Date.now()
-    weatherProcess.command = [backendCommand, "weather"]
+    var command = [backendCommand, "weather"]
+    if (snapshot && snapshot.reference_utc)
+      command.push("--at", String(snapshot.reference_utc))
+    weatherProcess.command = command
     weatherProcess.running = true
   }
 
@@ -902,11 +906,11 @@ Panel {
   }
 
   Timer {
-    interval: root.weatherRefreshMilliseconds
+    interval: root.weatherFreshnessCheckMilliseconds
     running: root.weatherEnabled && root.opened && root.live
       && root.weather.disabled !== true
     repeat: true
-    onTriggered: root.requestWeather(true)
+    onTriggered: root.requestWeather(false)
   }
 
   KeyboardPanel {

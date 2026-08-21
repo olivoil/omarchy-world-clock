@@ -97,7 +97,8 @@ pub fn execute(args: &[String]) -> Result<Option<String>> {
         }
         "weather" => {
             let config = ConfigManager::new(None).load()?;
-            let payload = current_weather(&config, &detect_local_timezone())?;
+            let reference_utc = parse_reference_utc(optional_flag(remaining_args, "--at")?)?;
+            let payload = current_weather(&config, &detect_local_timezone(), reference_utc)?;
             Some(serde_json::to_string(&payload)?)
         }
         "search" => {

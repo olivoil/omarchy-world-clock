@@ -144,6 +144,7 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("backendCommand, \"weather\""));
     assert!(panel.contains("property bool weatherRequestPending: false"));
     assert!(panel.contains("weatherRefreshMilliseconds: 15 * 60 * 1000"));
+    assert!(panel.contains("weatherFreshnessCheckMilliseconds: 30 * 1000"));
     assert!(panel.contains("function weatherFor(clock)"));
     assert!(panel.contains("function weatherGlyph(item)"));
     assert!(panel.contains("function weatherTemperatureCompact(value)"));
@@ -186,6 +187,8 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("onClicked: Qt.openUrlExternally(\"https://open-meteo.com/\")"));
     assert!(!panel.contains("&& (root.weatherLocations.length > 0 || root.weatherError)"));
     assert!(panel.contains("&& root.weather.disabled !== true"));
+    assert!(panel.contains("interval: root.weatherFreshnessCheckMilliseconds"));
+    assert!(panel.contains("onTriggered: root.requestWeather(false)"));
 
     assert!(qml.contains("function editCurrentTime()"));
     assert!(qml.contains("function edit(): void { root.editCurrentTime() }"));

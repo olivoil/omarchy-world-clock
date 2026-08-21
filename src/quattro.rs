@@ -184,6 +184,51 @@ fn local_entry(config: &AppConfig, local_timezone: &str) -> (Option<usize>, Time
     (index, entry)
 }
 
+pub(crate) fn visible_location_entries(
+    config: &AppConfig,
+    reference_utc: DateTime<Utc>,
+    local_timezone: &str,
+) -> (bool, Vec<TimezoneEntry>) {
+    let (summary_entry_index, summary_entry) = local_entry(config, local_timezone);
+    let mut entries = config
+        .timezones
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| Some(*index) != summary_entry_index)
+        .map(|(_, entry)| entry.clone())
+        .collect::<Vec<_>>();
+    entries.sort_by(|left, right| {
+        wall_clock_delta_minutes(reference_utc, local_timezone, &left.timezone)
+            .cmp(&wall_clock_delta_minutes(
+                reference_utc,
+                local_timezone,
+                &right.timezone,
+            ))
+            .then_with(|| left.display_label().cmp(&right.display_label()))
+    });
+    if entries.len() > QUATTRO_CLOCK_LIMIT {
+        if let Some(pinned_index) = entries
+            .iter()
+            .position(|entry| config.is_pinned(entry))
+            .filter(|index| *index >= QUATTRO_CLOCK_LIMIT)
+        {
+            entries = entries
+                .into_iter()
+                .enumerate()
+                .filter(|(index, _)| *index < QUATTRO_CLOCK_LIMIT - 1 || *index == pinned_index)
+                .map(|(_, entry)| entry)
+                .collect();
+        } else {
+            entries.truncate(QUATTRO_CLOCK_LIMIT);
+        }
+    }
+
+    let mut visible = Vec::with_capacity(entries.len() + 1);
+    visible.push(summary_entry);
+    visible.extend(entries);
+    (summary_entry_index.is_some(), visible)
+}
+
 fn timeline_items(summary: &QuattroClock, clocks: &[QuattroClock]) -> Vec<QuattroTimelineItem> {
     let mut groups = BTreeMap::<i64, (String, Vec<String>)>::new();
     for clock in std::iter::once(summary).chain(clocks.iter()) {
@@ -262,7 +307,12 @@ pub fn build_snapshot(
     local_timezone: &str,
     time_format: &str,
 ) -> QuattroSnapshot {
-    let (summary_entry_index, summary_entry) = local_entry(config, local_timezone);
+    let (local_configured, visible_entries) =
+        visible_location_entries(config, reference_utc, local_timezone);
+    let mut visible_entries = visible_entries.into_iter();
+    let summary_entry = visible_entries
+        .next()
+        .expect("visible locations always include the local summary");
     let summary = clock_from_entry(
         &summary_entry,
         config,
@@ -270,42 +320,8 @@ pub fn build_snapshot(
         local_timezone,
         time_format,
     );
-
-    let mut entries = config
-        .timezones
-        .iter()
-        .enumerate()
-        .filter(|(index, _)| Some(*index) != summary_entry_index)
-        .map(|(_, entry)| entry)
-        .collect::<Vec<_>>();
-    entries.sort_by(|left, right| {
-        wall_clock_delta_minutes(reference_utc, local_timezone, &left.timezone)
-            .cmp(&wall_clock_delta_minutes(
-                reference_utc,
-                local_timezone,
-                &right.timezone,
-            ))
-            .then_with(|| left.display_label().cmp(&right.display_label()))
-    });
-    if entries.len() > QUATTRO_CLOCK_LIMIT {
-        if let Some(pinned_index) = entries
-            .iter()
-            .position(|entry| config.is_pinned(entry))
-            .filter(|index| *index >= QUATTRO_CLOCK_LIMIT)
-        {
-            entries = entries
-                .into_iter()
-                .enumerate()
-                .filter(|(index, _)| *index < QUATTRO_CLOCK_LIMIT - 1 || *index == pinned_index)
-                .map(|(_, entry)| entry)
-                .collect();
-        } else {
-            entries.truncate(QUATTRO_CLOCK_LIMIT);
-        }
-    }
-    let clocks = entries
-        .into_iter()
-        .map(|entry| clock_from_entry(entry, config, reference_utc, local_timezone, time_format))
+    let clocks = visible_entries
+        .map(|entry| clock_from_entry(&entry, config, reference_utc, local_timezone, time_format))
         .collect::<Vec<_>>();
     let timeline = timeline_items(&summary, &clocks);
 
@@ -316,7 +332,7 @@ pub fn build_snapshot(
         time_format: time_format.to_string(),
         weather_unit: None,
         configured_count: config.timezones.len(),
-        local_configured: summary_entry_index.is_some(),
+        local_configured,
         pinned_timezone: config.pinned_entry().map(|entry| entry.timezone.clone()),
         summary,
         clocks,

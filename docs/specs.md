@@ -157,8 +157,9 @@ No separate World Clock 12/24-hour preference is stored.
 - The header identifies the provider from the first frame while data loads, so
   an asynchronous response never changes its geometry.
 - All visible coordinates are fetched in one request when the panel opens.
-- A successful response is reused for 15 minutes and refreshed while the panel
-  remains open.
+- A successful response is reused for 15 minutes. While the panel remains
+  open, a lightweight freshness check runs every 30 seconds so reopening the
+  panel cannot restart the full cache interval.
 - Temperature inherits an explicit `metric` or `imperial` unit from the
   `omarchy.weather` widget. In automatic mode, the configured Omarchy Weather
   location's country decides first; United States, Liberia, and Myanmar use

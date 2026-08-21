@@ -1,6 +1,7 @@
-use crate::config::{place_coordinate, AppConfig, TimezoneEntry};
-use crate::time::friendly_timezone_name;
+use crate::config::{place_coordinate, AppConfig};
+use crate::quattro::visible_location_entries;
 use anyhow::{bail, Context, Result};
+use chrono::{DateTime, Utc};
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -53,7 +54,11 @@ enum OpenMeteoResponse {
     Many(Vec<OpenMeteoForecast>),
 }
 
-pub fn current_weather(config: &AppConfig, local_timezone: &str) -> Result<WeatherPayload> {
+pub fn current_weather(
+    config: &AppConfig,
+    local_timezone: &str,
+    reference_utc: DateTime<Utc>,
+) -> Result<WeatherPayload> {
     let mut payload = WeatherPayload {
         source: "Open-Meteo",
         attribution_url: OPEN_METEO_ATTRIBUTION_URL,
@@ -64,7 +69,7 @@ pub fn current_weather(config: &AppConfig, local_timezone: &str) -> Result<Weath
         return Ok(payload);
     }
 
-    let locations = weather_locations(config, local_timezone);
+    let locations = weather_locations(config, local_timezone, reference_utc);
     if locations.is_empty() {
         return Ok(payload);
     }
@@ -103,27 +108,20 @@ pub fn current_weather(config: &AppConfig, local_timezone: &str) -> Result<Weath
     Ok(payload)
 }
 
-fn weather_locations(config: &AppConfig, local_timezone: &str) -> Vec<WeatherLocation> {
-    let mut entries = config.timezones.iter().collect::<Vec<_>>();
-    let local_timezone = local_timezone.trim();
-    let synthetic_local;
-    if !entries.iter().any(|entry| entry.timezone == local_timezone) {
-        synthetic_local = TimezoneEntry {
-            timezone: local_timezone.to_string(),
-            label: friendly_timezone_name(local_timezone),
-            latitude: None,
-            longitude: None,
-        };
-        entries.insert(0, &synthetic_local);
-    }
-
+fn weather_locations(
+    config: &AppConfig,
+    local_timezone: &str,
+    reference_utc: DateTime<Utc>,
+) -> Vec<WeatherLocation> {
+    let (_, entries) = visible_location_entries(config, reference_utc, local_timezone);
     entries
         .into_iter()
         .filter_map(|entry| {
-            let (latitude, longitude) = place_coordinate(entry)?;
+            let (latitude, longitude) = place_coordinate(&entry)?;
+            let label = entry.display_label();
             Some(WeatherLocation {
-                timezone: entry.timezone.clone(),
-                label: entry.display_label(),
+                timezone: entry.timezone,
+                label,
                 latitude,
                 longitude,
             })
@@ -190,7 +188,10 @@ fn weather_condition(code: i64) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_weather_response, weather_condition, WeatherLocation};
+    use super::{parse_weather_response, weather_condition, weather_locations, WeatherLocation};
+    use crate::config::{AppConfig, LocationKey, TimezoneEntry, CLOCK_CARD_LIMIT};
+    use crate::quattro::build_snapshot;
+    use chrono::{TimeZone, Utc};
 
     fn location(timezone: &str, label: &str) -> WeatherLocation {
         WeatherLocation {
@@ -265,5 +266,56 @@ mod tests {
         .unwrap_err();
 
         assert!(error.to_string().contains("1 locations for 2 requests"));
+    }
+
+    #[test]
+    fn weather_requests_match_the_bounded_visible_snapshot() {
+        let configured = [
+            ("America/Cancun", "Cancun"),
+            ("America/Vancouver", "Vancouver"),
+            ("America/Los_Angeles", "Los Angeles"),
+            ("America/Denver", "Denver"),
+            ("America/Chicago", "Chicago"),
+            ("America/New_York", "New York"),
+            ("America/Halifax", "Halifax"),
+            ("Europe/London", "London"),
+            ("Europe/Paris", "Paris"),
+            ("Asia/Kolkata", "Delhi"),
+            ("Asia/Tokyo", "Tokyo"),
+        ];
+        let config = AppConfig {
+            timezones: configured
+                .iter()
+                .enumerate()
+                .map(|(index, (timezone, label))| TimezoneEntry {
+                    timezone: (*timezone).to_string(),
+                    label: (*label).to_string(),
+                    latitude: Some(index as f64),
+                    longitude: Some(index as f64),
+                })
+                .collect(),
+            pinned_location: Some(LocationKey {
+                timezone: "Asia/Tokyo".to_string(),
+                label: "Tokyo".to_string(),
+            }),
+            disable_open_meteo_geolocation: false,
+        };
+        let now = Utc.with_ymd_and_hms(2026, 8, 21, 15, 0, 0).unwrap();
+
+        let requested = weather_locations(&config, "America/Cancun", now);
+        let snapshot = build_snapshot(&config, now, "America/Cancun", "24h");
+        let expected = std::iter::once(&snapshot.summary)
+            .chain(snapshot.clocks.iter())
+            .map(|clock| (clock.timezone.clone(), clock.label.clone()))
+            .collect::<Vec<_>>();
+        let actual = requested
+            .iter()
+            .map(|location| (location.timezone.clone(), location.label.clone()))
+            .collect::<Vec<_>>();
+
+        assert_eq!(actual, expected);
+        assert_eq!(requested.len(), CLOCK_CARD_LIMIT + 1);
+        assert!(requested.len() < config.timezones.len());
+        assert!(requested.iter().any(|location| location.label == "Tokyo"));
     }
 }

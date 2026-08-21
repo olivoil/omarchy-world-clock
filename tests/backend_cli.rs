@@ -290,6 +290,7 @@ fn weather_command_honors_the_open_meteo_opt_out_without_network_access() {
 
     let output = Command::new(env!("CARGO_BIN_EXE_omarchy-world-clock-backend"))
         .arg("weather")
+        .args(["--at", "2026-08-21T15:00:00Z"])
         .env("OMARCHY_WORLD_CLOCK_CONFIG", &config_path)
         .output()
         .expect("request weather with remote data disabled");

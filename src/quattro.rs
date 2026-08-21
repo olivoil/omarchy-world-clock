@@ -106,6 +106,17 @@ pub struct QuattroMapLocation {
     pub longitude: f64,
     pub minimum_zoom: f64,
     pub time: String,
+    pub day: String,
+    pub notation: String,
+    pub relative_label: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct QuattroSearchLocation {
+    #[serde(flatten)]
+    pub result: TimezoneSearchResult,
+    pub time: String,
+    pub day: String,
     pub notation: String,
     pub relative_label: String,
 }
@@ -271,8 +282,28 @@ pub fn build_map_location(
         longitude,
         minimum_zoom: 0.0,
         time: format_display_time(&zoned, time_format),
+        day: day_label(reference_utc, local_timezone, &result.timezone),
         notation: format_timezone_notation(&zoned),
         relative_label: relative_label(relative_minutes),
+    }
+}
+
+pub fn build_search_location(
+    result: TimezoneSearchResult,
+    reference_utc: DateTime<Utc>,
+    local_timezone: &str,
+    time_format: &str,
+) -> QuattroSearchLocation {
+    let zoned = zoned_datetime(reference_utc, &result.timezone);
+    let relative_minutes =
+        wall_clock_delta_minutes(reference_utc, local_timezone, &result.timezone);
+
+    QuattroSearchLocation {
+        time: format_display_time(&zoned, time_format),
+        day: day_label(reference_utc, local_timezone, &result.timezone),
+        notation: format_timezone_notation(&zoned),
+        relative_label: relative_label(relative_minutes),
+        result,
     }
 }
 

@@ -75,7 +75,7 @@ The executable exposes a deliberately small command/JSON boundary:
 | `module` | bar tooltip, pinned label/time, compatibility handshake | JSON |
 | `snapshot` | complete read/edit model at now or `--at` | JSON |
 | `convert` | parse a local input and return a converted snapshot | JSON |
-| `search` | local search with optional remote fallback | JSON array |
+| `search` | local search with optional remote fallback and live display context | JSON array |
 | `locate` | map coordinate to a timezone and display model | JSON/null |
 | `add` | persist a location | no output |
 | `remove` | remove a matching location | no output |

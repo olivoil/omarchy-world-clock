@@ -60,6 +60,7 @@ Panel {
   property real mapLookupLongitude: 0
   property real mapCursorX: 0
   property real mapCursorY: 0
+  property bool mapSelectionCardOnRight: true
   property bool mapClickPending: false
   property bool globeInitialized: false
   property bool searchVisible: false
@@ -241,6 +242,8 @@ Panel {
     searchResultsQuery = ""
     searchSubmitQuery = ""
     addField.text = ""
+    mapSelection = null
+    mapClickPending = false
     editorActive = false
     Qt.callLater(function() {
       if (opened && mode === "add") keyCatcher.forceActiveFocus(Qt.ShortcutFocusReason)
@@ -494,6 +497,8 @@ Panel {
   }
 
   function searchTextChanged() {
+    mapSelection = null
+    mapClickPending = false
     if (!searchVisible) {
       searchDebounce.stop()
       searchResults = []
@@ -517,7 +522,10 @@ Panel {
     }
     if (searchProcess.running) return
     searchQueryInFlight = query
-    searchProcess.command = [backendCommand, "search", query]
+    var command = [backendCommand, "search", query]
+    if (snapshot && snapshot.reference_utc)
+      command.push("--at", String(snapshot.reference_utc))
+    searchProcess.command = command
     searchProcess.running = true
   }
 
@@ -566,6 +574,18 @@ Panel {
     var timezone = String(location.timezone || "").trim().toLowerCase()
     var title = String(location.title || location.label || "").trim().toLowerCase()
     return timezone && title ? timezone + "\u001f" + title : ""
+  }
+
+  function selectMapLocation(location) {
+    if (!location || !canAddLocation(location.timezone)) return
+    if (hasMapCoordinate(location)) {
+      var projection = mapCanvas.project(location.latitude, location.longitude)
+      mapSelectionCardOnRight = projection.x < mapCanvas.width / 2
+    }
+    mapClickPending = false
+    mapSelection = location
+    clearStatus()
+    if (hasMapCoordinate(location)) mapCanvas.focusOnLocations([location])
   }
 
   function globeLocationReveal(wrapper) {
@@ -652,6 +672,7 @@ Panel {
     if (!canAdd) return
     mapCursorX = x
     mapCursorY = y
+    mapSelectionCardOnRight = x < mapCanvas.width / 2
     mapRequestedLongitude = Math.max(-179.999999,
       Math.min(179.999999, Number(longitude)))
     mapRequestedLatitude = Math.max(-89.999999,
@@ -766,7 +787,10 @@ Panel {
     stderr: StdioCollector { id: actionError; waitForEnd: true }
     onExited: function(exitCode) {
       if (exitCode !== 0) {
-        root.setStatus(String(actionError.text || "Could not update World Clock.").trim(), true)
+        var message = String(actionError.text || "Could not update World Clock.").trim()
+        if (root.actionName === "add" && message.indexOf("already configured") >= 0)
+          message = "That location is already added."
+        root.setStatus(message, true)
         return
       }
       if (root.actionName === "add") {
@@ -776,7 +800,7 @@ Panel {
         root.searchSubmitQuery = ""
         root.mapSelection = null
         root.mapClickPending = false
-        root.setStatus("Location added.", false)
+        root.mode = "read"
       }
       root.invalidateSnapshotRequests()
       root.requestSnapshot(root.live ? "" : String(root.snapshot.reference_utc || ""))
@@ -860,7 +884,8 @@ Panel {
         root.mapSelection = payload
         if (root.mapClickPending) {
           root.mapClickPending = false
-          root.runAction("add", payload.timezone, payload)
+          root.clearStatus()
+          mapCanvas.focusOnLocations([payload])
         }
       } catch (error) {
         root.mapClickPending = false
@@ -893,7 +918,8 @@ Panel {
       blocked: root.editorActive || addField.activeFocus
       directTextInput: root.mode === "add" && !addField.activeFocus
       onCloseRequested: {
-        if (root.mode === "add" && root.searchVisible) root.closeSearch()
+        if (root.mapSelection !== null) root.mapSelection = null
+        else if (root.mode === "add" && root.searchVisible) root.closeSearch()
         else if (root.mode === "read") root.close()
         else root.mode = "read"
       }
@@ -1410,7 +1436,8 @@ Panel {
                 onAccepted: root.addFirstResult()
                 onActiveFocusChanged: root.editorActive = activeFocus
                 Keys.onEscapePressed: function(event) {
-                  root.closeSearch()
+                  if (root.mapSelection !== null) root.mapSelection = null
+                  else root.closeSearch()
                   event.accepted = true
                 }
               }
@@ -1537,10 +1564,12 @@ Panel {
               onLocationPicked: function(latitude, longitude, viewX, viewY) {
                 root.requestMapLocation(latitude, longitude, viewX, viewY)
               }
+              onViewInteractionStarted: root.mapSelection = null
 
               Rectangle {
                 id: searchResultOverlay
                 visible: root.searchVisible && root.searchResults.length > 0
+                  && root.mapSelection === null
                 x: addSearchSurface.x
                 y: addSearchSurface.y + addSearchSurface.height + Style.space(8)
                 width: addSearchSurface.width
@@ -1632,6 +1661,9 @@ Panel {
                   readonly property var location: modelData.location
                   readonly property bool configured: modelData.configured === true
                   readonly property bool searchResult: modelData.searchResult === true
+                  readonly property bool selected: root.mapSelection !== null
+                    && root.mapLocationKey(root.mapSelection)
+                      === root.mapLocationKey(mapMarker.location)
                   readonly property var layout: mapCanvas.markerLayouts[index] || ({
                     visible: false,
                     labelVisible: false,
@@ -1662,7 +1694,9 @@ Panel {
                     width: mapMarker.layout.width
                     height: mapMarker.layout.height
                     radius: Style.cornerRadius
-                    color: cityMouse.containsMouse
+                    color: mapMarker.selected
+                      ? Style.selectedFillFor(root.contentForeground, Color.accent)
+                      : cityMouse.containsMouse
                       ? Style.hoverFillFor(root.contentForeground, Color.accent)
                       : "transparent"
 
@@ -1712,25 +1746,30 @@ Panel {
                         && !actionProcess.running
                       hoverEnabled: true
                       cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-                      onClicked: root.runAction("add", mapMarker.location.timezone,
-                        mapMarker.location)
+                      onClicked: root.selectMapLocation(mapMarker.location)
                     }
                   }
 
                   Rectangle {
                     x: mapMarker.layout.pointX - width / 2
                     y: mapMarker.layout.pointY - height / 2
-                    width: mapMarker.searchResult ? Style.space(12)
+                    width: mapMarker.selected ? Style.space(13)
+                      : (mapMarker.searchResult ? Style.space(12)
                       : (mapMarker.configured ? Style.space(11) : Style.space(9))
+                      )
                     height: width
                     radius: width / 2
-                    color: mapMarker.searchResult
+                    color: mapMarker.selected
+                      ? Style.selectedFillFor(root.contentForeground, Color.accent)
+                      : mapMarker.searchResult
                       ? Style.selectedFillFor(root.contentForeground, Color.accent)
                       : mapMarker.configured
                       ? Style.selectedFillFor(root.contentForeground, Color.accent)
                       : root.mixColor(Color.background, root.contentForeground, 0.22)
                     border.width: 1
-                    border.color: mapMarker.searchResult
+                    border.color: mapMarker.selected
+                      ? Style.selectedStateColor(root.contentForeground, Color.accent)
+                      : mapMarker.searchResult
                       ? Style.selectedStateColor(root.contentForeground, Color.accent)
                       : mapMarker.configured
                       ? Style.selectedStateColor(root.contentForeground, Color.accent)
@@ -1738,11 +1777,11 @@ Panel {
 
                     Rectangle {
                       anchors.centerIn: parent
-                      width: mapMarker.searchResult || mapMarker.configured
+                      width: mapMarker.selected || mapMarker.searchResult || mapMarker.configured
                         ? Style.space(5) : Style.space(3)
                       height: width
                       radius: width / 2
-                      color: mapMarker.searchResult || mapMarker.configured
+                      color: mapMarker.selected || mapMarker.searchResult || mapMarker.configured
                         ? Style.selectedStateColor(root.contentForeground, Color.accent)
                         : root.contentForeground
                     }
@@ -1754,17 +1793,175 @@ Panel {
                         && root.canAddLocation(mapMarker.location.timezone)
                         && !actionProcess.running
                       cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-                      onClicked: root.runAction("add", mapMarker.location.timezone,
-                        mapMarker.location)
+                      onClicked: root.selectMapLocation(mapMarker.location)
                     }
                   }
                 }
               }
 
               Rectangle {
+                id: mapSelectionPin
+                readonly property var projection: root.hasMapCoordinate(root.mapSelection)
+                  ? mapCanvas.project(root.mapSelection.latitude, root.mapSelection.longitude)
+                  : ({ x: 0, y: 0, visible: false })
+                visible: root.mapSelection !== null && projection.visible
+                z: 31
+                x: projection.x - width / 2
+                y: projection.y - height / 2
+                width: Style.space(14)
+                height: width
+                radius: width / 2
+                color: Style.selectedFillFor(root.contentForeground, Color.accent)
+                border.width: 1
+                border.color: Style.selectedStateColor(root.contentForeground, Color.accent)
+
+                Rectangle {
+                  anchors.centerIn: parent
+                  width: Style.space(6)
+                  height: width
+                  radius: width / 2
+                  color: Style.selectedStateColor(root.contentForeground, Color.accent)
+                }
+              }
+
+              Rectangle {
+                id: mapSelectionCard
+                readonly property real edgeInset: Style.space(12)
+                readonly property real topInset: Style.space(84)
+                readonly property real pointGap: Style.space(22)
+                readonly property var projection: root.hasMapCoordinate(root.mapSelection)
+                  ? mapCanvas.project(root.mapSelection.latitude, root.mapSelection.longitude)
+                  : ({ x: mapCanvas.width / 2, y: mapCanvas.height / 2, visible: false })
+                readonly property real preferredX: root.mapSelectionCardOnRight
+                  ? projection.x + pointGap : projection.x - width - pointGap
+                visible: root.mode === "add" && root.mapSelection !== null
+                  && !mapProcess.running
+                z: 32
+                width: Math.min(Style.space(252), parent.width - edgeInset * 2)
+                height: mapSelectionContent.implicitHeight + Style.space(32)
+                x: Math.max(edgeInset,
+                  Math.min(parent.width - width - edgeInset, preferredX))
+                y: Math.max(topInset,
+                  Math.min(parent.height - height - edgeInset, projection.y - height / 2))
+                radius: Math.max(Style.cornerRadius, Style.space(14))
+                color: root.searchSurfaceColor
+                border.width: Style.spacing.hairline
+                border.color: root.mixColor(Color.background, root.contentForeground, 0.34)
+                opacity: visible ? 1 : 0
+                scale: visible ? 1 : 0.96
+                transformOrigin: Item.Center
+
+                Behavior on opacity {
+                  NumberAnimation { duration: 160; easing.type: Easing.OutQuint }
+                }
+                Behavior on scale {
+                  NumberAnimation { duration: 160; easing.type: Easing.OutQuint }
+                }
+
+                MouseArea {
+                  anchors.fill: parent
+                  acceptedButtons: Qt.LeftButton
+                }
+
+                Column {
+                  id: mapSelectionContent
+                  z: 1
+                  anchors.left: parent.left
+                  anchors.right: parent.right
+                  anchors.leftMargin: Style.space(18)
+                  anchors.rightMargin: Style.space(18)
+                  anchors.verticalCenter: parent.verticalCenter
+                  spacing: Style.space(8)
+
+                  Text {
+                    width: parent.width
+                    text: String(root.mapSelection && root.mapSelection.title || "")
+                    color: root.contentForeground
+                    font.family: root.contentFontFamily
+                    font.pixelSize: Style.font.heading
+                    font.bold: true
+                    elide: Text.ElideRight
+                  }
+
+                  Row {
+                    width: parent.width
+                    spacing: Style.space(8)
+
+                    Text {
+                      id: mapSelectionTime
+                      text: String(root.mapSelection && root.mapSelection.time || "--:--")
+                      color: root.contentForeground
+                      font.family: root.contentFontFamily
+                      font.pixelSize: Style.font.displayLarge
+                      font.bold: true
+                    }
+
+                    Text {
+                      anchors.baseline: mapSelectionTime.baseline
+                      text: String(root.mapSelection && root.mapSelection.notation || "")
+                      color: root.contentForeground
+                      opacity: 0.78
+                      font.family: root.contentFontFamily
+                      font.pixelSize: Style.font.body
+                      font.bold: true
+                    }
+                  }
+
+                  Text {
+                    width: parent.width
+                    text: {
+                      var day = String(root.mapSelection && root.mapSelection.day || "")
+                      var relative = String(root.mapSelection
+                        && root.mapSelection.relative_label || "")
+                      return day && relative ? day + "  ·  " + relative : day || relative
+                    }
+                    color: root.contentForeground
+                    opacity: 0.88
+                    font.family: root.contentFontFamily
+                    font.pixelSize: Style.font.body
+                    elide: Text.ElideRight
+                  }
+
+                  Text {
+                    width: parent.width
+                    text: String(root.mapSelection && root.mapSelection.timezone || "")
+                    color: root.contentForeground
+                    opacity: 0.66
+                    font.family: root.contentFontFamily
+                    font.pixelSize: Style.font.caption
+                    elide: Text.ElideMiddle
+                  }
+
+                  Rectangle {
+                    width: parent.width
+                    height: Style.spacing.hairline
+                    color: root.contentForeground
+                    opacity: 0.18
+                  }
+
+                  Button {
+                    id: mapSelectionAddButton
+                    width: parent.width
+                    text: actionProcess.running && root.actionName === "add"
+                      ? "Adding…" : "Add"
+                    enabled: root.mapSelection !== null && !actionProcess.running
+                      && root.canAddLocation(root.mapSelection.timezone)
+                    active: true
+                    bordered: true
+                    focusable: true
+                    foreground: root.contentForeground
+                    fontFamily: root.contentFontFamily
+                    fontSize: Style.font.title
+                    horizontalPadding: Style.space(12)
+                    verticalPadding: Style.space(8)
+                    onClicked: root.runAction("add", root.mapSelection.timezone,
+                      root.mapSelection)
+                  }
+                }
+              }
+
+              Rectangle {
                 visible: mapProcess.running
-                  || root.mapSelection !== null
-                    && actionProcess.running && root.actionName === "add"
                 x: Math.max(Style.space(6), Math.min(parent.width - width - Style.space(6),
                   root.mapCursorX + Style.space(12)))
                 y: Math.max(Style.space(6), Math.min(parent.height - height - Style.space(6),
@@ -1778,7 +1975,7 @@ Panel {
                 Text {
                   id: mapLookupLabel
                   anchors.centerIn: parent
-                  text: mapProcess.running ? "Locating…" : "Adding…"
+                  text: "Locating…"
                   color: root.contentForeground
                   font.family: root.contentFontFamily
                   font.pixelSize: Style.font.bodySmall

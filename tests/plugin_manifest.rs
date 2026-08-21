@@ -79,6 +79,15 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("model: root.mapLocations"));
     assert!(panel.contains("modelData.searchResult === true"));
     assert!(panel.contains("backendCommand, \"locate\""));
+    assert!(panel.contains("function selectMapLocation(location)"));
+    assert!(panel.contains("id: mapSelectionCard"));
+    assert!(panel.contains("id: mapSelectionAddButton"));
+    assert!(panel.contains("root.selectMapLocation(mapMarker.location)"));
+    assert!(panel.contains("root.runAction(\"add\", root.mapSelection.timezone,"));
+    assert!(panel.contains("message = \"That location is already added.\""));
+    assert!(!panel.contains("root.runAction(\"add\", mapMarker.location.timezone"));
+    assert!(!panel.contains("root.runAction(\"add\", payload.timezone, payload)"));
+    assert!(panel.contains("if (root.mapSelection !== null) root.mapSelection = null"));
     assert!(panel.contains("id: searchResultOverlay"));
     assert!(panel.contains("id: searchResultTitleMetrics"));
     assert!(panel.contains("id: searchResultSubtitleMetrics"));
@@ -96,6 +105,9 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
         "height: Math.min(root.searchResults.length * Style.space(48), Style.space(240))"
     ));
     assert!(panel.contains("id: searchResultList"));
+    assert!(panel.contains(
+        "onClicked: root.runAction(\"add\", resultButton.modelData.timezone, resultButton.modelData)"
+    ));
     assert!(panel.contains("name === \"pin\" || name === \"remove\""));
     assert!(panel.contains("result.label !== null && result.label !== undefined"));
     assert!(panel.contains("id: timelineTickRepeater"));
@@ -169,6 +181,8 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("diameterRatio: 0.63"));
     assert!(panel.contains("mapCanvas.focusOnLocations(root.searchResults)"));
     assert!(panel.contains("mapCanvas.focusOnLocations([result])"));
+    assert!(panel.contains("command.push(\"--at\", String(snapshot.reference_utc))"));
+    assert!(panel.contains("root.mode = \"read\""));
     assert!(panel.contains("font.pixelSize: Style.font.title"));
     assert!(panel.contains("font.pixelSize: Style.font.bodySmall"));
     assert!(panel.contains("font.bold: false"));

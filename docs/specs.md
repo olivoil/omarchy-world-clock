@@ -159,7 +159,9 @@ Rules:
 - remote search requires at least three normalized characters
 - remote search is skipped when `disable_open_meteo_geolocation` is true
 - remote timezones are canonicalized and validated
-- results are de-duplicated by canonical timezone and normalized place label
+- results are de-duplicated by canonical timezone and normalized place label;
+  legacy timezone-link aliases for the same canonical place are coalesced to
+  the highest-scoring, human-friendly result
 - the upper-right search capsule and its result surface share a width fitted
   to the widest title or subtitle, constrained to 38–75% of the space between
   the back control and right edge so short results preserve the map and long
@@ -169,13 +171,17 @@ Rules:
 - while a query is present, the result coordinates replace every configured
   and featured marker; the camera fits the full result set instead of chasing
   a single hovered result
-- locally resolved places include bundled coordinates when timezone data has
-  them, allowing the globe to focus the first result without a remote request
+- search results include live time, day, notation, and relative-offset context;
+  locally resolved places also include bundled coordinates, allowing the globe
+  to focus the result set without a remote request
 - Open-Meteo results show one quiet, clickable attribution in the lower-left
   map corner while those remote results are visible
-- selecting a result adds it and recenters the globe on that result as a
-  visual confirmation; Enter chooses and centers the first valid result
-- successful addition leaves the add view ready for another query
+- selecting a dropdown result adds it immediately; Enter chooses the first
+  valid result
+- selecting the same result on the map centers it and opens an anchored detail
+  card with an explicit `Add` action instead of mutating configuration
+- a successful addition returns to the main clock view, where the new clock is
+  visible as confirmation
 - a duplicate or capacity violation produces an inline error
 - remote failure leaves local search usable
 
@@ -202,16 +208,17 @@ Rules:
   with adaptive high-contrast text for the active light or dark theme. Search
   and configured labels remain fully opaque, while browsing markers receive
   only a subtle horizon fade.
-- Clicking a featured marker adds it without requiring network access.
+- Clicking a featured or search marker centers it and opens a compact detail
+  card with its local time, day/relative offset, timezone, and `Add` action.
 - Saved coordinates are preferred for marker placement. Bundled timezone
   coordinates are used when saved coordinates are absent.
 - If the shader package cannot load, the viewport falls back to the bundled
-  flat map while preserving click-to-add.
+  flat map while preserving click-to-select.
 - Clicking bare land invokes the backend only after the click.
 - The backend resolves land coordinates through the embedded compact timezone
   grid; ocean or invalid coordinates return no location.
 - Map lookup itself never calls a remote service.
-- A resolved location is addable only when it is not already present and the
+- A resolved location is persisted only from the detail card and only when the
   capacity rule allows it.
 
 ## Pin and remove

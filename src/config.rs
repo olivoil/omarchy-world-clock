@@ -1266,9 +1266,17 @@ impl TimezoneResolver {
 
         let mut results = Vec::new();
         let mut seen_locations = HashSet::new();
+        let mut seen_alias_timezones = HashSet::new();
 
         for (_, _, _, alias) in alias_scored {
-            if !seen_locations.insert((alias.timezone.clone(), Self::normalize(&alias.alias))) {
+            // tzdata links often expose both a friendly city alias ("Rosario")
+            // and its legacy identifier ("America/Rosario"). They are names
+            // for the same canonical place, so retain the best-scoring alias.
+            // Remote place results use their own coordinates and are not
+            // affected, preserving distinct cities that share a timezone.
+            if !seen_alias_timezones.insert(alias.timezone.clone())
+                || !seen_locations.insert((alias.timezone.clone(), Self::normalize(&alias.alias)))
+            {
                 continue;
             }
             let Some(record) = self.direct_lookup_record(&alias.timezone) else {
@@ -1935,6 +1943,23 @@ mod tests {
 
         assert!(result.latitude.is_some());
         assert!(result.longitude.is_some());
+    }
+
+    #[test]
+    fn local_search_collapses_legacy_aliases_for_the_same_place() {
+        let canonical = canonical_timezone_name("America/Rosario");
+        let resolver = TimezoneResolver::new(Some(vec![canonical.clone()]));
+
+        let results = resolver.search("Rosario", 8);
+        let matching = results
+            .iter()
+            .filter(|result| result.timezone == canonical)
+            .collect::<Vec<_>>();
+
+        assert_eq!(matching.len(), 1);
+        assert_eq!(matching[0].title, "Rosario");
+        assert!(matching[0].latitude.is_some());
+        assert!(matching[0].longitude.is_some());
     }
 
     #[test]

@@ -78,6 +78,8 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("readonly property var mapLocations: searchHasQuery"));
     assert!(panel.contains("model: root.mapLocations"));
     assert!(panel.contains("modelData.searchResult === true"));
+    assert!(panel.contains("textureEnabled: root.opened && root.mode === \"add\""));
+    assert!(panel.contains("if (!root.mapClickPending) return\n      if (exitCode !== 0)"));
     assert!(panel.contains("backendCommand, \"locate\""));
     assert!(panel.contains("function selectMapLocation(location)"));
     assert!(panel.contains("function dismissMapSelection()"));
@@ -280,16 +282,29 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     let globe = fs::read_to_string(&globe_path).expect("read globe component");
     assert!(globe.contains("ShaderEffect"));
     assert!(globe.contains("DragHandler"));
+    assert!(globe.contains("TapHandler {\n    parent: sphere"));
+    assert!(globe.contains("var rootPoint = sphere.mapToItem(root, eventPoint.position)"));
     assert!(globe.contains("WheelHandler"));
     assert!(globe.contains("function project(latitudeDegrees, longitudeDegrees)"));
     assert!(globe.contains("function locationAt(viewX, viewY)"));
     assert!(globe.contains("function normalizedWheelDelta(angleDelta, pixelDelta)"));
     assert!(globe.contains("function focusOnLocations(locations)"));
+    assert!(globe.contains("function minimumAngularCenter(vectors)"));
+    assert!(globe.contains("minimumDepth: minimumDepth"));
     assert!(globe.contains("event.pixelDelta.y"));
     assert!(globe.contains("property real openingZoom:"));
     assert!(globe.contains("property real maximumZoom: 4.8"));
     assert!(globe.contains("sourceSize.width: 8192"));
     assert!(globe.contains("sourceSize.height: 4096"));
+    assert_eq!(
+        globe
+            .matches(
+                "source: root.textureEnabled ? Qt.resolvedUrl(\"../assets/world-map.png\") : \"\""
+            )
+            .count(),
+        2
+    );
+    assert!(globe.contains("asynchronous: true"));
     assert!(globe.contains("../assets/globe.frag.qsb"));
     assert!(globe.contains("visible: !root.shaderAvailable"));
 
@@ -316,4 +331,39 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(shader.contains("gradientX.x -= round(gradientX.x)"));
     assert!(shader.contains("gradientY.x -= round(gradientY.x)"));
     assert!(shader.contains("textureGrad(source, textureCoordinate, gradientX, gradientY)"));
+}
+
+#[test]
+fn globe_artifact_freshness_checks_are_mandatory_and_reproducible() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let ci = fs::read_to_string(root.join("scripts/ci.sh")).expect("read local CI script");
+    assert!(ci.contains("run node scripts/build-world-map-source.mjs --check"));
+    assert!(ci.contains("run node scripts/build-featured-cities.mjs --check"));
+    assert!(ci.contains("run scripts/check-globe-artifacts.sh"));
+    assert!(!ci.contains("command -v qsb"));
+    assert!(!ci.contains("command -v rsvg-convert"));
+
+    let checker_path = root.join("scripts/check-globe-artifacts.sh");
+    let checker = fs::read_to_string(&checker_path).expect("read globe artifact checker");
+    assert!(checker.contains("ubuntu@sha256:"));
+    assert!(checker.contains("qt6-shader-baker=6.10.2-1"));
+    assert!(checker.contains("spirv-tools=2026.1-1"));
+    assert!(checker.contains("librsvg2-bin=2.61.3+dfsg-3"));
+    assert!(checker.contains("scripts/build-globe-shader.sh --check"));
+    assert!(checker.contains("scripts/build-world-map.sh --check"));
+    assert_ne!(
+        fs::metadata(&checker_path)
+            .expect("read globe artifact checker metadata")
+            .permissions()
+            .mode()
+            & 0o111,
+        0,
+        "globe artifact checker must be executable"
+    );
+
+    let workflow =
+        fs::read_to_string(root.join(".github/workflows/ci.yml")).expect("read CI workflow");
+    assert!(workflow.contains("runs-on: ubuntu-24.04"));
+    assert!(workflow.contains("node-version: 26.7.0"));
+    assert!(workflow.contains("command -v node"));
 }

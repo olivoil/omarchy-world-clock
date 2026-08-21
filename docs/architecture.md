@@ -139,12 +139,15 @@ digest-pinned official Rust/Alpine container.
 `scripts/build-timezone-grid.sh --check` regenerates the compact map database
 from the locked `tzf-rs` source and compares it byte for byte.
 
-`scripts/build-globe-shader.sh --check` compiles the globe fragment shader with
-Qt Shader Tools and compares the generated QSB package byte for byte. QML owns
-the transient projection, motion, zoom-dependent city reveal, and collision
-aware label placement. Rust supplies live featured-city times and resolves the
-generated Natural Earth city catalogue through the embedded timezone grid.
-The precompiled package avoids a runtime shader-compiler dependency.
+`scripts/check-globe-artifacts.sh` runs the shader and texture freshness checks
+inside a digest-pinned official Ubuntu image with exact Qt Shader Tools,
+SPIR-V Tools, and librsvg package versions. `scripts/build-globe-shader.sh
+--check` compiles the globe fragment shader there and compares the generated
+QSB package byte for byte. QML owns the transient projection, motion,
+zoom-dependent city reveal, and collision-aware label placement. Rust supplies
+live featured-city times and resolves the generated Natural Earth city
+catalogue through the embedded timezone grid. The precompiled package avoids a
+runtime shader-compiler dependency.
 
 `scripts/build-world-map.sh --check` renders the committed SVG geography into
 the 8192×4096 PNG used by the GPU and verifies it byte for byte. The larger
@@ -152,7 +155,10 @@ texture keeps coastlines and boundaries crisp through the globe's extended
 zoom range without adding a runtime SVG-rendering dependency.
 
 `scripts/build-world-map-source.mjs` regenerates that SVG from checksum-pinned
-Natural Earth v5.1.2 country and minor-island GeoJSON. The 1:10m inputs retain
+Natural Earth v5.1.2 country and minor-island GeoJSON, while
+`scripts/build-featured-cities.mjs` regenerates the zoom-ranked city catalogue
+from the corresponding populated-place data. CI runs both generators in check
+mode before validating the derived shader and PNG. The 1:10m inputs retain
 roughly 87 times as many geographic points as the original simplified source,
 while the 8K derived PNG deliberately trades additional texture memory for
 crisper coastlines at the extended zoom ceiling. Natural Earth publishes the

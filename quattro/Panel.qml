@@ -883,6 +883,10 @@ Panel {
         Qt.callLater(root.startMapLookup)
         return
       }
+      // Typing, choosing a marker, or dismissing the detail card cancels the
+      // bare-map request. Its process may still finish, but that stale result
+      // must not replace the user's newer interaction.
+      if (!root.mapClickPending) return
       if (exitCode !== 0) {
         root.mapClickPending = false
         root.setStatus(String(mapError.text || "Could not resolve that map region.").trim(), true)
@@ -1570,6 +1574,7 @@ Panel {
               anchors.fill: parent
               clip: true
               interactive: root.canAdd && !actionProcess.running
+              textureEnabled: root.opened && root.mode === "add"
               property var markerLayouts: root.globeLabelLayouts(width, height)
               diameterRatio: 0.63
               oceanColor: root.mixColor(Color.background, root.contentForeground, 0.07)

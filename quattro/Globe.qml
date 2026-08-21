@@ -20,6 +20,7 @@ Item {
   property real maximumZoom: 4.8
   property real diameterRatio: 0.57
   property bool interactive: true
+  property bool textureEnabled: true
 
   readonly property real baseDiameter: Math.max(1,
     Math.min(height - 2, width * diameterRatio))
@@ -44,7 +45,7 @@ Item {
   }
 
   function clampLatitude(value) {
-    return Math.max(-72, Math.min(72, Number(value)))
+    return Math.max(-85, Math.min(85, Number(value)))
   }
 
   function clampZoom(value) {
@@ -158,11 +159,119 @@ Item {
     focusMotion.restart()
   }
 
-  function fittedView(locations) {
-    var vectors = []
+  function normalizedVector(x, y, z) {
+    var length = Math.sqrt(x * x + y * y + z * z)
+    if (!isFinite(length) || length < 0.0000001) return null
+    return { x: x / length, y: y / length, z: z / length }
+  }
+
+  function appendCenterCandidate(candidates, x, y, z) {
+    var candidate = normalizedVector(x, y, z)
+    if (candidate) candidates.push(candidate)
+  }
+
+  function minimumDepthForCenter(center, vectors) {
+    var minimumDepth = 1
+    for (var index = 0; index < vectors.length; index++) {
+      var point = vectors[index]
+      minimumDepth = Math.min(minimumDepth,
+        center.x * point.x + center.y * point.y + center.z * point.z)
+    }
+    return minimumDepth
+  }
+
+  // The smallest spherical cap enclosing a finite set is supported by one,
+  // two, or three boundary points. Evaluate those candidate centers and pick
+  // the one with the greatest worst-case depth. Unlike a vector average, this
+  // is not biased by duplicate results clustered on one side of the globe.
+  function minimumAngularCenter(vectors) {
+    var centerCandidates = []
     var sumX = 0
     var sumY = 0
     var sumZ = 0
+    for (var sumIndex = 0; sumIndex < vectors.length; sumIndex++) {
+      sumX += vectors[sumIndex].x
+      sumY += vectors[sumIndex].y
+      sumZ += vectors[sumIndex].z
+    }
+    appendCenterCandidate(centerCandidates, sumX, sumY, sumZ)
+
+    for (var pointIndex = 0; pointIndex < vectors.length; pointIndex++) {
+      var point = vectors[pointIndex]
+      appendCenterCandidate(centerCandidates, point.x, point.y, point.z)
+    }
+
+    for (var leftIndex = 0; leftIndex < vectors.length; leftIndex++) {
+      var left = vectors[leftIndex]
+      for (var rightIndex = leftIndex + 1; rightIndex < vectors.length; rightIndex++) {
+        var right = vectors[rightIndex]
+        var beforePairCount = centerCandidates.length
+        appendCenterCandidate(centerCandidates,
+          left.x + right.x, left.y + right.y, left.z + right.z)
+        if (centerCandidates.length === beforePairCount) {
+          // Antipodal pairs have infinitely many optimal midpoints. Seed two
+          // opposite orthogonal candidates so the remaining points can break
+          // the tie deterministically.
+          var axisX = Math.abs(left.z) < 0.9 ? 0 : 1
+          var axisZ = Math.abs(left.z) < 0.9 ? 1 : 0
+          var crossX = left.y * axisZ
+          var crossY = left.z * axisX - left.x * axisZ
+          var crossZ = -left.y * axisX
+          appendCenterCandidate(centerCandidates, crossX, crossY, crossZ)
+          appendCenterCandidate(centerCandidates, -crossX, -crossY, -crossZ)
+        }
+      }
+    }
+
+    for (var firstIndex = 0; firstIndex < vectors.length; firstIndex++) {
+      var first = vectors[firstIndex]
+      for (var secondIndex = firstIndex + 1;
+           secondIndex < vectors.length; secondIndex++) {
+        var second = vectors[secondIndex]
+        var differenceAX = first.x - second.x
+        var differenceAY = first.y - second.y
+        var differenceAZ = first.z - second.z
+        for (var thirdIndex = secondIndex + 1;
+             thirdIndex < vectors.length; thirdIndex++) {
+          var third = vectors[thirdIndex]
+          var differenceBX = first.x - third.x
+          var differenceBY = first.y - third.y
+          var differenceBZ = first.z - third.z
+          var crossCenterX = differenceAY * differenceBZ
+            - differenceAZ * differenceBY
+          var crossCenterY = differenceAZ * differenceBX
+            - differenceAX * differenceBZ
+          var crossCenterZ = differenceAX * differenceBY
+            - differenceAY * differenceBX
+          appendCenterCandidate(centerCandidates,
+            crossCenterX, crossCenterY, crossCenterZ)
+          appendCenterCandidate(centerCandidates,
+            -crossCenterX, -crossCenterY, -crossCenterZ)
+        }
+      }
+    }
+
+    var bestCenter = centerCandidates[0]
+    var bestMinimumDepth = -2
+    for (var candidateIndex = 0;
+         candidateIndex < centerCandidates.length; candidateIndex++) {
+      var centerCandidate = centerCandidates[candidateIndex]
+      var candidateDepth = minimumDepthForCenter(centerCandidate, vectors)
+      if (candidateDepth > bestMinimumDepth) {
+        bestCenter = centerCandidate
+        bestMinimumDepth = candidateDepth
+      }
+    }
+    return {
+      x: bestCenter.x,
+      y: bestCenter.y,
+      z: bestCenter.z,
+      minimumDepth: bestMinimumDepth
+    }
+  }
+
+  function fittedView(locations) {
+    var vectors = []
     var candidates = Array.isArray(locations) ? locations : []
     for (var i = 0; i < candidates.length; i++) {
       var candidate = candidates[i]
@@ -178,37 +287,30 @@ Item {
         z: Math.sin(latitudeValue)
       }
       vectors.push(vector)
-      sumX += vector.x
-      sumY += vector.y
-      sumZ += vector.z
     }
     if (vectors.length === 0) return null
 
-    var sumLength = Math.sqrt(sumX * sumX + sumY * sumY + sumZ * sumZ)
-    if (sumLength < 0.0001) {
-      sumX = vectors[0].x
-      sumY = vectors[0].y
-      sumZ = vectors[0].z
-      sumLength = 1
-    }
-    var centerXValue = sumX / sumLength
-    var centerYValue = sumY / sumLength
-    var centerZValue = sumZ / sumLength
-    var centerLatitude = Math.asin(Math.max(-1, Math.min(1, centerZValue)))
-    var centerLongitude = Math.atan2(centerYValue, centerXValue)
+    var fittedCenter = minimumAngularCenter(vectors)
+    var centerLatitude = radians(clampLatitude(degrees(
+      Math.asin(Math.max(-1, Math.min(1, fittedCenter.z))))))
+    var centerLongitude = Math.atan2(fittedCenter.y, fittedCenter.x)
     var sinLatitude = Math.sin(centerLatitude)
     var cosLatitude = Math.cos(centerLatitude)
     var sinLongitude = Math.sin(centerLongitude)
     var cosLongitude = Math.cos(centerLongitude)
     var maxEast = 0
     var maxNorth = 0
+    var minimumDepth = 1
     for (var vectorIndex = 0; vectorIndex < vectors.length; vectorIndex++) {
       var point = vectors[vectorIndex]
       var east = point.x * -sinLongitude + point.y * cosLongitude
       var north = point.x * -sinLatitude * cosLongitude
         + point.y * -sinLatitude * sinLongitude + point.z * cosLatitude
+      var depth = point.x * cosLatitude * cosLongitude
+        + point.y * cosLatitude * sinLongitude + point.z * sinLatitude
       maxEast = Math.max(maxEast, Math.abs(east))
       maxNorth = Math.max(maxNorth, Math.abs(north))
+      minimumDepth = Math.min(minimumDepth, depth)
     }
 
     var baseRadius = Math.max(1, baseDiameter / 2)
@@ -219,7 +321,8 @@ Item {
     return {
       latitude: degrees(centerLatitude),
       longitude: degrees(centerLongitude),
-      zoom: clampZoom(Math.min(2.75, horizontalFit, verticalFit))
+      zoom: clampZoom(Math.min(2.75, horizontalFit, verticalFit)),
+      minimumDepth: minimumDepth
     }
   }
 
@@ -259,10 +362,10 @@ Item {
   Image {
     id: mapTexture
     visible: false
-    source: Qt.resolvedUrl("../assets/world-map.png")
+    source: root.textureEnabled ? Qt.resolvedUrl("../assets/world-map.png") : ""
     sourceSize.width: 8192
     sourceSize.height: 4096
-    asynchronous: false
+    asynchronous: true
     cache: true
     smooth: true
     mipmap: true
@@ -271,7 +374,7 @@ Item {
   Image {
     anchors.fill: parent
     visible: !root.shaderAvailable
-    source: Qt.resolvedUrl("../assets/world-map.png")
+    source: root.textureEnabled ? Qt.resolvedUrl("../assets/world-map.png") : ""
     fillMode: Image.Stretch
     smooth: true
     mipmap: true
@@ -342,12 +445,14 @@ Item {
   }
 
   TapHandler {
+    parent: sphere
     enabled: root.interactive
     acceptedButtons: Qt.LeftButton
     gesturePolicy: TapHandler.DragThreshold
     onTapped: function(eventPoint) {
-      var viewX = eventPoint.position.x
-      var viewY = eventPoint.position.y
+      var rootPoint = sphere.mapToItem(root, eventPoint.position)
+      var viewX = rootPoint.x
+      var viewY = rootPoint.y
       var location = root.locationAt(viewX, viewY)
       if (location)
         root.locationPicked(location.latitude, location.longitude, viewX, viewY)

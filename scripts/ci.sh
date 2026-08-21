@@ -13,14 +13,9 @@ run cargo fmt --all -- --check
 run cargo clippy --locked --all-targets -- -D warnings
 run cargo test --locked
 run bash tests/bundle.sh
-
-if [[ -x /usr/lib/qt6/bin/qsb ]] || command -v qsb >/dev/null 2>&1; then
-  run scripts/build-globe-shader.sh --check
-fi
-
-if command -v rsvg-convert >/dev/null 2>&1; then
-  run scripts/build-world-map.sh --check
-fi
+run node scripts/build-world-map-source.mjs --check
+run node scripts/build-featured-cities.mjs --check
+run scripts/check-globe-artifacts.sh
 
 OMARCHY_ROOT=${OMARCHY_PATH:-/usr/share/omarchy}
 if command -v omarchy >/dev/null 2>&1 \

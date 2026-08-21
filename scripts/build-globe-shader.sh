@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_ROOT=$(git -C "$(dirname "${BASH_SOURCE[0]}")/.." rev-parse --show-toplevel)
+REPO_ROOT=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 SOURCE="$REPO_ROOT/assets/globe.frag"
 OUTPUT="$REPO_ROOT/assets/globe.frag.qsb"
 QSB_BIN=${QSB:-/usr/lib/qt6/bin/qsb}

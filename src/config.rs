@@ -1287,16 +1287,16 @@ impl TimezoneResolver {
             } else {
                 record.abbreviations.join(" / ")
             };
-            let (latitude, longitude) = match (alias.latitude, alias.longitude) {
-                (Some(latitude), Some(longitude)) => (Some(latitude), Some(longitude)),
-                _ => timezone_coordinate(&alias.timezone),
-            };
             results.push(TimezoneSearchResult {
                 timezone: alias.timezone.clone(),
                 title: alias.alias.clone(),
                 subtitle: format!("{}  ·  {}", alias.timezone, abbreviation_text),
-                latitude,
-                longitude,
+                // A tzdb link shares clock rules with its canonical zone, not
+                // necessarily geography. Pacific/Johnston, for example,
+                // resolves to Pacific/Honolulu but must not be plotted or
+                // persisted at Honolulu's representative coordinate.
+                latitude: alias.latitude,
+                longitude: alias.longitude,
                 open_meteo_attribution: false,
             });
             if results.len() >= limit {
@@ -1958,8 +1958,24 @@ mod tests {
 
         assert_eq!(matching.len(), 1);
         assert_eq!(matching[0].title, "Rosario");
-        assert!(matching[0].latitude.is_some());
-        assert!(matching[0].longitude.is_some());
+        assert_eq!(matching[0].latitude, None);
+        assert_eq!(matching[0].longitude, None);
+    }
+
+    #[test]
+    fn location_alias_does_not_inherit_the_canonical_zones_coordinates() {
+        let canonical = canonical_timezone_name("Pacific/Johnston");
+        let resolver = TimezoneResolver::new(Some(vec![canonical.clone()]));
+
+        let result = resolver
+            .search("Johnston", 8)
+            .into_iter()
+            .find(|result| result.timezone == canonical)
+            .expect("Johnston alias should remain searchable");
+
+        assert_eq!(result.title, "Johnston");
+        assert_eq!(result.latitude, None);
+        assert_eq!(result.longitude, None);
     }
 
     #[test]

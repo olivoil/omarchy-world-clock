@@ -47,7 +47,9 @@ the AUR package is no longer required.
 
 - **Left click** the world icon to open or close World Clock.
 - **Right click** it to open Omarchy's system-timezone selector and set your local timezone.
-- Use the **pencil** to reveal pin and remove controls.
+- Use the **pencil** to rename, pin, or remove locations. Click a location name
+  to edit it, then press **Enter** to save it or **Escape** to cancel. Submit an
+  empty name to restore the location's default place name.
 - Pin one place to keep its current time always visible beside the bar icon.
 - Select a displayed time and enter another time to convert the same instant
   across every visible place.
@@ -62,6 +64,7 @@ the AUR package is no longer required.
 - Optional current temperature and conditions for every place with a known
   coordinate.
 - Multiple named places in the same timezone, such as Boston and New York.
+- Personal labels for saved locations, such as a person's name or "Home".
 - One pinned home/place clock in the bar.
 - Manual time conversion with DST-aware IANA timezone handling.
 - Local timezone and alias search that works offline.

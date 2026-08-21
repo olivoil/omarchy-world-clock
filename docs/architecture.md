@@ -79,6 +79,7 @@ The executable exposes a deliberately small command/JSON boundary:
 | `search` | local search with optional remote fallback and live display context | JSON array |
 | `locate` | map coordinate to a timezone and display model | JSON/null |
 | `add` | persist a location | no output |
+| `rename` | change a matching location label | no output |
 | `remove` | remove a matching location | no output |
 | `pin` / `unpin` | mutate the pinned location | no output |
 | `version` | report the source/package version | text |

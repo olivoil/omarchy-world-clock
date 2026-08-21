@@ -55,6 +55,7 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(qml.contains("useActiveColor: false"));
     assert!(qml.contains("openPanelIndicatorWidth"));
     assert!(qml.contains("property bool moduleRefreshPending: false"));
+    assert!(qml.contains("readonly property int supportedBackendProtocol: 2"));
     assert!(qml.contains("function flushModuleRefresh()"));
     assert!(qml.contains("Qt.callLater(root.flushModuleRefresh)"));
     assert!(!qml.contains("command: [root.backendCommand, \"open\"]"));
@@ -126,7 +127,40 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
         "onClicked: root.runAction(\"add\", resultButton.modelData.timezone, resultButton.modelData)"
     ));
     assert!(panel.contains("name === \"pin\" || name === \"remove\""));
+    assert!(panel.contains("name === \"rename\""));
     assert!(panel.contains("result.label !== null && result.label !== undefined"));
+    assert!(panel.contains("command.push(\"--new-label\", String(value || \"\"))"));
+    assert!(panel.contains("function renameClock(clock, label)"));
+    assert!(panel.contains("function focusSummaryLabelEditor()"));
+    assert!(panel.contains("cell.focusLabelEditor(Qt.ShortcutFocusReason)"));
+    assert!(panel.contains("id: summaryLabelInput"));
+    assert!(panel.contains("id: cardLabelInput"));
+    assert!(panel.contains("id: editModeButton"));
+    assert!(panel.contains("property bool labelEditing: false"));
+    assert!(panel.contains("id: summaryLabelMouse"));
+    assert!(panel.contains("id: cardLabelMouse"));
+    assert!(panel.contains("cursorShape: Qt.IBeamCursor"));
+    assert!(panel.contains("font.capitalization: Font.AllUppercase"));
+    assert!(panel.contains("font.letterSpacing: 1"));
+    assert!(panel.contains("if (reason === Qt.MouseFocusReason)"));
+    assert!(panel.contains("cardLabelInput.cursorPosition = cardLabelInput.text.length"));
+    assert!(!panel.contains("visible: cardLabelInput.activeFocus"));
+    assert!(!panel.contains("visible: summaryLabelInput.activeFocus"));
+    assert!(!panel.contains("enabled: !root.labelEditorActive && !actionProcess.running"));
+    assert!(panel.contains("function handlePanelPointerTap(panelX, panelY)"));
+    assert!(panel.contains("function pointerInsideActiveEditor(panelX, panelY)"));
+    assert!(panel.contains("id: focusDismissHandler"));
+    assert!(panel.contains("parent: keyCatcher"));
+    assert!(panel.contains("onTapped: function(eventPoint)"));
+    assert!(
+        panel.contains("root.handlePanelPointerTap(eventPoint.position.x, eventPoint.position.y)")
+    );
+    assert!(panel.contains(
+        "keyboardCursorActive = false\n    keyboardClockIndex = -1\n    var pointerX = Number(panelX)"
+    ));
+    assert!(panel.contains("root.pointerInsideActiveEditor(pointerX, pointerY)"));
+    assert!(panel.contains("keyCatcher.forceActiveFocus(Qt.MouseFocusReason)"));
+    assert!(panel.contains("Accessible.description: \"Press Enter to save or Escape to cancel\""));
     assert!(panel.contains("id: timelineTickRepeater"));
     assert!(panel.contains("function focusSummaryEditor()"));
     assert!(panel.contains("property bool snapshotLoaded: false"));
@@ -143,13 +177,15 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("if (mode === \"read\") focusSummaryEditor()"));
     assert!(panel.contains("Qt.callLater(function()"));
     assert!(panel.contains("property bool editorRefreshPending: false"));
+    assert!(panel.contains("property bool labelEditorActive: false"));
     assert!(panel.contains("property bool snapshotRequestPending: false"));
     assert!(panel.contains("property int snapshotStateGeneration: 0"));
     assert!(panel.contains("property int convertActiveGeneration: -1"));
     assert!(panel.contains("property string invalidConversionSource: \"\""));
     assert!(panel.contains("snapshotLoaded = true\n      invalidConversionSource = \"\""));
     assert!(panel.contains("if (!snapshotLoaded || !timezoneName || !reference"));
-    assert!(panel.contains("if (timeEditorActive)"));
+    assert!(panel.contains("if (timeEditorActive || labelEditorActive)"));
+    assert!(panel.contains("(root.timeEditorActive || root.labelEditorActive)"));
     assert!(panel.contains("snapshotActiveGeneration === snapshotStateGeneration"));
     assert!(panel.contains("var manual = root.snapshotActiveReference !== \"\""));
     assert!(panel

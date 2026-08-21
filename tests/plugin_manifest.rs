@@ -157,6 +157,10 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("snapshot.weather_unit"));
     assert!(panel.contains("weatherUnitOverride === \"imperial\""));
     assert!(panel.contains("weatherUnitOverride !== \"metric\""));
+    assert!(panel.contains("function localeTerritory(localeName)"));
+    assert!(panel.contains("var parts = name.split(/[-_]/)"));
+    assert!(panel.contains("[\"US\", \"LR\", \"MM\"].indexOf(territory) !== -1"));
+    assert!(!panel.contains("/^en[_-]US"));
     assert!(panel.contains("id: summaryMetadataLine"));
     assert!(panel.contains("height: Style.space(92)"));
     assert!(panel.contains("id: summaryWeatherLine"));

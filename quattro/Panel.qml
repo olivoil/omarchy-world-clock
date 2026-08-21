@@ -216,11 +216,17 @@ Panel {
     return String(clock.timezone || "") + "\u001f" + String(label || "")
   }
 
+  function localeTerritory(localeName) {
+    var name = String(localeName || "").split(/[.@]/)[0]
+    var parts = name.split(/[-_]/)
+    if (parts.length < 2) return ""
+    var territory = String(parts[parts.length - 1] || "").toUpperCase()
+    return /^[A-Z]{2}$/.test(territory) ? territory : ""
+  }
+
   function localeUsesImperial(localeName) {
-    var name = String(localeName || "").replace(".", "_")
-    return /^en[_-]US($|[_.-])/.test(name)
-      || /^en[_-]LR($|[_.-])/.test(name)
-      || /^my($|[_.-])/.test(name)
+    var territory = localeTerritory(localeName)
+    return ["US", "LR", "MM"].indexOf(territory) !== -1
   }
 
   function weatherSignature() {

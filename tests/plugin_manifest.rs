@@ -74,6 +74,14 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("modelData.searchResult === true"));
     assert!(panel.contains("backendCommand, \"locate\""));
     assert!(panel.contains("id: searchResultOverlay"));
+    assert!(panel.contains("id: searchResultTitleMetrics"));
+    assert!(panel.contains("id: searchResultSubtitleMetrics"));
+    assert!(panel.contains("function measuredSearchResultWidth()"));
+    assert!(panel.contains("function searchResultOverlayWidth(availableWidth)"));
+    assert!(panel.contains("width: root.searchResultOverlayWidth(addField.width)"));
+    assert!(panel.contains("available * 0.38"));
+    assert!(panel.contains("available * 0.75"));
+    assert!(!panel.contains("width: Math.min(addField.width, Style.space(520))"));
     assert!(panel.contains(
         "height: Math.min(root.searchResults.length * Style.space(48), Style.space(240))"
     ));

@@ -141,6 +141,36 @@ Panel {
     return Math.ceil(extent / 60) * 60 + 60
   }
 
+  FontMetrics {
+    id: searchResultTitleMetrics
+    font.family: root.contentFontFamily
+    font.pixelSize: Style.font.body
+    font.bold: true
+  }
+
+  FontMetrics {
+    id: searchResultSubtitleMetrics
+    font.family: root.contentFontFamily
+    font.pixelSize: Style.font.caption
+  }
+
+  function measuredSearchResultWidth() {
+    var contentWidth = 0
+    for (var resultIndex = 0; resultIndex < searchResults.length; resultIndex++) {
+      var result = searchResults[resultIndex] || ({})
+      contentWidth = Math.max(contentWidth,
+        searchResultTitleMetrics.advanceWidth(String(result.title || "")),
+        searchResultSubtitleMetrics.advanceWidth(String(result.subtitle || "")))
+    }
+    return Math.ceil(contentWidth + Style.spacing.rowPaddingX * 2 + Style.space(8))
+  }
+
+  function searchResultOverlayWidth(availableWidth) {
+    var available = Math.max(1, Number(availableWidth))
+    return Math.max(available * 0.38,
+      Math.min(available * 0.75, measuredSearchResultWidth()))
+  }
+
   function open() {
     controller.show()
   }
@@ -1464,7 +1494,7 @@ Panel {
                 visible: root.searchVisible && root.searchResults.length > 0
                 x: addField.x
                 y: addField.y + addField.height + Style.space(8)
-                width: Math.min(addField.width, Style.space(520))
+                width: root.searchResultOverlayWidth(addField.width)
                 height: Math.min(root.searchResults.length * Style.space(48), Style.space(240))
                 z: 29
                 radius: Style.cornerRadius

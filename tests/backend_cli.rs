@@ -1,7 +1,7 @@
 use std::fs;
 use std::process::Command;
 
-const BACKEND_PROTOCOL_VERSION: u64 = 1;
+const BACKEND_PROTOCOL_VERSION: u64 = 2;
 
 #[test]
 fn package_exposes_only_the_quattro_backend_binary() {
@@ -194,8 +194,56 @@ fn bundled_backend_supports_the_complete_quattro_command_protocol() {
         .expect("add location");
     assert!(add.success());
 
+    let rename = Command::new(backend)
+        .args([
+            "rename",
+            "America/New_York",
+            "--label",
+            "Boston",
+            "--new-label",
+            "Sam",
+        ])
+        .env("HOME", &home)
+        .env("OMARCHY_WORLD_CLOCK_CONFIG", &config_path)
+        .status()
+        .expect("rename location");
+    assert!(rename.success());
+
+    let reset_label = Command::new(backend)
+        .args([
+            "rename",
+            "America/New_York",
+            "--label",
+            "Sam",
+            "--new-label",
+            "",
+        ])
+        .env("HOME", &home)
+        .env("OMARCHY_WORLD_CLOCK_CONFIG", &config_path)
+        .status()
+        .expect("reset location label");
+    assert!(reset_label.success());
+
+    let reset_snapshot = Command::new(backend)
+        .args(["snapshot", "--at", "2026-08-11T11:05:00Z"])
+        .env("HOME", &home)
+        .env("OMARCHY_WORLD_CLOCK_CONFIG", &config_path)
+        .output()
+        .expect("render snapshot after resetting location label");
+    assert!(reset_snapshot.status.success());
+    let reset_snapshot: serde_json::Value =
+        serde_json::from_slice(&reset_snapshot.stdout).expect("parse reset snapshot");
+    let reset_clock = reset_snapshot["clocks"]
+        .as_array()
+        .expect("snapshot clocks")
+        .iter()
+        .find(|clock| clock["timezone"] == "America/New_York")
+        .expect("reset location clock");
+    assert_eq!(reset_clock["label"], "New York");
+    assert_eq!(reset_clock["title"], "New York");
+
     let remove = Command::new(backend)
-        .args(["remove", "America/New_York", "--label", "Boston"])
+        .args(["remove", "America/New_York", "--label", "New York"])
         .env("HOME", &home)
         .env("OMARCHY_WORLD_CLOCK_CONFIG", &config_path)
         .status()

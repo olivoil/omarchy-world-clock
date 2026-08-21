@@ -482,6 +482,56 @@ impl ConfigManager {
         self.remove_location(timezone_name, None)
     }
 
+    pub fn rename_location(
+        &self,
+        timezone_name: &str,
+        current_label: &str,
+        new_label: &str,
+    ) -> anyhow::Result<AppConfig> {
+        let local_timezone = detect_local_timezone();
+        let timezone_name = canonical_timezone_name(timezone_name);
+        let current_label = current_label.to_string();
+        let new_label = new_label.trim().to_string();
+        self.mutate_with_local_timezone(&local_timezone, move |config| {
+            let matches = config
+                .timezones
+                .iter()
+                .enumerate()
+                .filter(|(_, entry)| entry.matches_location(&timezone_name, &current_label))
+                .map(|(index, _)| index)
+                .collect::<Vec<_>>();
+            if matches.is_empty() {
+                anyhow::bail!("location is not in the World Clock list: {timezone_name}");
+            }
+            if matches.len() > 1 {
+                anyhow::bail!("multiple locations use {timezone_name}; specify a location label");
+            }
+
+            let index = matches[0];
+            if config.timezones[index].label == new_label {
+                return Ok(false);
+            }
+            if config
+                .timezones
+                .iter()
+                .enumerate()
+                .any(|(candidate_index, entry)| {
+                    candidate_index != index && entry.matches_location(&timezone_name, &new_label)
+                })
+            {
+                anyhow::bail!("another location already uses that name in {timezone_name}");
+            }
+
+            let was_pinned = config.is_pinned(&config.timezones[index]);
+            config.timezones[index].label = new_label;
+            if was_pinned {
+                config.pinned_location = Some(config.timezones[index].location_key());
+            }
+            Ok(true)
+        })
+        .map(|(config, _)| config)
+    }
+
     pub fn remove_location(
         &self,
         timezone_name: &str,
@@ -2011,6 +2061,69 @@ mod tests {
             updated.timezones[2].label,
             "Boston, Massachusetts, United States"
         );
+    }
+
+    #[test]
+    fn rename_location_preserves_coordinates_and_pinned_identity() {
+        let temp_dir = TempDir::new().unwrap();
+        let manager = manager_in(&temp_dir);
+        manager.load_with_local_timezone("UTC").unwrap();
+        manager
+            .add_timezone_with_coordinate("Asia/Tokyo", "Tokyo", Some(35.6764), Some(139.65))
+            .unwrap();
+        manager
+            .set_pinned_location(Some("Asia/Tokyo"), Some("Tokyo"))
+            .unwrap();
+
+        let renamed = manager
+            .rename_location("Asia/Tokyo", "Tokyo", "  Akiko  ")
+            .unwrap();
+
+        assert_eq!(renamed.timezones[1].label, "Akiko");
+        assert_eq!(renamed.timezones[1].latitude, Some(35.6764));
+        assert_eq!(renamed.timezones[1].longitude, Some(139.65));
+        assert_eq!(
+            renamed.pinned_location,
+            Some(LocationKey {
+                timezone: "Asia/Tokyo".to_string(),
+                label: "Akiko".to_string(),
+            })
+        );
+        assert_eq!(manager.load_with_local_timezone("UTC").unwrap(), renamed);
+    }
+
+    #[test]
+    fn rename_location_rejects_a_duplicate_place_name() {
+        let temp_dir = TempDir::new().unwrap();
+        let manager = manager_in(&temp_dir);
+        manager.load_with_local_timezone("UTC").unwrap();
+        manager
+            .add_timezone("America/New_York", "New York")
+            .unwrap();
+        manager.add_timezone("America/New_York", "Boston").unwrap();
+
+        let error = manager
+            .rename_location("America/New_York", "Boston", "New York")
+            .unwrap_err();
+
+        assert!(error.to_string().contains("already uses that name"));
+        let saved = manager.load_with_local_timezone("UTC").unwrap();
+        assert!(saved.timezones.iter().any(|entry| entry.label == "Boston"));
+    }
+
+    #[test]
+    fn rename_location_can_restore_the_friendly_timezone_name() {
+        let temp_dir = TempDir::new().unwrap();
+        let manager = manager_in(&temp_dir);
+        manager.load_with_local_timezone("UTC").unwrap();
+        manager.add_timezone("Asia/Tokyo", "Akiko").unwrap();
+
+        let renamed = manager
+            .rename_location("Asia/Tokyo", "Akiko", "   ")
+            .unwrap();
+
+        assert_eq!(renamed.timezones[1].label, "");
+        assert_eq!(renamed.timezones[1].display_label(), "Tokyo");
     }
 
     #[test]

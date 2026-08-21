@@ -51,6 +51,8 @@ AUR package, `PATH` lookup, user-configured backend command, or install hook.
 - Read mode shows the summary clock, proportional relative timeline, and up to
   nine non-local location clocks in a borderless three-column layout.
 - Edit mode preserves the read layout and exposes pin/unpin and remove actions.
+  Location names retain their read-mode styling until clicked or selected with
+  the keyboard, then become inline inputs; `Enter` saves and `Escape` cancels.
 - Add mode is a map-first surface. The rotating globe fills the panel, with
   compact Back and Search controls floating above it.
 
@@ -91,6 +93,11 @@ Persistence rules:
 - duplicate places are identified by canonical timezone and normalized label
 - saved order is preserved
 - an empty label displays as a friendly timezone name
+- submitting an empty inline name removes the custom label and restores that
+  friendly timezone name
+- renaming a location preserves its timezone and saved coordinates
+- renaming a pinned location updates the pin to the new label
+- a rename cannot duplicate another normalized label in the same timezone
 - invalid coordinates are discarded
 - a pin must match one configured location
 - removing the pinned location clears the pin
@@ -224,8 +231,11 @@ Rules:
 - A resolved location is persisted only from the detail card and only when the
   capacity rule allows it.
 
-## Pin and remove
+## Rename, pin, and remove
 
+- In edit mode, every configured location label is editable inline. `Enter`
+  saves the trimmed label and `Escape` cancels the draft. Clearing a label
+  restores the friendly timezone name.
 - Edit mode exposes `PIN` for non-local locations.
 - Only one location can be pinned; choosing another replaces it.
 - The pin records timezone and label so two places sharing a timezone remain
@@ -255,6 +265,8 @@ Rules:
 - Plugin and backend versions match and the module protocol handshake passes.
 - The panel toggles and coordinates with built-in Quattro panels.
 - Pinning persists and updates the bar display.
+- Renaming persists, including for a pinned location and places that share a
+  timezone.
 - Time conversion works from the summary and every visible location.
 - Local search and map lookup work offline.
 - Remote search is attributed and can be disabled.

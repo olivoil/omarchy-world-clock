@@ -11,7 +11,7 @@ use anyhow::{bail, Context, Result};
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 
-pub const USAGE: &str = "Usage: omarchy-world-clock-backend <module|snapshot|convert|search|locate|add|remove|pin|unpin|version>";
+pub const USAGE: &str = "Usage: omarchy-world-clock-backend <module|snapshot|convert|search|locate|add|rename|remove|pin|unpin|version>";
 
 fn optional_flag(args: &[String], flag: &str) -> Result<Option<String>> {
     let Some(index) = args.iter().position(|arg| arg == flag) else {
@@ -160,6 +160,17 @@ pub fn execute(args: &[String]) -> Result<Option<String>> {
             if !outcome.added {
                 bail!("location is invalid or already configured: {timezone}");
             }
+            None
+        }
+        "rename" => {
+            let timezone = remaining_args
+                .first()
+                .ok_or_else(|| anyhow::anyhow!("missing timezone to rename"))?;
+            ConfigManager::new(None).rename_location(
+                timezone,
+                &required_flag(remaining_args, "--label")?,
+                &required_flag(remaining_args, "--new-label")?,
+            )?;
             None
         }
         "remove" => {

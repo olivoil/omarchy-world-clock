@@ -36,6 +36,7 @@ Panel {
   property bool live: true
   property bool editorActive: false
   property bool timeEditorActive: false
+  property bool labelEditorActive: false
   property bool editorRefreshPending: false
   property string editorRefreshReference: ""
   property bool snapshotRequestPending: false
@@ -365,10 +366,17 @@ Panel {
 
   function focusClockEditor(clockIndex) {
     Qt.callLater(function() {
-      if (!opened || mode !== "read") return
+      if (!opened || (mode !== "read" && mode !== "edit")) return
       var cell = root.clockCellAt(clockIndex)
-      if (cell) cell.focusTimeEditor()
+      if (!cell) return
+      if (mode === "read") cell.focusTimeEditor()
+      else cell.focusLabelEditor(Qt.ShortcutFocusReason)
     })
+  }
+
+  function focusSummaryLabelEditor() {
+    if (!opened || mode !== "edit" || !localTimezoneConfigured) return
+    headerTitle.beginLabelEdit(Qt.ShortcutFocusReason)
   }
 
   function activateKeyboardCursor() {
@@ -386,12 +394,11 @@ Panel {
     }
     if (keyboardClockIndex < 0) {
       if (mode === "read") focusSummaryEditor()
-      else if (summary.pinned === true) togglePin(summary)
+      else if (mode === "edit") focusSummaryLabelEditor()
       return
     }
     if (keyboardClockIndex >= clocks.length) return
-    if (mode === "read") focusClockEditor(keyboardClockIndex)
-    else if (mode === "edit") togglePin(clocks[keyboardClockIndex])
+    if (mode === "read" || mode === "edit") focusClockEditor(keyboardClockIndex)
   }
 
   function deleteKeyboardCursor() {
@@ -467,7 +474,7 @@ Panel {
 
   function requestSnapshot(referenceUtc) {
     var reference = String(referenceUtc || "")
-    if (timeEditorActive) {
+    if (timeEditorActive || labelEditorActive) {
       snapshotRequestPending = false
       snapshotRequestReference = ""
       editorRefreshPending = true
@@ -518,7 +525,7 @@ Panel {
 
   function flushEditorRefresh() {
     if (!editorRefreshPending) return
-    if (timeEditorActive) return
+    if (timeEditorActive || labelEditorActive) return
     var reference = editorRefreshReference
     editorRefreshPending = false
     editorRefreshReference = ""
@@ -556,22 +563,24 @@ Panel {
     convertProcess.running = true
   }
 
-  function runAction(name, timezone, result) {
-    if (actionProcess.running) return
+  function runAction(name, timezone, result, value) {
+    if (actionProcess.running) return false
     if (name === "add" && !canAddLocation(timezone)) {
       setStatus("Only " + currentLocationTitle
         + " can be added at the nine-location limit.", true)
-      return
+      return false
     }
     if (name === "add" && result && hasMapCoordinate(result))
       mapCanvas.focusOnLocations([result])
     actionName = name
     var command = [backendCommand, name]
     if (name !== "unpin") command.push(String(timezone || ""))
-    if ((name === "add" || name === "pin" || name === "remove") && result) {
+    if ((name === "add" || name === "pin" || name === "remove"
+        || name === "rename") && result) {
       var actionLabel = result.label !== null && result.label !== undefined
         ? result.label : result.title
       command.push("--label", String(actionLabel || ""))
+      if (name === "rename") command.push("--new-label", String(value || ""))
       if (name === "add" && result.latitude !== null && result.latitude !== undefined
           && result.longitude !== null && result.longitude !== undefined) {
         command.push("--latitude", String(result.latitude))
@@ -580,6 +589,16 @@ Panel {
     }
     actionProcess.command = command
     actionProcess.running = true
+    return true
+  }
+
+  function renameClock(clock, label) {
+    if (!clock) return false
+    var nextLabel = String(label || "").trim()
+    var currentLabel = String(clock.label !== null && clock.label !== undefined
+      ? clock.label : clock.title || "").trim()
+    if (nextLabel === currentLabel) return false
+    return runAction("rename", clock.timezone, clock, nextLabel)
   }
 
   function togglePin(clock) {
@@ -835,6 +854,10 @@ Panel {
     if (!timeEditorActive && editorRefreshPending)
       Qt.callLater(root.flushEditorRefresh)
   }
+  onLabelEditorActiveChanged: {
+    if (!labelEditorActive && editorRefreshPending)
+      Qt.callLater(root.flushEditorRefresh)
+  }
   onModeChanged: {
     if (mode === "add") {
       searchVisible = false
@@ -859,7 +882,8 @@ Panel {
     onExited: function(exitCode) {
       var current = root.snapshotActiveGeneration === root.snapshotStateGeneration
       var manual = root.snapshotActiveReference !== ""
-      if (exitCode === 0 && current && root.timeEditorActive) {
+      if (exitCode === 0 && current
+          && (root.timeEditorActive || root.labelEditorActive)) {
         if (!root.editorRefreshPending) {
           root.editorRefreshPending = true
           root.editorRefreshReference = root.snapshotActiveReference
@@ -1096,6 +1120,7 @@ Panel {
               Button {
                 iconText: "󰑐"
                 active: !root.live
+                enabled: !actionProcess.running
                 tooltipText: "Return to live time"
                 horizontalPadding: Style.space(8)
                 verticalPadding: Style.space(5)
@@ -1104,6 +1129,7 @@ Panel {
 
               Button {
                 visible: root.summary.pinned === true
+                enabled: !actionProcess.running
                 text: "UNPIN"
                 selected: true
                 tooltipText: "Remove this time from the bar"
@@ -1114,14 +1140,96 @@ Panel {
               }
             }
 
-            Text {
+            Item {
               id: headerTitle
               anchors.centerIn: parent
-              text: root.currentLocationTitle
-              color: root.contentForeground
-              font.family: root.contentFontFamily
-              font.pixelSize: Style.font.title
-              font.bold: true
+              readonly property bool editable:
+                root.mode === "edit" && root.localTimezoneConfigured
+              property bool labelEditing: false
+              function beginLabelEdit(focusReason) {
+                if (!editable || actionProcess.running) return
+                labelEditing = true
+                summaryLabelInput.resetText()
+                Qt.callLater(function() {
+                  if (!headerTitle.editable || !headerTitle.labelEditing) return
+                  var reason = focusReason === undefined
+                    ? Qt.MouseFocusReason : focusReason
+                  summaryLabelInput.forceActiveFocus(reason)
+                  if (reason === Qt.MouseFocusReason)
+                    summaryLabelInput.cursorPosition = summaryLabelInput.text.length
+                  else
+                    summaryLabelInput.selectAll()
+                })
+              }
+              onEditableChanged: if (!editable) labelEditing = false
+              implicitWidth: labelEditing
+                ? Style.space(260) : headerReadTitle.implicitWidth
+              implicitHeight: Math.max(headerReadTitle.implicitHeight,
+                summaryLabelInput.implicitHeight)
+              width: implicitWidth
+              height: implicitHeight
+
+              Text {
+                id: headerReadTitle
+                visible: !headerTitle.labelEditing
+                anchors.centerIn: parent
+                text: root.currentLocationTitle
+                color: root.contentForeground
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.font.title
+                font.bold: true
+              }
+
+              TextInput {
+                id: summaryLabelInput
+                function resetText() {
+                  text = String(root.summary.label || root.currentLocationTitle)
+                }
+                visible: headerTitle.editable && headerTitle.labelEditing
+                anchors.fill: parent
+                horizontalAlignment: Text.AlignHCenter
+                color: root.contentForeground
+                selectionColor: Style.selectionFill
+                selectedTextColor: root.contentForeground
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.font.title
+                font.bold: true
+                selectByMouse: true
+                clip: true
+                enabled: visible && root.snapshotLoaded && !actionProcess.running
+                Accessible.name: "Location name"
+                Accessible.description: "Press Enter to save or Escape to cancel"
+                Component.onCompleted: resetText()
+                onVisibleChanged: if (visible && !activeFocus) resetText()
+                onAccepted: {
+                  root.renameClock(root.summary, text)
+                  keyCatcher.forceActiveFocus(Qt.ShortcutFocusReason)
+                }
+                onActiveFocusChanged: {
+                  root.editorActive = activeFocus
+                  root.labelEditorActive = activeFocus
+                  if (!activeFocus) {
+                    resetText()
+                    headerTitle.labelEditing = false
+                  }
+                }
+                Keys.onEscapePressed: function(event) {
+                  resetText()
+                  keyCatcher.forceActiveFocus(Qt.ShortcutFocusReason)
+                  event.accepted = true
+                }
+              }
+
+              MouseArea {
+                id: summaryLabelMouse
+                visible: headerTitle.editable && !headerTitle.labelEditing
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.IBeamCursor
+                Accessible.name: "Rename " + root.currentLocationTitle
+                Accessible.role: Accessible.Button
+                onClicked: headerTitle.beginLabelEdit(Qt.MouseFocusReason)
+              }
             }
 
             Row {
@@ -1133,7 +1241,7 @@ Panel {
 
               Button {
                 iconText: "󰐕"
-                enabled: root.canAdd
+                enabled: root.canAdd && !actionProcess.running
                 tooltipText: root.canAdd ? "Add a location" : "Nine locations already shown"
                 horizontalPadding: Style.space(8)
                 verticalPadding: Style.space(5)
@@ -1141,12 +1249,18 @@ Panel {
               }
 
               Button {
+                id: editModeButton
                 iconText: "󰏫"
                 active: root.mode === "edit"
-                tooltipText: root.mode === "edit" ? "Finish editing" : "Pin or remove locations"
+                enabled: !actionProcess.running
+                tooltipText: root.mode === "edit"
+                  ? "Finish editing" : "Rename, pin, or remove locations"
                 horizontalPadding: Style.space(8)
                 verticalPadding: Style.space(5)
-                onClicked: root.mode = root.mode === "edit" ? "read" : "edit"
+                onClicked: {
+                  keyCatcher.forceActiveFocus(Qt.ShortcutFocusReason)
+                  root.mode = root.mode === "edit" ? "read" : "edit"
+                }
               }
             }
           }
@@ -1377,9 +1491,28 @@ Panel {
                       readonly property bool hasKeyboardCursor:
                         root.keyboardCursorActive
                           && root.keyboardClockIndex === clockIndex
+                      property bool labelEditing: false
                       function focusTimeEditor() {
                         cardTimeInput.forceActiveFocus(Qt.ShortcutFocusReason)
                         cardTimeInput.selectAll()
+                      }
+                      function focusLabelEditor(focusReason) {
+                        if (root.mode !== "edit" || actionProcess.running) return
+                        labelEditing = true
+                        cardLabelInput.resetText()
+                        Qt.callLater(function() {
+                          if (root.mode !== "edit" || !clockCell.labelEditing) return
+                          var reason = focusReason === undefined
+                            ? Qt.MouseFocusReason : focusReason
+                          cardLabelInput.forceActiveFocus(reason)
+                          if (reason === Qt.MouseFocusReason)
+                            cardLabelInput.cursorPosition = cardLabelInput.text.length
+                          else
+                            cardLabelInput.selectAll()
+                        })
+                      }
+                      onClockDataChanged: {
+                        if (!cardLabelInput.activeFocus) cardLabelInput.resetText()
                       }
                       width: clockRow.cellWidth
                       height: clockRow.height
@@ -1407,10 +1540,12 @@ Panel {
 
                         Item {
                           width: parent.width
-                          height: Math.max(cardTitle.implicitHeight, cardControls.implicitHeight)
+                          height: Math.max(cardTitle.implicitHeight,
+                            cardLabelInput.implicitHeight, cardControls.implicitHeight)
 
                           Text {
                             id: cardTitle
+                            visible: !clockCell.labelEditing
                             anchors.left: parent.left
                             anchors.right: cardControls.visible
                               ? cardControls.left : cardNotation.left
@@ -1423,6 +1558,66 @@ Panel {
                             font.bold: true
                             font.letterSpacing: 1
                             elide: Text.ElideRight
+                          }
+
+                          TextInput {
+                            id: cardLabelInput
+                            function resetText() {
+                              text = String(clockCell.clockData.label
+                                || clockCell.clockData.title || "")
+                            }
+                            visible: root.mode === "edit" && clockCell.labelEditing
+                            anchors.left: parent.left
+                            anchors.right: cardControls.left
+                            anchors.rightMargin: Style.space(6)
+                            anchors.verticalCenter: parent.verticalCenter
+                            color: root.contentForeground
+                            selectionColor: Style.selectionFill
+                            selectedTextColor: root.contentForeground
+                            font.family: root.contentFontFamily
+                            font.pixelSize: Style.font.caption
+                            font.bold: true
+                            font.capitalization: Font.AllUppercase
+                            font.letterSpacing: 1
+                            selectByMouse: true
+                            clip: true
+                            enabled: visible && root.snapshotLoaded && !actionProcess.running
+                            Accessible.name: "Location name"
+                            Accessible.description: "Press Enter to save or Escape to cancel"
+                            Component.onCompleted: resetText()
+                            onVisibleChanged: if (visible && !activeFocus) resetText()
+                            onAccepted: {
+                              root.renameClock(clockCell.clockData, text)
+                              keyCatcher.forceActiveFocus(Qt.ShortcutFocusReason)
+                            }
+                            onActiveFocusChanged: {
+                              root.editorActive = activeFocus
+                              root.labelEditorActive = activeFocus
+                              if (!activeFocus) {
+                                resetText()
+                                clockCell.labelEditing = false
+                              }
+                            }
+                            Keys.onEscapePressed: function(event) {
+                              resetText()
+                              keyCatcher.forceActiveFocus(Qt.ShortcutFocusReason)
+                              event.accepted = true
+                            }
+                          }
+
+                          MouseArea {
+                            id: cardLabelMouse
+                            visible: root.mode === "edit" && !clockCell.labelEditing
+                            anchors.left: parent.left
+                            anchors.right: cardControls.left
+                            anchors.top: parent.top
+                            anchors.bottom: parent.bottom
+                            hoverEnabled: true
+                            cursorShape: Qt.IBeamCursor
+                            Accessible.name: "Rename "
+                              + String(clockCell.clockData.title || "location")
+                            Accessible.role: Accessible.Button
+                            onClicked: clockCell.focusLabelEditor(Qt.MouseFocusReason)
                           }
 
                           Text {
@@ -1447,6 +1642,7 @@ Panel {
                             Button {
                               text: clockCell.clockData.pinned ? "UNPIN" : "PIN"
                               selected: clockCell.clockData.pinned === true
+                              enabled: !actionProcess.running
                               tooltipText: clockCell.clockData.pinned
                                 ? "Remove this time from the bar"
                                 : "Keep this time visible in the bar"
@@ -1458,7 +1654,7 @@ Panel {
 
                             PanelActionButton {
                               iconText: "󰆴"
-                              enabled: root.canRemove
+                              enabled: root.canRemove && !actionProcess.running
                               tooltipText: root.canRemove
                                 ? "Remove location" : "Keep at least one timezone"
                               foreground: root.contentForeground

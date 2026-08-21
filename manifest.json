@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "id": "io.github.olivoil.world-clock",
   "name": "World Clock",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "author": "Olivier Melcher",
-  "description": "Compare current time and weather, convert time, and pin a place.",
+  "description": "A native Omarchy world clock for comparing time and weather across places, converting time zones, and pinning a place to the bar.",
   "license": "MIT AND ODbL-1.0",
   "kinds": [
     "bar-widget"
@@ -14,7 +14,7 @@
   },
   "barWidget": {
     "displayName": "World Clock",
-    "description": "Compare current time and weather, convert time, and pin a place.",
+    "description": "A native Omarchy world clock for comparing time and weather across places, converting time zones, and pinning a place to the bar.",
     "category": "Time",
     "allowMultiple": false,
     "defaultSection": "center",

@@ -31,3 +31,25 @@ Then rebuild the bundled backend because the grid is embedded at compile time:
 ```bash
 scripts/build-plugin-backend.sh
 ```
+
+## Featured cities
+
+`featured-cities.json` is a compact catalogue of ranked capitals and major
+agglomerations generated from Natural Earth v5.1.2 Populated Places. It keeps
+Natural Earth's label ordering and maps its recommended zoom levels onto the
+globe's zoom range. The backend resolves each coordinate through the embedded
+timezone grid, then supplies its live local time to QML.
+
+Natural Earth data is public domain. Source URLs and checksums are pinned in
+`scripts/build-featured-cities.mjs`; additional provenance is documented in
+`assets/NATURAL_EARTH.md`.
+
+Regenerate and verify the catalogue with:
+
+```bash
+node scripts/build-featured-cities.mjs
+node scripts/build-featured-cities.mjs --check
+```
+
+Rebuild the bundled backend afterward because the catalogue is embedded at
+compile time.

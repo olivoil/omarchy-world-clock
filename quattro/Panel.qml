@@ -28,7 +28,8 @@ Panel {
     pinned_timezone: null,
     summary: ({ timezone: "", label: "", title: "", time: "--:--", day: "", notation: "", relative_minutes: 0, relative_label: "Same time" }),
     clocks: [],
-    timeline: []
+    timeline: [],
+    featured_cities: []
   })
   property bool snapshotLoaded: false
   property bool summaryFocusPending: false
@@ -60,6 +61,7 @@ Panel {
   property real mapLookupLongitude: 0
   property real mapCursorX: 0
   property real mapCursorY: 0
+  property bool mapSelectionCardOnRight: true
   property bool mapClickPending: false
   property var weather: ({
     source: "Open-Meteo",
@@ -74,12 +76,27 @@ Panel {
   property string weatherAttemptSignature: ""
   property double weatherLastUpdatedAt: 0
   property double weatherLastAttemptAt: 0
+  property bool globeInitialized: false
+  property bool searchVisible: false
+  property bool keyboardCursorActive: false
+  property int keyboardClockIndex: -1
 
   readonly property var barIdentity: hostWidget || root
   readonly property color contentForeground: bar ? bar.foreground : Color.foreground
+  readonly property bool mapUsesLightLabels:
+    contentForeground.r * 0.2126 + contentForeground.g * 0.7152 + contentForeground.b * 0.0722
+      >= Color.background.r * 0.2126 + Color.background.g * 0.7152 + Color.background.b * 0.0722
+  readonly property color mapLabelForeground: mapUsesLightLabels
+    ? Qt.lighter(contentForeground, 1.20) : Qt.darker(contentForeground, 1.20)
   readonly property string contentFontFamily: bar ? bar.fontFamily : Style.font.family
+  readonly property color searchSurfaceColor: {
+    var mixed = root.mixColor(Color.popups.background, root.contentForeground, 0.025)
+    return Qt.rgba(mixed.r, mixed.g, mixed.b, 1)
+  }
   readonly property var clocks: snapshot && Array.isArray(snapshot.clocks) ? snapshot.clocks : []
   readonly property var timeline: snapshot && Array.isArray(snapshot.timeline) ? snapshot.timeline : []
+  readonly property var featuredCities: snapshot && Array.isArray(snapshot.featured_cities)
+    ? snapshot.featured_cities : []
   readonly property var summary: snapshot && snapshot.summary ? snapshot.summary : ({ time: "--:--", title: "", timezone: "", day: "", notation: "" })
   readonly property var weatherLocations: weather && Array.isArray(weather.locations)
     ? weather.locations : []
@@ -113,6 +130,13 @@ Panel {
     Number(snapshot.configured_count || 0) - (localTimezoneConfigured ? 1 : 0))
   readonly property bool canAdd: nonLocalLocationCount < maxClocks
     || nonLocalLocationCount === maxClocks && !localTimezoneConfigured
+  readonly property bool showOpenMeteoAttribution: {
+    if (!searchVisible || !Array.isArray(searchResults)) return false
+    for (var resultIndex = 0; resultIndex < searchResults.length; resultIndex++)
+      if (searchResults[resultIndex]
+          && searchResults[resultIndex].open_meteo_attribution === true) return true
+    return false
+  }
   readonly property var mapClocks: {
     var entries = []
     if (root.hasMapCoordinate(summary)) entries.push(summary)
@@ -120,11 +144,77 @@ Panel {
       if (root.hasMapCoordinate(clocks[i])) entries.push(clocks[i])
     return entries
   }
+  readonly property var globeLocations: {
+    var entries = []
+    var seenPlaces = ({})
+    for (var savedIndex = 0; savedIndex < mapClocks.length; savedIndex++) {
+      var saved = mapClocks[savedIndex]
+      var savedKey = root.mapLocationKey(saved)
+      entries.push({ location: saved, configured: true })
+      if (savedKey) seenPlaces[savedKey] = true
+    }
+    for (var cityIndex = 0; cityIndex < featuredCities.length; cityIndex++) {
+      var city = featuredCities[cityIndex]
+      var cityKey = root.mapLocationKey(city)
+      if (!root.hasMapCoordinate(city) || seenPlaces[cityKey]) continue
+      entries.push({ location: city, configured: false, featured: true })
+      if (cityKey) seenPlaces[cityKey] = true
+    }
+    return entries
+  }
+  readonly property bool searchHasQuery: root.searchVisible
+    && String(addField.text || "").trim() !== ""
+  readonly property var searchMapLocations: {
+    var entries = []
+    for (var resultIndex = 0; resultIndex < searchResults.length; resultIndex++) {
+      var result = searchResults[resultIndex]
+      if (root.hasMapCoordinate(result))
+        entries.push({ location: result, configured: false, searchResult: true })
+    }
+    return entries
+  }
+  readonly property var mapLocations: searchHasQuery
+    ? searchMapLocations : globeLocations
   readonly property int timelineExtent: {
     var extent = 60
     for (var i = 0; i < timeline.length; i++)
       extent = Math.max(extent, Math.abs(Number(timeline[i].relative_minutes || 0)))
     return Math.ceil(extent / 60) * 60 + 60
+  }
+
+  onClocksChanged: {
+    if (keyboardClockIndex >= clocks.length)
+      keyboardClockIndex = clocks.length - 1
+  }
+
+  FontMetrics {
+    id: searchResultTitleMetrics
+    font.family: root.contentFontFamily
+    font.pixelSize: Style.font.body
+    font.bold: true
+  }
+
+  FontMetrics {
+    id: searchResultSubtitleMetrics
+    font.family: root.contentFontFamily
+    font.pixelSize: Style.font.caption
+  }
+
+  function measuredSearchResultWidth() {
+    var contentWidth = 0
+    for (var resultIndex = 0; resultIndex < searchResults.length; resultIndex++) {
+      var result = searchResults[resultIndex] || ({})
+      contentWidth = Math.max(contentWidth,
+        searchResultTitleMetrics.advanceWidth(String(result.title || "")),
+        searchResultSubtitleMetrics.advanceWidth(String(result.subtitle || "")))
+    }
+    return Math.ceil(contentWidth + Style.spacing.rowPaddingX * 2 + Style.space(8))
+  }
+
+  function searchModuleWidth(availableWidth) {
+    var available = Math.max(1, Number(availableWidth))
+    return Math.max(available * 0.38,
+      Math.min(available * 0.75, measuredSearchResultWidth()))
   }
 
   function open() {
@@ -161,20 +251,48 @@ Panel {
     Qt.callLater(root.focusSummaryEditor)
   }
 
-  function focusAddField() {
+  function focusAddField(selectExisting) {
     Qt.callLater(function() {
-      if (!opened || mode !== "add" || !canAdd) return
+      if (!opened || mode !== "add" || !searchVisible || !canAdd) return
       addField.forceActiveFocus(Qt.ShortcutFocusReason)
-      addField.selectAll()
+      if (selectExisting === false)
+        addField.cursorPosition = addField.text.length
+      else
+        addField.selectAll()
+    })
+  }
+
+  function openSearch(initialText) {
+    if (mode !== "add" || !canAdd) return
+    var seed = String(initialText || "")
+    searchVisible = true
+    clearStatus()
+    if (seed) addField.text = seed
+    focusAddField(seed === "")
+  }
+
+  function closeSearch() {
+    searchVisible = false
+    searchDebounce.stop()
+    searchResults = []
+    searchResultsQuery = ""
+    searchSubmitQuery = ""
+    addField.text = ""
+    mapSelection = null
+    mapClickPending = false
+    editorActive = false
+    keyCatcher.forceActiveFocus(Qt.ShortcutFocusReason)
+    Qt.callLater(function() {
+      if (opened && mode === "add") keyCatcher.forceActiveFocus(Qt.ShortcutFocusReason)
     })
   }
 
   function openAdd() {
     mode = "add"
+    searchVisible = false
     var alreadyOpened = opened
     controller.show()
     if (alreadyOpened) refresh()
-    focusAddField()
   }
 
   function close() {
@@ -183,9 +301,133 @@ Panel {
     searchResults = []
     searchResultsQuery = ""
     searchSubmitQuery = ""
+    searchVisible = false
     mapSelection = null
     mapClickPending = false
+    globeInitialized = false
+    keyboardCursorActive = false
+    keyboardClockIndex = -1
     controller.hide()
+  }
+
+  function mixColor(base, tint, amount) {
+    var ratio = Math.max(0, Math.min(1, Number(amount)))
+    return Qt.rgba(
+      base.r * (1 - ratio) + tint.r * ratio,
+      base.g * (1 - ratio) + tint.g * ratio,
+      base.b * (1 - ratio) + tint.b * ratio,
+      1)
+  }
+
+  function initializeGlobe() {
+    if (globeInitialized || mode !== "add" || !snapshotLoaded) return
+    globeInitialized = true
+    if (hasMapCoordinate(summary))
+      mapCanvas.settleOn(summary.latitude, summary.longitude)
+    else
+      mapCanvas.settleOn(18, 0)
+  }
+
+  function focusGlobeOn(location, zoomValue) {
+    if (!location || !hasMapCoordinate(location) || mode !== "add") return
+    mapCanvas.focusOn(location.latitude, location.longitude,
+      zoomValue === undefined ? 1.95 : zoomValue)
+  }
+
+  function clockCellAt(clockIndex) {
+    var normalizedIndex = Number(clockIndex)
+    if (!isFinite(normalizedIndex) || normalizedIndex < 0
+        || normalizedIndex >= clocks.length) return null
+    var row = clockRowRepeater.itemAt(Math.floor(normalizedIndex / 3))
+    return row ? row.cellAt(normalizedIndex % 3) : null
+  }
+
+  function ensureKeyboardCursorVisible() {
+    if (!keyboardCursorActive || mode === "add") return
+    var target = keyboardClockIndex < 0
+      ? summaryInput : clockCellAt(keyboardClockIndex)
+    if (!target) return
+    var mapped = target.mapToItem(panelColumn, 0, 0)
+    var top = mapped.y - Style.space(12)
+    var bottom = mapped.y + target.height + Style.space(12)
+    if (top < panelScroll.contentY)
+      panelScroll.contentY = Math.max(0, top)
+    else if (bottom > panelScroll.contentY + panelScroll.height)
+      panelScroll.contentY = Math.min(
+        Math.max(0, panelScroll.contentHeight - panelScroll.height),
+        bottom - panelScroll.height)
+  }
+
+  function moveKeyboardCursor(dx, dy) {
+    if (mode === "add") {
+      if (mapSelection !== null) dismissMapSelection()
+      mapClickPending = false
+      mapCanvas.setView(mapCanvas.latitude + Number(dy) * 7,
+        mapCanvas.longitude - Number(dx) * 10)
+      return
+    }
+
+    var count = clocks.length
+    if (!keyboardCursorActive) {
+      keyboardCursorActive = true
+      keyboardClockIndex = count > 0 ? 0 : -1
+      Qt.callLater(root.ensureKeyboardCursorVisible)
+      return
+    }
+    if (count === 0) {
+      keyboardClockIndex = -1
+      return
+    }
+
+    var nextIndex = keyboardClockIndex
+    if (Number(dy) > 0)
+      nextIndex = nextIndex < 0 ? 0 : Math.min(count - 1, nextIndex + 3)
+    else if (Number(dy) < 0)
+      nextIndex = nextIndex < 3 ? -1 : nextIndex - 3
+    else if (Number(dx) > 0)
+      nextIndex = nextIndex < 0 ? 0 : Math.min(count - 1, nextIndex + 1)
+    else if (Number(dx) < 0)
+      nextIndex = nextIndex < 0 ? count - 1 : Math.max(0, nextIndex - 1)
+    keyboardClockIndex = nextIndex
+    Qt.callLater(root.ensureKeyboardCursorVisible)
+  }
+
+  function focusClockEditor(clockIndex) {
+    Qt.callLater(function() {
+      if (!opened || mode !== "read") return
+      var cell = root.clockCellAt(clockIndex)
+      if (cell) cell.focusTimeEditor()
+    })
+  }
+
+  function activateKeyboardCursor() {
+    if (mode === "add") {
+      openSearch()
+      return
+    }
+    if (!keyboardCursorActive) {
+      if (mode === "read") focusSummaryEditor()
+      else {
+        keyboardCursorActive = true
+        keyboardClockIndex = clocks.length > 0 ? 0 : -1
+      }
+      return
+    }
+    if (keyboardClockIndex < 0) {
+      if (mode === "read") focusSummaryEditor()
+      else if (summary.pinned === true) togglePin(summary)
+      return
+    }
+    if (keyboardClockIndex >= clocks.length) return
+    if (mode === "read") focusClockEditor(keyboardClockIndex)
+    else if (mode === "edit") togglePin(clocks[keyboardClockIndex])
+  }
+
+  function deleteKeyboardCursor() {
+    if (mode !== "edit" || !keyboardCursorActive
+        || keyboardClockIndex < 0 || keyboardClockIndex >= clocks.length
+        || !canRemove || actionProcess.running) return
+    removeClock(clocks[keyboardClockIndex])
   }
 
   function toggle() {
@@ -368,6 +610,7 @@ Panel {
       clearStatus()
       if (summaryFocusPending) Qt.callLater(root.focusSummaryEditor)
       requestWeather(false)
+      if (mode === "add") Qt.callLater(root.initializeGlobe)
     } catch (error) {
       setStatus("World Clock backend returned invalid data.", true)
     }
@@ -472,6 +715,8 @@ Panel {
         + " can be added at the nine-location limit.", true)
       return
     }
+    if (name === "add" && result && hasMapCoordinate(result))
+      mapCanvas.focusOnLocations([result])
     actionName = name
     var command = [backendCommand, name]
     if (name !== "unpin") command.push(String(timezone || ""))
@@ -510,6 +755,15 @@ Panel {
   }
 
   function searchTextChanged() {
+    mapSelection = null
+    mapClickPending = false
+    if (!searchVisible) {
+      searchDebounce.stop()
+      searchResults = []
+      searchResultsQuery = ""
+      searchSubmitQuery = ""
+      return
+    }
     searchResults = []
     searchResultsQuery = ""
     searchSubmitQuery = ""
@@ -517,7 +771,7 @@ Panel {
   }
 
   function startSearch() {
-    if (mode !== "add") return
+    if (mode !== "add" || !searchVisible) return
     var query = String(addField.text || "").trim()
     if (!query) {
       searchResults = []
@@ -526,13 +780,17 @@ Panel {
     }
     if (searchProcess.running) return
     searchQueryInFlight = query
-    searchProcess.command = [backendCommand, "search", query]
+    var command = [backendCommand, "search", query]
+    if (snapshot && snapshot.reference_utc)
+      command.push("--at", String(snapshot.reference_utc))
+    searchProcess.command = command
     searchProcess.running = true
   }
 
   function addFirstResult() {
     var query = String(addField.text || "").trim()
-    if (mode !== "add" || !query || !canAdd || actionProcess.running) return
+    if (mode !== "add" || !searchVisible || !query || !canAdd
+        || actionProcess.running) return
     if (searchResultsQuery === query) {
       if (searchResults.length > 0)
         runAction("add", searchResults[0].timezone, searchResults[0])
@@ -553,71 +811,112 @@ Panel {
       && longitude >= -180 && longitude <= 180
   }
 
-  function mapX(longitude, width) {
-    return Math.max(0, Math.min(width, ((Number(longitude) + 180) / 360) * width))
-  }
-
-  function mapY(latitude, height) {
-    return Math.max(0, Math.min(height, ((90 - Number(latitude)) / 180) * height))
-  }
-
-  function compactMapLabel(value) {
-    var label = String(value || "")
-    return label.length <= 18 ? label : label.slice(0, 15) + "…"
-  }
-
-  function escapeHtml(value) {
-    return String(value || "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/\"/g, "&quot;")
-  }
-
-  function mapLabelWidth(label) {
-    return Math.max(Style.space(42), Math.min(Style.space(148),
-      String(label || "").length * Style.spaceReal(7.2) + Style.space(16)))
-  }
-
   function mapRectsOverlap(left, right) {
-    var gap = Style.space(4)
+    var gap = Style.space(5)
     return left.x - gap < right.x + right.width
       && left.x + left.width + gap > right.x
       && left.y - gap < right.y + right.height
       && left.y + left.height + gap > right.y
   }
 
-  function mapLabelLayout(targetIndex, width, height) {
+  function globeLabelWidth(location) {
+    var titleLength = String(location && location.title || "").length
+    var metadataLength = String(location
+      && (location.time || location.timezone || location.subtitle) || "").length
+    return Math.max(Style.space(76), Math.min(Style.space(176),
+      Math.max(titleLength, metadataLength) * Style.spaceReal(8.2) + Style.space(20)))
+  }
+
+  function mapLocationKey(location) {
+    if (!location) return ""
+    var timezone = String(location.timezone || "").trim().toLowerCase()
+    var title = String(location.title || location.label || "").trim().toLowerCase()
+    return timezone && title ? timezone + "\u001f" + title : ""
+  }
+
+  function selectMapLocation(location) {
+    if (!location || !canAddLocation(location.timezone)) return
+    if (hasMapCoordinate(location)) {
+      var projection = mapCanvas.project(location.latitude, location.longitude)
+      mapSelectionCardOnRight = projection.x < mapCanvas.width / 2
+    }
+    mapClickPending = false
+    mapSelection = location
+    clearStatus()
+    if (hasMapCoordinate(location)) mapCanvas.focusOnLocations([location])
+  }
+
+  function dismissMapSelection() {
+    if (mapSelection === null) return
+    mapSelection = null
+    mapClickPending = false
+    if (searchVisible) {
+      closeSearch()
+      return
+    }
+    Qt.callLater(function() {
+      if (opened && mode === "add")
+        keyCatcher.forceActiveFocus(Qt.ShortcutFocusReason)
+    })
+  }
+
+  function globeLocationReveal(wrapper) {
+    if (!wrapper || wrapper.searchResult === true || wrapper.configured === true) return 1
+    var minimumZoom = Number(wrapper.location && wrapper.location.minimum_zoom)
+    if (!isFinite(minimumZoom)) minimumZoom = mapCanvas.minimumZoom
+    return Math.max(0, Math.min(1, (mapCanvas.zoom - minimumZoom) / 0.24))
+  }
+
+  function globeLabelLayouts(width, height) {
     var placed = []
-    var labelHeight = Style.space(22)
-    var margin = Style.space(7)
-    var labelGap = Style.space(8)
-    var rowGap = labelHeight + Style.space(5)
-    var offsets = [0, -rowGap, rowGap, -rowGap * 2, rowGap * 2, -rowGap * 3, rowGap * 3]
+    var layouts = []
+    var labelHeight = Style.space(42)
+    var edge = Style.space(8)
+    var pointGap = Style.space(12)
 
-    for (var i = 0; i <= targetIndex && i < mapClocks.length; i++) {
-      var entry = mapClocks[i]
-      var pointX = mapX(entry.longitude, width)
-      var pointY = mapY(entry.latitude, height)
-      var label = compactMapLabel(entry.title)
-      var labelWidth = mapLabelWidth(label)
-      var preferredRight = pointX < width / 2
-      var sides = preferredRight
-        ? [pointX + labelGap, pointX - labelGap - labelWidth]
-        : [pointX - labelGap - labelWidth, pointX + labelGap]
+    for (var i = 0; i < mapLocations.length; i++) {
+      var wrapper = mapLocations[i]
+      var location = wrapper.location
+      var projection = mapCanvas.project(location.latitude, location.longitude)
+      var reveal = globeLocationReveal(wrapper)
+      var layout = {
+        visible: false,
+        labelVisible: false,
+        x: 0,
+        y: 0,
+        width: globeLabelWidth(location),
+        height: labelHeight,
+        pointX: projection.x,
+        pointY: projection.y,
+        depth: projection.depth,
+        reveal: reveal
+      }
+      layouts.push(layout)
+      if (!projection.visible || reveal <= 0.01) {
+        continue
+      }
+
+      var mayPlaceLabel = wrapper.searchResult === true
+        || wrapper.configured || reveal >= 0.72
+      var labelWidth = layout.width
+      var candidates = [
+        { x: projection.x - labelWidth / 2, y: projection.y - labelHeight - pointGap },
+        { x: projection.x + pointGap, y: projection.y - labelHeight / 2 },
+        { x: projection.x - labelWidth - pointGap, y: projection.y - labelHeight / 2 },
+        { x: projection.x - labelWidth / 2, y: projection.y + pointGap },
+        { x: projection.x + pointGap, y: projection.y - labelHeight - pointGap },
+        { x: projection.x - labelWidth - pointGap, y: projection.y - labelHeight - pointGap }
+      ]
       var chosen = null
-
-      for (var offsetIndex = 0; offsetIndex < offsets.length && !chosen; offsetIndex++) {
-        for (var sideIndex = 0; sideIndex < sides.length && !chosen; sideIndex++) {
+      if (mayPlaceLabel) {
+        for (var candidateIndex = 0; candidateIndex < candidates.length && !chosen;
+             candidateIndex++) {
+          var raw = candidates[candidateIndex]
           var candidate = {
-            x: Math.max(margin, Math.min(width - labelWidth - margin, sides[sideIndex])),
-            y: Math.max(margin, Math.min(height - labelHeight - margin,
-              pointY - labelHeight / 2 + offsets[offsetIndex])),
+            x: Math.max(edge, Math.min(width - labelWidth - edge, raw.x)),
+            y: Math.max(edge, Math.min(height - labelHeight - edge, raw.y)),
             width: labelWidth,
-            height: labelHeight,
-            pointX: pointX,
-            pointY: pointY,
-            label: label
+            height: labelHeight
           }
           var overlaps = false
           for (var placedIndex = 0; placedIndex < placed.length; placedIndex++) {
@@ -630,30 +929,26 @@ Panel {
         }
       }
 
-      if (!chosen) {
-        chosen = {
-          x: Math.max(margin, Math.min(width - labelWidth - margin, sides[0])),
-          y: Math.max(margin, Math.min(height - labelHeight - margin, pointY - labelHeight / 2)),
-          width: labelWidth,
-          height: labelHeight,
-          pointX: pointX,
-          pointY: pointY,
-          label: label
-        }
+      if (chosen) {
+        layout.x = chosen.x
+        layout.y = chosen.y
+        layout.labelVisible = true
+        placed.push(chosen)
       }
-      placed.push(chosen)
+      layout.visible = true
     }
-
-    return placed.length > targetIndex ? placed[targetIndex]
-      : ({ x: 0, y: 0, width: 0, height: 0, pointX: 0, pointY: 0, label: "" })
+    return layouts
   }
 
-  function requestMapLocation(x, y, width, height) {
-    if (!canAdd || width <= 0 || height <= 0) return
+  function requestMapLocation(latitude, longitude, x, y) {
+    if (!canAdd) return
     mapCursorX = x
     mapCursorY = y
-    mapRequestedLongitude = Math.max(-179.999999, Math.min(179.999999, x / width * 360 - 180))
-    mapRequestedLatitude = Math.max(-89.999999, Math.min(89.999999, 90 - y / height * 180))
+    mapSelectionCardOnRight = x < mapCanvas.width / 2
+    mapRequestedLongitude = Math.max(-179.999999,
+      Math.min(179.999999, Number(longitude)))
+    mapRequestedLatitude = Math.max(-89.999999,
+      Math.min(89.999999, Number(latitude)))
     mapSelection = null
     mapClickPending = true
     if (!mapProcess.running) startMapLookup()
@@ -704,8 +999,11 @@ Panel {
   }
   onModeChanged: {
     if (mode === "add") {
-      focusAddField()
+      searchVisible = false
+      Qt.callLater(root.initializeGlobe)
     } else {
+      searchVisible = false
+      addField.text = ""
       searchDebounce.stop()
       searchResults = []
       searchResultsQuery = ""
@@ -714,6 +1012,7 @@ Panel {
       mapClickPending = false
     }
   }
+  onCanAddChanged: if (!canAdd && searchVisible) closeSearch()
 
   Process {
     id: snapshotProcess
@@ -802,7 +1101,10 @@ Panel {
     stderr: StdioCollector { id: actionError; waitForEnd: true }
     onExited: function(exitCode) {
       if (exitCode !== 0) {
-        root.setStatus(String(actionError.text || "Could not update World Clock.").trim(), true)
+        var message = String(actionError.text || "Could not update World Clock.").trim()
+        if (root.actionName === "add" && message.indexOf("already configured") >= 0)
+          message = "That location is already added."
+        root.setStatus(message, true)
         return
       }
       if (root.actionName === "add") {
@@ -812,7 +1114,7 @@ Panel {
         root.searchSubmitQuery = ""
         root.mapSelection = null
         root.mapClickPending = false
-        root.setStatus("Location added.", false)
+        root.mode = "read"
       }
       root.invalidateSnapshotRequests()
       root.requestSnapshot(root.live ? "" : String(root.snapshot.reference_utc || ""))
@@ -825,7 +1127,7 @@ Panel {
     stdout: StdioCollector { id: searchOutput; waitForEnd: true }
     stderr: StdioCollector { waitForEnd: true }
     onExited: function(exitCode) {
-      if (root.mode !== "add") {
+      if (root.mode !== "add" || !root.searchVisible) {
         root.searchResults = []
         root.searchResultsQuery = ""
         root.searchSubmitQuery = ""
@@ -855,6 +1157,7 @@ Panel {
           root.setStatus("No matching location.", false)
         } else {
           root.clearStatus()
+          mapCanvas.focusOnLocations(root.searchResults)
           if (root.mode === "add"
               && root.searchSubmitQuery === root.searchResultsQuery && root.canAdd) {
             root.searchSubmitQuery = ""
@@ -879,6 +1182,10 @@ Panel {
         Qt.callLater(root.startMapLookup)
         return
       }
+      // Typing, choosing a marker, or dismissing the detail card cancels the
+      // bare-map request. Its process may still finish, but that stale result
+      // must not replace the user's newer interaction.
+      if (!root.mapClickPending) return
       if (exitCode !== 0) {
         root.mapClickPending = false
         root.setStatus(String(mapError.text || "Could not resolve that map region.").trim(), true)
@@ -895,7 +1202,8 @@ Panel {
         root.mapSelection = payload
         if (root.mapClickPending) {
           root.mapClickPending = false
-          root.runAction("add", payload.timezone, payload)
+          root.clearStatus()
+          mapCanvas.focusOnLocations([payload])
         }
       } catch (error) {
         root.mapClickPending = false
@@ -930,20 +1238,30 @@ Panel {
     contentWidth: panel.fittedContentWidth(Style.space(960))
     contentHeight: panel.fittedContentHeight(panelColumn.implicitHeight, Style.space(680))
 
-    PanelKeyCatcher {
+    WorldClockKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
       blocked: root.editorActive || addField.activeFocus
+      directTextInput: root.mode === "add" && !addField.activeFocus
+      onMoveRequested: function(dx, dy) { root.moveKeyboardCursor(dx, dy) }
+      onActivateRequested: root.activateKeyboardCursor()
+      onDeleteRequested: root.deleteKeyboardCursor()
       onCloseRequested: {
-        if (root.mode === "read") root.close()
+        if (root.mapSelection !== null) root.dismissMapSelection()
+        else if (root.mode === "add" && root.searchVisible) root.closeSearch()
+        else if (root.mode === "read") root.close()
         else root.mode = "read"
       }
       onTabRequested: function(direction) { root.switchPanel(direction) }
-      onReturnRequested: {
-        if (root.mode === "read") root.focusSummaryEditor()
-        else if (root.mode === "add") root.focusAddField()
-      }
       onTextKey: function(text) {
+        if (root.mode === "add") {
+          if (!root.searchVisible) root.openSearch(text)
+          else {
+            addField.text += text
+            root.focusAddField(false)
+          }
+          return
+        }
         if (text === "a" || text === "A") root.mode = "add"
         else if (text === "e" || text === "E") root.mode = root.mode === "edit" ? "read" : "edit"
         else if (text === "r" || text === "R") root.returnToLive()
@@ -964,8 +1282,12 @@ Panel {
           spacing: Style.space(root.mode === "add" ? 14 : 8)
 
           Item {
+            visible: root.mode !== "add"
             width: parent.width
-            height: Math.max(headerTitle.implicitHeight, headerStart.implicitHeight, headerActions.implicitHeight)
+            height: visible
+              ? Math.max(headerTitle.implicitHeight, headerStart.implicitHeight,
+                headerActions.implicitHeight)
+              : 0
 
             Row {
               id: headerStart
@@ -974,19 +1296,16 @@ Panel {
               spacing: Style.space(6)
 
               Button {
-                iconText: root.mode === "add" ? "󰅁" : "󰑐"
-                active: root.mode !== "add" && !root.live
-                tooltipText: root.mode === "add" ? "Back to world clock" : "Return to live time"
+                iconText: "󰑐"
+                active: !root.live
+                tooltipText: "Return to live time"
                 horizontalPadding: Style.space(8)
                 verticalPadding: Style.space(5)
-                onClicked: {
-                  if (root.mode === "add") root.mode = "read"
-                  else root.returnToLive()
-                }
+                onClicked: root.returnToLive()
               }
 
               Button {
-                id: openMeteoAttribution
+                id: weatherProviderAttribution
                 anchors.verticalCenter: parent.verticalCenter
                 visible: root.mode !== "add" && root.weatherEnabled && root.live
                   && root.weather.disabled !== true
@@ -1020,11 +1339,10 @@ Panel {
             Text {
               id: headerTitle
               anchors.centerIn: parent
-              text: root.mode === "add" ? "Add a Location" : root.currentLocationTitle
+              text: root.currentLocationTitle
               color: root.contentForeground
               font.family: root.contentFontFamily
-              font.pixelSize: root.mode === "add"
-                ? Style.font.title : Style.space(18)
+              font.pixelSize: Style.space(18)
               font.bold: true
             }
 
@@ -1097,6 +1415,7 @@ Panel {
 
               Rectangle {
                 visible: summaryInput.activeFocus || summaryInput.conversionInvalid
+                  || root.keyboardCursorActive && root.keyboardClockIndex < 0
                 anchors.left: summaryInput.left
                 anchors.right: summaryInput.right
                 anchors.top: summaryInput.bottom
@@ -1311,6 +1630,7 @@ Panel {
               spacing: Style.space(14)
 
               Repeater {
+                id: clockRowRepeater
                 model: Math.ceil(root.clocks.length / 3)
 
                 Row {
@@ -1321,6 +1641,9 @@ Panel {
                     Math.min(3, root.clocks.length - startIndex)
                   readonly property real cellWidth:
                     (clockRows.width - Style.space(32)) / 3
+                  function cellAt(cellIndex) {
+                    return clockCellRepeater.itemAt(cellIndex)
+                  }
                   anchors.horizontalCenter: parent.horizontalCenter
                   width: itemCount * cellWidth
                     + Math.max(0, itemCount - 1) * spacing
@@ -1328,6 +1651,7 @@ Panel {
                   spacing: Style.space(16)
 
                   Repeater {
+                    id: clockCellRepeater
                     model: clockRow.itemCount
 
                     Item {
@@ -1338,6 +1662,14 @@ Panel {
                       readonly property var weatherData: root.weatherFor(clockData)
                       readonly property bool showWeather: root.weatherPresentationActive
                         && (weatherData !== null || root.weatherLoading)
+                      readonly property int clockIndex: clockRow.startIndex + index
+                      readonly property bool hasKeyboardCursor:
+                        root.keyboardCursorActive
+                          && root.keyboardClockIndex === clockIndex
+                      function focusTimeEditor() {
+                        cardTimeInput.forceActiveFocus(Qt.ShortcutFocusReason)
+                        cardTimeInput.selectAll()
+                      }
                       width: clockRow.cellWidth
                       height: clockRow.height
                       clip: true
@@ -1346,7 +1678,13 @@ Panel {
                         id: clockSurface
                         anchors.fill: parent
                         radius: Style.cornerRadius
-                        color: Style.normalFillFor(root.contentForeground, Color.accent)
+                        color: clockCell.hasKeyboardCursor
+                          ? Style.hoverFillFor(root.contentForeground, Color.accent)
+                          : Style.normalFillFor(root.contentForeground, Color.accent)
+                        border.width: clockCell.hasKeyboardCursor
+                          ? Style.spacing.hairline : 0
+                        border.color: Style.focusStateColor(
+                          root.contentForeground, Color.accent)
                       }
 
                       Column {
@@ -1550,56 +1888,194 @@ Panel {
             }
           }
 
-          Column {
+          Item {
             id: addPage
             visible: root.mode === "add"
             width: parent.width
-            spacing: Style.space(12)
+            height: Math.max(Style.space(360),
+              (panel.availableCardHeight > 0
+                ? Math.min(panel.availableCardHeight, Style.space(680))
+                : Style.space(680)) - panel.verticalContentInset)
+            clip: true
 
-            TextField {
-              id: addField
-              anchors.horizontalCenter: parent.horizontalCenter
-              width: Math.min(parent.width, Style.space(760))
-              placeholderText: "Search for a city or timezone"
-              foreground: root.contentForeground
-              enabled: root.canAdd && !actionProcess.running
-              onTextChanged: root.searchTextChanged()
-              onAccepted: root.addFirstResult()
-              onActiveFocusChanged: root.editorActive = activeFocus
-            }
+            Rectangle {
+              id: addSearchSurface
+              visible: root.searchVisible
+              anchors.top: parent.top
+              anchors.topMargin: Style.space(12)
+              anchors.right: parent.right
+              anchors.rightMargin: Style.space(12)
+              width: root.searchModuleWidth(Math.max(1,
+                parent.width - addBackButton.width - Style.space(36)))
+              height: addSearchButton.height
+              z: 29
+              radius: Style.cornerRadius
+              color: root.searchSurfaceColor
+              border.width: Style.spacing.hairline
+              border.color: root.mixColor(Color.popups.background,
+                root.contentForeground, 0.26)
+              opacity: root.searchVisible ? 1 : 0
 
-            Text {
-              visible: !root.canAdd
-              width: parent.width
-              horizontalAlignment: Text.AlignHCenter
-              text: "Remove a location before adding another."
-              color: Qt.darker(root.contentForeground, 1.45)
-              font.family: root.contentFontFamily
-              font.pixelSize: Style.font.body
-            }
-
-            Item {
-              id: mapCanvas
-              visible: root.canAdd
-              anchors.horizontalCenter: parent.horizontalCenter
-              width: Math.min(parent.width, Style.space(720))
-              height: width / 2
-              clip: true
-
-              Rectangle {
-                anchors.fill: parent
-                color: Style.normalFillFor(root.contentForeground, Color.accent)
+              Behavior on opacity {
+                NumberAnimation { duration: 160; easing.type: Easing.OutCubic }
               }
+
+              TextField {
+                id: addField
+                anchors.fill: parent
+                z: 1
+                rightPadding: addSearchCloseButton.width + Style.spacing.controlPaddingX
+                placeholderText: "Search for a city or timezone"
+                foreground: root.contentForeground
+                enabled: root.searchVisible && root.canAdd && !actionProcess.running
+                onTextChanged: root.searchTextChanged()
+                onAccepted: root.addFirstResult()
+                onActiveFocusChanged: root.editorActive = activeFocus
+                Keys.onEscapePressed: function(event) {
+                  if (root.mapSelection !== null) root.dismissMapSelection()
+                  else root.closeSearch()
+                  event.accepted = true
+                }
+              }
+
+              Item {
+                id: addSearchCloseButton
+                anchors.right: parent.right
+                anchors.rightMargin: Style.space(2)
+                anchors.verticalCenter: parent.verticalCenter
+                width: Style.space(38)
+                height: parent.height
+                z: 2
+
+                Rectangle {
+                  id: addSearchCloseHover
+                  anchors.centerIn: parent
+                  width: Style.space(28)
+                  height: width
+                  radius: Style.cornerRadius
+                  color: addSearchCloseMouse.containsMouse
+                    ? Style.hoverFillFor(root.contentForeground, Color.accent)
+                    : "transparent"
+
+                  Behavior on color { ColorAnimation { duration: 120 } }
+                }
+
+                Text {
+                  id: addSearchCloseGlyph
+                  anchors.centerIn: parent
+                  text: "󰅖"
+                  color: root.contentForeground
+                  opacity: addSearchCloseMouse.containsMouse ? 1 : 0.82
+                  font.family: root.contentFontFamily
+                  font.pixelSize: Style.font.icon
+
+                  Behavior on opacity { NumberAnimation { duration: 120 } }
+                }
+
+                MouseArea {
+                  id: addSearchCloseMouse
+                  anchors.fill: parent
+                  hoverEnabled: true
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: root.closeSearch()
+                }
+              }
+            }
+
+            Button {
+              id: addBackButton
+              anchors.top: parent.top
+              anchors.left: parent.left
+              anchors.margins: Style.space(12)
+              width: Style.space(42)
+              height: width
+              z: 31
+              radius: height / 2
+              iconText: "󰅁"
+              iconSize: Style.font.iconLarge
+              tooltipText: "Back to world clock"
+              foreground: root.contentForeground
+              background: root.mixColor(Color.popups.background,
+                root.contentForeground, 0.025)
+              bordered: true
+              horizontalPadding: 0
+              verticalPadding: 0
+              onClicked: root.mode = "read"
+            }
+
+            Button {
+              id: addSearchButton
+              visible: !root.searchVisible
+              anchors.top: parent.top
+              anchors.right: parent.right
+              anchors.margins: Style.space(12)
+              width: Style.space(42)
+              height: width
+              z: 31
+              radius: height / 2
+              iconText: "󰍉"
+              iconSize: Style.font.iconLarge
+              tooltipText: "Search locations"
+              foreground: root.contentForeground
+              background: root.mixColor(Color.popups.background,
+                root.contentForeground, 0.025)
+              bordered: true
+              horizontalPadding: 0
+              verticalPadding: 0
+              onClicked: root.openSearch()
+            }
+
+            Rectangle {
+              visible: !root.canAdd
+              anchors.centerIn: parent
+              width: capacityLabel.implicitWidth + Style.space(28)
+              height: capacityLabel.implicitHeight + Style.space(16)
+              z: 25
+              radius: height / 2
+              color: root.mixColor(Color.background, root.contentForeground, 0.035)
+              border.width: Style.spacing.hairline
+              border.color: root.mixColor(Color.background, root.contentForeground, 0.24)
+
+              Text {
+                id: capacityLabel
+                anchors.centerIn: parent
+                text: "Remove a location before adding another."
+                color: root.contentForeground
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.font.body
+              }
+            }
+
+            Globe {
+              id: mapCanvas
+              anchors.fill: parent
+              clip: true
+              interactive: root.canAdd && !actionProcess.running
+              textureEnabled: root.opened && root.mode === "add"
+              property var markerLayouts: root.globeLabelLayouts(width, height)
+              diameterRatio: 0.63
+              oceanColor: root.mixColor(Color.background, root.contentForeground, 0.07)
+              landColor: root.mixColor(Color.background, root.contentForeground, 0.68)
+              boundaryColor: root.mixColor(Color.background, root.contentForeground, 0.40)
+              rimColor: root.mixColor(Color.background, root.contentForeground, 0.28)
+              onLocationPicked: function(latitude, longitude, viewX, viewY) {
+                root.requestMapLocation(latitude, longitude, viewX, viewY)
+              }
+              onViewInteractionStarted: root.dismissMapSelection()
 
               Rectangle {
                 id: searchResultOverlay
-                visible: root.searchResults.length > 0
-                anchors.top: parent.top
-                anchors.left: parent.left
-                anchors.right: parent.right
-                height: Math.min(root.searchResults.length * Style.space(48), mapCanvas.height)
-                z: 3
-                color: Color.background
+                visible: root.searchVisible && root.searchResults.length > 0
+                  && root.mapSelection === null
+                x: addSearchSurface.x
+                y: addSearchSurface.y + addSearchSurface.height + Style.space(8)
+                width: addSearchSurface.width
+                height: Math.min(root.searchResults.length * Style.space(48), Style.space(240))
+                z: 29
+                radius: Style.cornerRadius
+                color: root.searchSurfaceColor
+                border.width: Style.spacing.hairline
+                border.color: root.mixColor(Color.background, root.contentForeground, 0.24)
                 clip: true
 
                 ListView {
@@ -1641,103 +2117,355 @@ Panel {
 
                       Text {
                         width: parent.width
-                        textFormat: Text.RichText
-                        text: root.escapeHtml(resultButton.modelData.subtitle)
-                          + (resultButton.modelData.open_meteo_attribution
-                            ? "  ·  <a href=\"https://open-meteo.com/\">Open-Meteo</a>" : "")
+                        text: resultButton.modelData.subtitle
                         color: Qt.darker(root.contentForeground, 1.5)
-                        linkColor: root.contentForeground
                         font.family: root.contentFontFamily
                         font.pixelSize: Style.font.caption
                         elide: Text.ElideRight
-                        onLinkActivated: function(link) { Qt.openUrlExternally(link) }
                       }
                     }
                   }
                 }
               }
 
-              Image {
-                anchors.fill: parent
-                source: Qt.resolvedUrl("../assets/world-map.png")
-                fillMode: Image.Stretch
-                smooth: true
-                mipmap: true
-                opacity: 0.78
+              Button {
+                id: openMeteoAttribution
+                visible: root.showOpenMeteoAttribution
+                anchors.left: parent.left
+                anchors.bottom: parent.bottom
+                anchors.margins: Style.space(12)
+                z: 28
+                text: "Location data by Open-Meteo"
+                tooltipText: "Open Open-Meteo"
+                foreground: Qt.darker(root.contentForeground, 1.35)
+                background: root.mixColor(Color.popups.background,
+                  root.contentForeground, 0.025)
+                fontFamily: root.contentFontFamily
+                fontSize: Style.font.caption
+                focusable: true
+                horizontalPadding: Style.space(6)
+                verticalPadding: Style.space(3)
+                onClicked: Qt.openUrlExternally("https://open-meteo.com/")
               }
 
               Repeater {
-                model: 11
-
-                Rectangle {
-                  required property int index
-                  x: Math.round((index + 1) * mapCanvas.width / 12)
-                  y: Style.space(8)
-                  width: Style.spacing.hairline
-                  height: mapCanvas.height - Style.space(16)
-                  color: root.contentForeground
-                  opacity: 0.10
-                }
-              }
-
-              Repeater {
-                model: root.mapClocks
+                model: root.mapLocations
 
                 Item {
                   id: mapMarker
                   required property int index
                   required property var modelData
-                  readonly property var layout:
-                    root.mapLabelLayout(index, mapCanvas.width, mapCanvas.height)
+                  readonly property var location: modelData.location
+                  readonly property bool configured: modelData.configured === true
+                  readonly property bool searchResult: modelData.searchResult === true
+                  readonly property bool selectable: !configured
+                    && root.canAddLocation(location.timezone)
+                    && !actionProcess.running
+                  readonly property bool selected: root.mapSelection !== null
+                    && root.mapLocationKey(root.mapSelection)
+                      === root.mapLocationKey(mapMarker.location)
+                  readonly property var layout: mapCanvas.markerLayouts[index] || ({
+                    visible: false,
+                    labelVisible: false,
+                    x: 0,
+                    y: 0,
+                    width: 0,
+                    height: 0,
+                    pointX: 0,
+                    pointY: 0,
+                    depth: -1,
+                    reveal: 0
+                  })
                   anchors.fill: parent
+                  visible: layout && layout.visible
+                  z: 4
+                  opacity: layout ? layout.reveal * (searchResult || configured
+                    ? 1 : Math.max(0.88, Math.min(1, 0.88 + layout.depth * 0.14))) : 0
+
+                  Behavior on opacity {
+                    NumberAnimation { duration: 160; easing.type: Easing.OutQuint }
+                  }
 
                   Rectangle {
+                    id: cityLabel
+                    visible: mapMarker.layout.labelVisible
                     x: mapMarker.layout.x
                     y: mapMarker.layout.y
                     width: mapMarker.layout.width
                     height: mapMarker.layout.height
-                    radius: height / 2
-                    color: Color.background
-                    opacity: 0.88
+                    radius: Style.cornerRadius
+                    color: mapMarker.selected
+                      ? Style.selectedFillFor(root.contentForeground, Color.accent)
+                      : cityMouse.containsMouse && mapMarker.selectable
+                      ? Style.hoverFillFor(root.contentForeground, Color.accent)
+                      : "transparent"
 
-                    Text {
+                    Column {
+                      anchors.leftMargin: Style.space(6)
+                      anchors.rightMargin: Style.space(6)
+                      anchors.left: parent.left
+                      anchors.right: parent.right
+                      anchors.verticalCenter: parent.verticalCenter
+                      spacing: Style.space(1)
+
+                      Text {
+                        width: parent.width
+                        text: mapMarker.location.title
+                        horizontalAlignment: Text.AlignHCenter
+                        color: root.mapLabelForeground
+                        font.family: root.contentFontFamily
+                        font.pixelSize: Style.font.title
+                        font.bold: true
+                        style: Text.Outline
+                        styleColor: Color.background
+                        elide: Text.ElideRight
+                      }
+
+                      Text {
+                        width: parent.width
+                        text: mapMarker.location.time
+                          || mapMarker.location.timezone
+                          || mapMarker.location.subtitle
+                        horizontalAlignment: Text.AlignHCenter
+                        color: root.mapLabelForeground
+                        opacity: 0.88
+                        font.family: root.contentFontFamily
+                        font.pixelSize: Style.font.bodySmall
+                        font.bold: false
+                        style: Text.Outline
+                        styleColor: Color.background
+                        elide: Text.ElideRight
+                      }
+                    }
+
+                    MouseArea {
+                      id: cityMouse
                       anchors.fill: parent
-                      anchors.leftMargin: Style.space(7)
-                      anchors.rightMargin: Style.space(7)
-                      verticalAlignment: Text.AlignVCenter
-                      horizontalAlignment: Text.AlignHCenter
-                      text: mapMarker.layout.label
-                      color: root.contentForeground
-                      font.family: root.contentFontFamily
-                      font.pixelSize: Style.font.caption
-                      font.bold: true
-                      elide: Text.ElideRight
+                      enabled: true
+                      hoverEnabled: mapMarker.selectable
+                      cursorShape: mapMarker.selectable
+                        ? Qt.PointingHandCursor : Qt.ArrowCursor
+                      onClicked: {
+                        if (mapMarker.selectable)
+                          root.selectMapLocation(mapMarker.location)
+                      }
                     }
                   }
 
                   Rectangle {
                     x: mapMarker.layout.pointX - width / 2
                     y: mapMarker.layout.pointY - height / 2
-                    width: Style.space(11)
+                    width: mapMarker.selected ? Style.space(13)
+                      : (mapMarker.searchResult ? Style.space(12)
+                      : (mapMarker.configured ? Style.space(11) : Style.space(9))
+                      )
                     height: width
                     radius: width / 2
-                    color: Style.selectedFillFor(root.contentForeground, Color.accent)
+                    color: mapMarker.selected
+                      ? Style.selectedFillFor(root.contentForeground, Color.accent)
+                      : mapMarker.searchResult
+                      ? Style.selectedFillFor(root.contentForeground, Color.accent)
+                      : mapMarker.configured
+                      ? Style.selectedFillFor(root.contentForeground, Color.accent)
+                      : root.mixColor(Color.background, root.contentForeground, 0.22)
+                    border.width: 1
+                    border.color: mapMarker.selected
+                      ? Style.selectedStateColor(root.contentForeground, Color.accent)
+                      : mapMarker.searchResult
+                      ? Style.selectedStateColor(root.contentForeground, Color.accent)
+                      : mapMarker.configured
+                      ? Style.selectedStateColor(root.contentForeground, Color.accent)
+                      : root.mixColor(Color.background, root.contentForeground, 0.72)
 
                     Rectangle {
                       anchors.centerIn: parent
-                      width: Style.space(5)
+                      width: mapMarker.selected || mapMarker.searchResult || mapMarker.configured
+                        ? Style.space(5) : Style.space(3)
                       height: width
                       radius: width / 2
-                      color: Style.selectedStateColor(root.contentForeground, Color.accent)
+                      color: mapMarker.selected || mapMarker.searchResult || mapMarker.configured
+                        ? Style.selectedStateColor(root.contentForeground, Color.accent)
+                        : root.contentForeground
+                    }
+
+                    MouseArea {
+                      anchors.fill: parent
+                      anchors.margins: -Style.space(5)
+                      enabled: true
+                      cursorShape: mapMarker.selectable
+                        ? Qt.PointingHandCursor : Qt.ArrowCursor
+                      onClicked: {
+                        if (mapMarker.selectable)
+                          root.selectMapLocation(mapMarker.location)
+                      }
                     }
                   }
                 }
               }
 
               Rectangle {
+                id: mapSelectionPin
+                readonly property var projection: root.hasMapCoordinate(root.mapSelection)
+                  ? mapCanvas.project(root.mapSelection.latitude, root.mapSelection.longitude)
+                  : ({ x: 0, y: 0, visible: false })
+                visible: root.mapSelection !== null && projection.visible
+                z: 31
+                x: projection.x - width / 2
+                y: projection.y - height / 2
+                width: Style.space(14)
+                height: width
+                radius: width / 2
+                color: Style.selectedFillFor(root.contentForeground, Color.accent)
+                border.width: 1
+                border.color: Style.selectedStateColor(root.contentForeground, Color.accent)
+
+                Rectangle {
+                  anchors.centerIn: parent
+                  width: Style.space(6)
+                  height: width
+                  radius: width / 2
+                  color: Style.selectedStateColor(root.contentForeground, Color.accent)
+                }
+              }
+
+              Rectangle {
+                id: mapSelectionCard
+                readonly property real edgeInset: Style.space(12)
+                readonly property real topInset: Style.space(84)
+                readonly property real pointGap: Style.space(22)
+                readonly property var projection: root.hasMapCoordinate(root.mapSelection)
+                  ? mapCanvas.project(root.mapSelection.latitude, root.mapSelection.longitude)
+                  : ({ x: mapCanvas.width / 2, y: mapCanvas.height / 2, visible: false })
+                readonly property real preferredX: root.mapSelectionCardOnRight
+                  ? projection.x + pointGap : projection.x - width - pointGap
+                visible: root.mode === "add" && root.mapSelection !== null
+                  && !mapProcess.running
+                z: 32
+                width: Math.min(Style.space(252), parent.width - edgeInset * 2)
+                height: mapSelectionContent.implicitHeight + Style.space(32)
+                x: Math.max(edgeInset,
+                  Math.min(parent.width - width - edgeInset, preferredX))
+                y: Math.max(topInset,
+                  Math.min(parent.height - height - edgeInset, projection.y - height / 2))
+                radius: Math.max(Style.cornerRadius, Style.space(14))
+                color: root.searchSurfaceColor
+                border.width: Style.spacing.hairline
+                border.color: root.mixColor(Color.background, root.contentForeground, 0.34)
+                opacity: visible ? 1 : 0
+                scale: visible ? 1 : 0.96
+                transformOrigin: Item.Center
+
+                Behavior on opacity {
+                  NumberAnimation { duration: 160; easing.type: Easing.OutQuint }
+                }
+                Behavior on scale {
+                  NumberAnimation { duration: 160; easing.type: Easing.OutQuint }
+                }
+
+                MouseArea {
+                  anchors.fill: parent
+                  acceptedButtons: Qt.LeftButton
+                }
+
+                Column {
+                  id: mapSelectionContent
+                  z: 1
+                  anchors.left: parent.left
+                  anchors.right: parent.right
+                  anchors.leftMargin: Style.space(18)
+                  anchors.rightMargin: Style.space(18)
+                  anchors.verticalCenter: parent.verticalCenter
+                  spacing: Style.space(8)
+
+                  Text {
+                    width: parent.width
+                    text: String(root.mapSelection && root.mapSelection.title || "")
+                    color: root.contentForeground
+                    font.family: root.contentFontFamily
+                    font.pixelSize: Style.font.heading
+                    font.bold: true
+                    elide: Text.ElideRight
+                  }
+
+                  Row {
+                    width: parent.width
+                    spacing: Style.space(8)
+
+                    Text {
+                      id: mapSelectionTime
+                      text: String(root.mapSelection && root.mapSelection.time || "--:--")
+                      color: root.contentForeground
+                      font.family: root.contentFontFamily
+                      font.pixelSize: Style.font.displayLarge
+                      font.bold: true
+                    }
+
+                    Text {
+                      anchors.baseline: mapSelectionTime.baseline
+                      text: String(root.mapSelection && root.mapSelection.notation || "")
+                      color: root.contentForeground
+                      opacity: 0.78
+                      font.family: root.contentFontFamily
+                      font.pixelSize: Style.font.body
+                      font.bold: true
+                    }
+                  }
+
+                  Text {
+                    width: parent.width
+                    text: {
+                      var day = String(root.mapSelection && root.mapSelection.day || "")
+                      var relative = String(root.mapSelection
+                        && root.mapSelection.relative_label || "")
+                      return day && relative ? day + "  ·  " + relative : day || relative
+                    }
+                    color: root.contentForeground
+                    opacity: 0.88
+                    font.family: root.contentFontFamily
+                    font.pixelSize: Style.font.body
+                    elide: Text.ElideRight
+                  }
+
+                  Text {
+                    width: parent.width
+                    text: String(root.mapSelection && root.mapSelection.timezone || "")
+                    color: root.contentForeground
+                    opacity: 0.66
+                    font.family: root.contentFontFamily
+                    font.pixelSize: Style.font.caption
+                    elide: Text.ElideMiddle
+                  }
+
+                  Rectangle {
+                    width: parent.width
+                    height: Style.spacing.hairline
+                    color: root.contentForeground
+                    opacity: 0.18
+                  }
+
+                  Button {
+                    id: mapSelectionAddButton
+                    width: parent.width
+                    text: actionProcess.running && root.actionName === "add"
+                      ? "Adding…" : "Add"
+                    enabled: root.mapSelection !== null && !actionProcess.running
+                      && root.canAddLocation(root.mapSelection.timezone)
+                    active: true
+                    bordered: true
+                    focusable: true
+                    foreground: root.contentForeground
+                    fontFamily: root.contentFontFamily
+                    fontSize: Style.font.title
+                    horizontalPadding: Style.space(12)
+                    verticalPadding: Style.space(8)
+                    onClicked: root.runAction("add", root.mapSelection.timezone,
+                      root.mapSelection)
+                  }
+                }
+              }
+
+              Rectangle {
                 visible: mapProcess.running
-                  || root.mapSelection !== null
-                    && actionProcess.running && root.actionName === "add"
                 x: Math.max(Style.space(6), Math.min(parent.width - width - Style.space(6),
                   root.mapCursorX + Style.space(12)))
                 y: Math.max(Style.space(6), Math.min(parent.height - height - Style.space(6),
@@ -1751,63 +2479,49 @@ Panel {
                 Text {
                   id: mapLookupLabel
                   anchors.centerIn: parent
-                  text: mapProcess.running ? "Locating…" : "Adding…"
+                  text: "Locating…"
                   color: root.contentForeground
                   font.family: root.contentFontFamily
                   font.pixelSize: Style.font.bodySmall
                 }
               }
 
-              MouseArea {
-                anchors.fill: parent
-                enabled: root.canAdd && !actionProcess.running
-                hoverEnabled: true
-                cursorShape: enabled ? Qt.CrossCursor : Qt.ArrowCursor
-                onClicked: function(mouse) {
-                  root.requestMapLocation(mouse.x, mouse.y, width, height)
+              Rectangle {
+                visible: root.statusText !== ""
+                  && !mapProcess.running
+                  && !(root.mapSelection !== null
+                    && actionProcess.running && root.actionName === "add")
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: Style.space(12)
+                anchors.horizontalCenter: parent.horizontalCenter
+                width: Math.min(parent.width - Style.space(24),
+                  Math.max(Style.space(180), addStatusLabel.implicitWidth + Style.space(28)))
+                height: addStatusLabel.implicitHeight + Style.space(16)
+                z: 25
+                radius: height / 2
+                color: root.mixColor(Color.background, root.contentForeground, 0.035)
+                border.width: Style.spacing.hairline
+                border.color: root.statusError
+                  ? Color.urgent
+                  : root.mixColor(Color.background, root.contentForeground, 0.24)
+
+                Text {
+                  id: addStatusLabel
+                  anchors.centerIn: parent
+                  width: parent.width - Style.space(24)
+                  horizontalAlignment: Text.AlignHCenter
+                  wrapMode: Text.Wrap
+                  text: root.statusText
+                  color: root.statusError ? Color.urgent : root.contentForeground
+                  font.family: root.contentFontFamily
+                  font.pixelSize: Style.font.bodySmall
                 }
               }
-            }
-
-            Row {
-              visible: mapCanvas.visible
-              anchors.horizontalCenter: parent.horizontalCenter
-              width: mapCanvas.width
-
-              Repeater {
-                model: ["−12", "−8", "−4", "0", "+4", "+8", "+12"]
-
-                Item {
-                  id: legendCell
-                  required property string modelData
-                  width: mapCanvas.width / 7
-                  height: zoneLegend.implicitHeight
-
-                  Text {
-                    id: zoneLegend
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    text: legendCell.modelData
-                    color: Qt.darker(root.contentForeground, 1.55)
-                    font.family: root.contentFontFamily
-                    font.pixelSize: Style.font.caption
-                  }
-                }
-              }
-            }
-
-            Text {
-              visible: root.canAdd
-              anchors.horizontalCenter: parent.horizontalCenter
-              width: mapCanvas.width
-              text: "Search by city or timezone, or click a land region on the map."
-              color: Qt.darker(root.contentForeground, 1.55)
-              font.family: root.contentFontFamily
-              font.pixelSize: Style.font.bodySmall
             }
           }
 
           Text {
-            visible: root.statusText !== ""
+            visible: root.mode !== "add" && root.statusText !== ""
             width: parent.width
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.Wrap

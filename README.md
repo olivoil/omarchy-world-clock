@@ -51,7 +51,8 @@ the AUR package is no longer required.
 - Pin one place to keep its current time always visible beside the bar icon.
 - Select a displayed time and enter another time to convert the same instant
   across every visible place.
-- Use **plus** to search for a timezone or city, or select a region on the map.
+- Use **plus** to open the full-panel globe. Start typing or select **search**
+  to find a city or timezone, or rotate the globe and choose a place directly.
 - Use **refresh** to return a converted view to live time.
 
 ## Features
@@ -65,7 +66,10 @@ the AUR package is no longer required.
 - Manual time conversion with DST-aware IANA timezone handling.
 - Local timezone and alias search that works offline.
 - Optional Open-Meteo city search for queries not resolved locally.
-- A compact offline timezone map for click-to-add.
+- A high-resolution, full-panel shader-rendered globe with detailed Natural
+  Earth 1:10m coastlines, type-to-search, live major-city suggestions,
+  drag-to-rotate, extended mouse-wheel or trackpad zoom, and offline
+  click-to-add.
 - Automatic 12/24-hour display matching the Omarchy clock or system locale.
 - Automatic temperature units matching Omarchy Weather's effective preference,
   including its configured home location, then the system locale.

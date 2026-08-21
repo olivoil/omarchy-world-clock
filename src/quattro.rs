@@ -1,16 +1,35 @@
 use crate::config::{
-    place_coordinate, AppConfig, TimezoneEntry, TimezoneSearchResult, CLOCK_CARD_LIMIT,
+    canonical_timezone_name, is_valid_timezone, place_coordinate, AppConfig, TimezoneEntry,
+    TimezoneSearchResult, CLOCK_CARD_LIMIT,
 };
 use crate::time::{
     format_display_time, format_timezone_notation, friendly_timezone_name, zoned_datetime,
 };
+use crate::timezone_grid::timezone_at;
 use chrono::{DateTime, Utc};
-use serde::Serialize;
-use std::collections::BTreeMap;
+use serde::{Deserialize, Serialize};
+use std::{collections::BTreeMap, sync::OnceLock};
 
 pub const SNAPSHOT_SCHEMA_VERSION: u64 = 1;
 pub const BACKEND_PROTOCOL_VERSION: u64 = 2;
 const QUATTRO_CLOCK_LIMIT: usize = CLOCK_CARD_LIMIT;
+
+#[derive(Debug, Deserialize)]
+struct FeaturedCity {
+    title: String,
+    latitude: f64,
+    longitude: f64,
+    minimum_zoom: f64,
+    source_timezone: Option<String>,
+}
+
+fn featured_city_catalog() -> &'static [FeaturedCity] {
+    static CITIES: OnceLock<Vec<FeaturedCity>> = OnceLock::new();
+    CITIES.get_or_init(|| {
+        serde_json::from_str(include_str!("../data/featured-cities.json"))
+            .expect("bundled featured-city catalogue should be valid")
+    })
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct QuattroModulePayload {
@@ -77,6 +96,7 @@ pub struct QuattroSnapshot {
     pub summary: QuattroClock,
     pub clocks: Vec<QuattroClock>,
     pub timeline: Vec<QuattroTimelineItem>,
+    pub featured_cities: Vec<QuattroMapLocation>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -86,7 +106,19 @@ pub struct QuattroMapLocation {
     pub subtitle: String,
     pub latitude: f64,
     pub longitude: f64,
+    pub minimum_zoom: f64,
     pub time: String,
+    pub day: String,
+    pub notation: String,
+    pub relative_label: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct QuattroSearchLocation {
+    #[serde(flatten)]
+    pub result: TimezoneSearchResult,
+    pub time: String,
+    pub day: String,
     pub notation: String,
     pub relative_label: String,
 }
@@ -295,10 +327,73 @@ pub fn build_map_location(
         subtitle: result.subtitle.clone(),
         latitude,
         longitude,
+        minimum_zoom: 0.0,
         time: format_display_time(&zoned, time_format),
+        day: day_label(reference_utc, local_timezone, &result.timezone),
         notation: format_timezone_notation(&zoned),
         relative_label: relative_label(relative_minutes),
     }
+}
+
+pub fn build_search_location(
+    result: TimezoneSearchResult,
+    reference_utc: DateTime<Utc>,
+    local_timezone: &str,
+    time_format: &str,
+) -> QuattroSearchLocation {
+    let zoned = zoned_datetime(reference_utc, &result.timezone);
+    let relative_minutes =
+        wall_clock_delta_minutes(reference_utc, local_timezone, &result.timezone);
+
+    QuattroSearchLocation {
+        time: format_display_time(&zoned, time_format),
+        day: day_label(reference_utc, local_timezone, &result.timezone),
+        notation: format_timezone_notation(&zoned),
+        relative_label: relative_label(relative_minutes),
+        result,
+    }
+}
+
+fn build_featured_cities(
+    config: &AppConfig,
+    reference_utc: DateTime<Utc>,
+    local_timezone: &str,
+    time_format: &str,
+) -> Vec<QuattroMapLocation> {
+    featured_city_catalog()
+        .iter()
+        .filter_map(|city| {
+            let timezone = timezone_at(city.latitude, city.longitude)
+                .or_else(|| city.source_timezone.clone())?;
+            let timezone = canonical_timezone_name(&timezone);
+            if !is_valid_timezone(&timezone)
+                || config
+                    .timezones
+                    .iter()
+                    .any(|entry| entry.matches_location(&timezone, &city.title))
+            {
+                return None;
+            }
+            let result = TimezoneSearchResult {
+                timezone: timezone.clone(),
+                title: city.title.clone(),
+                subtitle: timezone,
+                latitude: Some(city.latitude),
+                longitude: Some(city.longitude),
+                open_meteo_attribution: false,
+            };
+            let mut location = build_map_location(
+                &result,
+                city.latitude,
+                city.longitude,
+                reference_utc,
+                local_timezone,
+                time_format,
+            );
+            location.minimum_zoom = city.minimum_zoom;
+            Some(location)
+        })
+        .collect()
 }
 
 pub fn build_snapshot(
@@ -324,6 +419,7 @@ pub fn build_snapshot(
         .map(|entry| clock_from_entry(&entry, config, reference_utc, local_timezone, time_format))
         .collect::<Vec<_>>();
     let timeline = timeline_items(&summary, &clocks);
+    let featured_cities = build_featured_cities(config, reference_utc, local_timezone, time_format);
 
     QuattroSnapshot {
         schema_version: SNAPSHOT_SCHEMA_VERSION,
@@ -337,6 +433,7 @@ pub fn build_snapshot(
         summary,
         clocks,
         timeline,
+        featured_cities,
     }
 }
 
@@ -454,6 +551,79 @@ mod tests {
 
         assert!(snapshot.summary.latitude.is_some());
         assert!(snapshot.summary.longitude.is_some());
+    }
+
+    #[test]
+    fn snapshot_supplies_live_featured_cities_for_the_globe() {
+        let config = AppConfig {
+            timezones: vec![entry("America/Cancun", "Cancun")],
+            pinned_location: None,
+            disable_open_meteo_geolocation: false,
+        };
+        let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
+
+        let snapshot = build_snapshot(&config, now, "America/Cancun", "24h");
+        let tokyo = snapshot
+            .featured_cities
+            .iter()
+            .find(|city| city.title == "Tokyo")
+            .expect("Tokyo should be a featured globe city");
+
+        assert_eq!(tokyo.timezone, "Asia/Tokyo");
+        assert_eq!(tokyo.time, "20:05");
+        assert_eq!(tokyo.notation, "JST");
+        assert_eq!(tokyo.latitude, 35.686963);
+        assert_eq!(tokyo.longitude, 139.749462);
+        assert_eq!(tokyo.minimum_zoom, 0.75);
+        assert!(snapshot.featured_cities.len() >= 300);
+    }
+
+    #[test]
+    fn snapshot_hides_only_the_configured_place_from_a_shared_timezone() {
+        let config = AppConfig {
+            timezones: vec![
+                entry("America/Cancun", "Cancun"),
+                entry("Asia/Tokyo", "Tokyo"),
+            ],
+            pinned_location: None,
+            disable_open_meteo_geolocation: false,
+        };
+        let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
+
+        let snapshot = build_snapshot(&config, now, "America/Cancun", "24h");
+
+        assert!(!snapshot
+            .featured_cities
+            .iter()
+            .any(|city| city.title == "Tokyo"));
+        assert!(snapshot
+            .featured_cities
+            .iter()
+            .any(|city| city.timezone == "Asia/Tokyo" && city.title != "Tokyo"));
+    }
+
+    #[test]
+    fn snapshot_keeps_a_featured_city_when_a_different_place_shares_its_timezone() {
+        let config = AppConfig {
+            timezones: vec![
+                entry("America/Cancun", "Cancun"),
+                entry("Europe/Paris", "Rennes"),
+            ],
+            pinned_location: None,
+            disable_open_meteo_geolocation: false,
+        };
+        let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
+
+        let snapshot = build_snapshot(&config, now, "America/Cancun", "24h");
+
+        assert!(snapshot
+            .featured_cities
+            .iter()
+            .any(|city| city.title == "Paris" && city.timezone == "Europe/Paris"));
+        assert!(snapshot
+            .featured_cities
+            .iter()
+            .any(|city| city.title == "Prague" && city.timezone == "Europe/Prague"));
     }
 
     #[test]

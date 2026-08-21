@@ -56,7 +56,8 @@ AUR package, `PATH` lookup, user-configured backend command, or install hook.
 - Live read mode shows current temperature and conditions as secondary context
   for every visible location with a known coordinate.
 - Edit mode preserves the read layout and exposes pin/unpin and remove actions.
-- Add mode shows local/remote search and an interactive world map.
+- Add mode is a map-first surface. The rotating globe fills the panel, with
+  compact Back and Search controls floating above it.
 
 ## Configuration and persistence
 
@@ -195,26 +196,75 @@ Search accepts:
 Rules:
 
 - local search always runs first
+- the search field stays hidden until Search or `Enter` is selected, or a
+  printable key is typed; that first key becomes the first query character
+- closing search returns keyboard focus to the globe surface
 - remote search requires at least three normalized characters
 - remote search is skipped when `disable_open_meteo_geolocation` is true
 - remote timezones are canonicalized and validated
-- results are de-duplicated by canonical timezone and normalized place label
-- Open-Meteo results include visible attribution
-- selecting a result adds it; Enter chooses the first valid result
-- successful addition leaves the add view ready for another query
+- results are de-duplicated by canonical timezone and normalized place label;
+  legacy timezone-link aliases for the same canonical place are coalesced to
+  the highest-scoring, human-friendly result
+- the upper-right search capsule and its result surface share a width fitted
+  to the widest title or subtitle, constrained to 38–75% of the space between
+  the back control and right edge so short results preserve the map and long
+  results remain readable
+- the close action lives inside the search field; closing it restores the
+  standalone Search control
+- while a query is present, the result coordinates replace every configured
+  and featured marker; the camera fits the full result set instead of chasing
+  a single hovered result
+- search results include live time, day, notation, and relative-offset context;
+  locally resolved places also include bundled coordinates, allowing the globe
+  to focus the result set without a remote request
+- Open-Meteo results show one quiet, clickable attribution in the lower-left
+  map corner while those remote results are visible
+- selecting a dropdown result adds it immediately; Enter chooses the first
+  valid result
+- selecting the same result on the map centers it and opens an anchored detail
+  card with an explicit `Add` action instead of mutating configuration
+- dismissing a detail card closes any active search and returns focus to the
+  globe; the next printable key opens a fresh search through the global
+  type-to-search handler
+- a successful addition returns to the main clock view, where the new clock is
+  visible as confirmation
 - a duplicate or capacity violation produces an inline error
 - remote failure leaves local search usable
 
-## Map
+## Globe and map lookup
 
-- Add mode displays a bundled world-map image and configured markers.
-- Saved coordinates are preferred for marker placement.
-- Bundled timezone coordinates are used when saved coordinates are absent.
-- Clicking the map invokes the backend only after the click.
+- Add mode projects a bundled 8192×4096 equirectangular world texture, derived
+  from Natural Earth 1:10m country and minor-island geometry, onto an
+  orthographic sphere using a precompiled Qt shader package.
+- The globe occupies the full add surface. Search results and contextual
+  feedback float over it instead of reducing its viewport.
+- The globe opens tightly framed on the local region, with its edge outside
+  the viewport so the spherical form emerges through interaction rather than
+  dominating the initial view.
+- Drag rotates it. Mouse-wheel angle deltas and trackpad pixel deltas both
+  zoom it across an extended range; zooming out reveals the complete sphere.
+- Configured places and a ranked catalogue of more than 300 capitals and
+  major cities appear as front-hemisphere markers with live local times.
+- Major world cities remain visible at regional scale. More capitals and
+  agglomerations fade in as the globe zooms closer, using Natural Earth's
+  label priority and zoom guidance.
+- Configured markers take label priority. Featured labels are collision-aware;
+  eligible cities whose labels do not fit remain as quiet location dots.
+- Map labels use a larger bold place name over a smaller regular-weight time,
+  with adaptive high-contrast text for the active light or dark theme. Search
+  and configured labels remain fully opaque, while browsing markers receive
+  only a subtle horizon fade.
+- Clicking a featured or search marker centers it and opens a compact detail
+  card with its local time, day/relative offset, timezone, and `Add` action.
+- Saved coordinates are preferred for marker placement. Bundled timezone
+  coordinates are used when saved coordinates are absent.
+- If the shader package cannot load, the viewport falls back to the bundled
+  flat map while preserving click-to-select.
+- Clicking bare land invokes the backend only after the click.
 - The backend resolves land coordinates through the embedded compact timezone
   grid; ocean or invalid coordinates return no location.
 - Map lookup itself never calls a remote service.
-- A resolved location is addable only when it is not already present and the
+- A resolved location is persisted only from the detail card and only when the
   capacity rule allows it.
 
 ## Pin and remove

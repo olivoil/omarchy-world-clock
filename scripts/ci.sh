@@ -13,6 +13,9 @@ run cargo fmt --all -- --check
 run cargo clippy --locked --all-targets -- -D warnings
 run cargo test --locked
 run bash tests/bundle.sh
+run node scripts/build-world-map-source.mjs --check
+run node scripts/build-featured-cities.mjs --check
+run scripts/check-globe-artifacts.sh
 
 OMARCHY_ROOT=${OMARCHY_PATH:-/usr/share/omarchy}
 if command -v omarchy >/dev/null 2>&1 \

@@ -823,6 +823,17 @@ pub fn place_coordinate(entry: &TimezoneEntry) -> Option<(f64, f64)> {
     }
 }
 
+fn timezone_coordinate(timezone: &str) -> (Option<f64>, Option<f64>) {
+    place_coordinate(&TimezoneEntry {
+        timezone: canonical_timezone_name(timezone),
+        label: String::new(),
+        latitude: None,
+        longitude: None,
+    })
+    .map(|(latitude, longitude)| (Some(latitude), Some(longitude)))
+    .unwrap_or((None, None))
+}
+
 fn is_false(value: &bool) -> bool {
     !*value
 }
@@ -1360,9 +1371,17 @@ impl TimezoneResolver {
 
         let mut results = Vec::new();
         let mut seen_locations = HashSet::new();
+        let mut seen_alias_timezones = HashSet::new();
 
         for (_, _, _, alias) in alias_scored {
-            if !seen_locations.insert((alias.timezone.clone(), Self::normalize(&alias.alias))) {
+            // tzdata links often expose both a friendly city alias ("Rosario")
+            // and its legacy identifier ("America/Rosario"). They are names
+            // for the same canonical place, so retain the best-scoring alias.
+            // Remote place results use their own coordinates and are not
+            // affected, preserving distinct cities that share a timezone.
+            if !seen_alias_timezones.insert(alias.timezone.clone())
+                || !seen_locations.insert((alias.timezone.clone(), Self::normalize(&alias.alias)))
+            {
                 continue;
             }
             let Some(record) = self.direct_lookup_record(&alias.timezone) else {
@@ -1377,6 +1396,10 @@ impl TimezoneResolver {
                 timezone: alias.timezone.clone(),
                 title: alias.alias.clone(),
                 subtitle: format!("{}  ·  {}", alias.timezone, abbreviation_text),
+                // A tzdb link shares clock rules with its canonical zone, not
+                // necessarily geography. Pacific/Johnston, for example,
+                // resolves to Pacific/Honolulu but must not be plotted or
+                // persisted at Honolulu's representative coordinate.
                 latitude: alias.latitude,
                 longitude: alias.longitude,
                 open_meteo_attribution: false,
@@ -1395,12 +1418,13 @@ impl TimezoneResolver {
             } else {
                 record.abbreviations.join(" / ")
             };
+            let (latitude, longitude) = timezone_coordinate(&record.timezone);
             results.push(TimezoneSearchResult {
                 timezone: record.timezone.clone(),
                 title: record.city.clone(),
                 subtitle: format!("{}  ·  {}", record.timezone, abbreviation_text),
-                latitude: None,
-                longitude: None,
+                latitude,
+                longitude,
                 open_meteo_attribution: false,
             });
             if results.len() >= limit {
@@ -1423,12 +1447,13 @@ impl TimezoneResolver {
             } else {
                 record.abbreviations.join(" / ")
             };
+            let (latitude, longitude) = timezone_coordinate(&record.timezone);
             return Some(TimezoneSearchResult {
                 timezone: record.timezone.clone(),
                 title: record.city.clone(),
                 subtitle: format!("{}  ·  {}", record.timezone, abbreviation_text),
-                latitude: None,
-                longitude: None,
+                latitude,
+                longitude,
                 open_meteo_attribution: false,
             });
         }
@@ -1437,12 +1462,13 @@ impl TimezoneResolver {
             return None;
         }
 
+        let (latitude, longitude) = timezone_coordinate(&canonical_timezone);
         Some(TimezoneSearchResult {
             title: friendly_timezone_name(&canonical_timezone),
             subtitle: canonical_timezone.clone(),
             timezone: canonical_timezone,
-            latitude: None,
-            longitude: None,
+            latitude,
+            longitude,
             open_meteo_attribution: false,
         })
     }
@@ -1820,7 +1846,7 @@ mod tests {
         canonical_timezone_name, detect_system_time_format_with_paths,
         load_omarchy_shell_weather_unit, merge_zone_tab_coordinates, non_local_location_count,
         parse_zone_tab_coordinate, AppConfig, ConfigManager, LocationKey, TimezoneEntry,
-        CLOCK_CARD_LIMIT,
+        TimezoneResolver, CLOCK_CARD_LIMIT,
     };
     use std::collections::BTreeMap;
     use std::fs;
@@ -2053,6 +2079,53 @@ mod tests {
     fn canonicalizes_alias_when_system_tzdata_exposes_it() {
         let canonical = canonical_timezone_name("Asia/Calcutta");
         assert!(!canonical.is_empty());
+    }
+
+    #[test]
+    fn local_search_results_include_coordinates_for_globe_focus() {
+        let resolver = TimezoneResolver::new(Some(vec!["Asia/Tokyo".to_string()]));
+
+        let result = resolver
+            .search("Tokyo", 1)
+            .into_iter()
+            .next()
+            .expect("Tokyo should resolve locally");
+
+        assert!(result.latitude.is_some());
+        assert!(result.longitude.is_some());
+    }
+
+    #[test]
+    fn local_search_collapses_legacy_aliases_for_the_same_place() {
+        let canonical = canonical_timezone_name("America/Rosario");
+        let resolver = TimezoneResolver::new(Some(vec![canonical.clone()]));
+
+        let results = resolver.search("Rosario", 8);
+        let matching = results
+            .iter()
+            .filter(|result| result.timezone == canonical)
+            .collect::<Vec<_>>();
+
+        assert_eq!(matching.len(), 1);
+        assert_eq!(matching[0].title, "Rosario");
+        assert_eq!(matching[0].latitude, None);
+        assert_eq!(matching[0].longitude, None);
+    }
+
+    #[test]
+    fn location_alias_does_not_inherit_the_canonical_zones_coordinates() {
+        let canonical = canonical_timezone_name("Pacific/Johnston");
+        let resolver = TimezoneResolver::new(Some(vec![canonical.clone()]));
+
+        let result = resolver
+            .search("Johnston", 8)
+            .into_iter()
+            .find(|result| result.timezone == canonical)
+            .expect("Johnston alias should remain searchable");
+
+        assert_eq!(result.title, "Johnston");
+        assert_eq!(result.latitude, None);
+        assert_eq!(result.longitude, None);
     }
 
     #[test]

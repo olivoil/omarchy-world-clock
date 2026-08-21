@@ -2,7 +2,10 @@ use crate::config::{
     detect_local_timezone, resolve_omarchy_weather_unit, system_time_format, ConfigManager,
     RemotePlaceSearch, TimezoneResolver,
 };
-use crate::quattro::{build_map_location, build_module_payload, build_snapshot, QuattroSnapshot};
+use crate::quattro::{
+    build_map_location, build_module_payload, build_search_location, build_snapshot,
+    QuattroSnapshot,
+};
 use crate::time::parse_manual_reference_details;
 use crate::timezone_grid::timezone_at;
 use crate::weather::current_weather;
@@ -106,12 +109,21 @@ pub fn execute(args: &[String]) -> Result<Option<String>> {
                 .first()
                 .map(String::as_str)
                 .unwrap_or_default();
+            let reference_utc = parse_reference_utc(optional_flag(remaining_args, "--at")?)?;
             let config = ConfigManager::new(None).load()?;
             let resolver = TimezoneResolver::new(None);
             let mut results = resolver.search(query, 8);
             if results.is_empty() && !config.disable_open_meteo_geolocation {
                 results = RemotePlaceSearch::new(None, None).search(query, 8);
             }
+            let local_timezone = detect_local_timezone();
+            let time_format = system_time_format();
+            let results = results
+                .into_iter()
+                .map(|result| {
+                    build_search_location(result, reference_utc, &local_timezone, &time_format)
+                })
+                .collect::<Vec<_>>();
             Some(serde_json::to_string(&results)?)
         }
         "locate" => {

@@ -19,7 +19,7 @@ omarchy-shell
             ├─ quattro/Globe.qml  projection, motion, high-resolution texture
             └─ bin/omarchy-world-clock-backend
                  ├─ timezone/DST and conversion logic
-                 ├─ search and optional Open-Meteo request
+                 ├─ search and batched Open-Meteo weather requests
                  ├─ config migration and atomic persistence
                  └─ embedded data/timezone-grid.bin
 ```
@@ -75,6 +75,7 @@ The executable exposes a deliberately small command/JSON boundary:
 | `module` | bar tooltip, pinned label/time, compatibility handshake | JSON |
 | `snapshot` | complete read/edit model at now or `--at` | JSON |
 | `convert` | parse a local input and return a converted snapshot | JSON |
+| `weather` | fetch current conditions for visible coordinates at now or `--at` | JSON |
 | `search` | local search with optional remote fallback and live display context | JSON array |
 | `locate` | map coordinate to a timezone and display model | JSON/null |
 | `add` | persist a location | no output |
@@ -86,6 +87,27 @@ The executable exposes a deliberately small command/JSON boundary:
 using it. Snapshot payloads have their own `schema_version`. Protocol changes
 must be implemented in backend tests and QML together, then shipped in the
 same commit.
+
+Weather is deliberately outside the snapshot path. Clock refreshes remain
+local and deterministic, while the panel requests all current conditions in a
+single HTTPS call and keeps the last successful response for 15 minutes. A
+lightweight 30-second freshness check refreshes that response at its original
+expiry even when the panel closes and reopens. A weather timeout therefore
+cannot delay panel opening, minute ticks, or time conversion.
+
+Snapshots carry the effective unit inherited from `omarchy.weather`. An
+explicit `shell.json` unit wins; automatic mode resolves the configured Weather
+location through the embedded timezone map and system tzdata country codes,
+then tries the local timezone. The frontend applies Qt's system locale only
+when those inputs are inconclusive. This keeps temperature formatting aligned
+with Omarchy without adding duplicate World Clock settings or coupling the
+panel to another widget's loaded state.
+
+Weather visibility is a native bar-widget setting enforced by the QML process
+boundary: when disabled, the frontend never starts the weather command and
+removes weather attribution with the data. The setting is deliberately not
+passed to the search command, so remote place lookup remains controlled only by
+the app-level `disable_open_meteo_geolocation` privacy opt-out.
 
 The executable is not a general user CLI and does not own shell integration.
 Installation, enablement, placement, updates, and removal remain the job of

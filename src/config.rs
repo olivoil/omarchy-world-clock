@@ -1,4 +1,5 @@
 use crate::time::friendly_timezone_name;
+use crate::timezone_grid::timezone_at;
 use anyhow::Context;
 use chrono::{Datelike, TimeZone, Utc};
 use chrono_tz::{Tz, TZ_VARIANTS};
@@ -989,7 +990,11 @@ pub fn omarchy_shell_config_paths() -> Vec<PathBuf> {
     ]
 }
 
-pub fn load_omarchy_shell_clock_format(paths: Option<&[PathBuf]>) -> Option<String> {
+fn load_omarchy_shell_widget_setting(
+    paths: Option<&[PathBuf]>,
+    widget_id: &str,
+    setting_name: &str,
+) -> Option<String> {
     let candidates = paths
         .map(|paths| paths.to_vec())
         .unwrap_or_else(omarchy_shell_config_paths);
@@ -1012,17 +1017,117 @@ pub fn load_omarchy_shell_clock_format(paths: Option<&[PathBuf]>) -> Option<Stri
             let Some(entries) = layout.get(section).and_then(serde_json::Value::as_array) else {
                 continue;
             };
-            if let Some(format) = entries.iter().find_map(|entry| {
-                (entry.get("id").and_then(serde_json::Value::as_str) == Some("omarchy.clock"))
-                    .then(|| entry.get("format").and_then(serde_json::Value::as_str))
+            if let Some(value) = entries.iter().find_map(|entry| {
+                (entry.get("id").and_then(serde_json::Value::as_str) == Some(widget_id))
+                    .then(|| entry.get(setting_name).and_then(serde_json::Value::as_str))
                     .flatten()
             }) {
-                return Some(format.to_string());
+                return Some(value.to_string());
             }
         }
     }
 
     None
+}
+
+pub fn load_omarchy_shell_clock_format(paths: Option<&[PathBuf]>) -> Option<String> {
+    load_omarchy_shell_widget_setting(paths, "omarchy.clock", "format")
+}
+
+pub fn load_omarchy_shell_weather_unit(paths: Option<&[PathBuf]>) -> Option<String> {
+    let unit = load_omarchy_shell_widget_setting(paths, "omarchy.weather", "unit")?
+        .trim()
+        .to_ascii_lowercase();
+    matches!(unit.as_str(), "metric" | "imperial").then_some(unit)
+}
+
+fn omarchy_weather_location_paths() -> Vec<PathBuf> {
+    vec![home_dir().join(".local/state/omarchy/settings/weather.json")]
+}
+
+fn json_coordinate(value: Option<&serde_json::Value>) -> Option<f64> {
+    value.and_then(|value| {
+        value
+            .as_f64()
+            .or_else(|| value.as_str()?.trim().parse::<f64>().ok())
+    })
+}
+
+fn load_omarchy_weather_coordinate(paths: Option<&[PathBuf]>) -> Option<(f64, f64)> {
+    let candidates = paths
+        .map(|paths| paths.to_vec())
+        .unwrap_or_else(omarchy_weather_location_paths);
+
+    for path in candidates {
+        let Ok(contents) = fs::read_to_string(path) else {
+            continue;
+        };
+        let Ok(root) = serde_json::from_str::<serde_json::Value>(&contents) else {
+            continue;
+        };
+        let latitude = json_coordinate(root.get("latitude"));
+        let longitude = json_coordinate(root.get("longitude"));
+        if let (Some(latitude), Some(longitude)) = sanitize_place_coordinate(latitude, longitude) {
+            return Some((latitude, longitude));
+        }
+    }
+
+    None
+}
+
+fn zone_tab_paths() -> Vec<PathBuf> {
+    zoneinfo_roots()
+        .into_iter()
+        .flat_map(|root| [root.join("zone.tab"), root.join("zone1970.tab")])
+        .collect()
+}
+
+fn weather_unit_for_timezone(timezone: &str, paths: Option<&[PathBuf]>) -> Option<String> {
+    let timezone = canonical_timezone_name(timezone);
+    let candidates = paths
+        .map(|paths| paths.to_vec())
+        .unwrap_or_else(zone_tab_paths);
+
+    for path in candidates {
+        let Ok(contents) = fs::read_to_string(path) else {
+            continue;
+        };
+        let Some(country_codes) = contents.lines().find_map(|line| {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                return None;
+            }
+            let mut columns = trimmed.split('\t');
+            let country_codes = columns.next()?;
+            let _coordinate = columns.next()?;
+            let timezone_name = columns.next()?;
+            (timezone_name == timezone).then_some(country_codes)
+        }) else {
+            continue;
+        };
+
+        let imperial = country_codes
+            .split(',')
+            .any(|code| matches!(code.trim(), "US" | "LR" | "MM"));
+        return Some(if imperial { "imperial" } else { "metric" }.to_string());
+    }
+
+    None
+}
+
+pub fn resolve_omarchy_weather_unit(
+    shell_paths: Option<&[PathBuf]>,
+    location_paths: Option<&[PathBuf]>,
+    zone_paths: Option<&[PathBuf]>,
+    local_timezone: &str,
+) -> Option<String> {
+    load_omarchy_shell_weather_unit(shell_paths)
+        .or_else(|| {
+            let (latitude, longitude) = load_omarchy_weather_coordinate(location_paths)?;
+            let timezone = timezone_at(latitude, longitude)?;
+            weather_unit_for_timezone(&timezone, zone_paths)
+        })
+        .or_else(|| weather_unit_for_timezone(local_timezone, zone_paths))
 }
 
 fn infer_time_format_inner(clock_format: &str) -> Option<&'static str> {
@@ -1738,9 +1843,10 @@ fn unique_words(value: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        canonical_timezone_name, detect_system_time_format_with_paths, merge_zone_tab_coordinates,
-        non_local_location_count, parse_zone_tab_coordinate, AppConfig, ConfigManager, LocationKey,
-        TimezoneEntry, TimezoneResolver, CLOCK_CARD_LIMIT,
+        canonical_timezone_name, detect_system_time_format_with_paths,
+        load_omarchy_shell_weather_unit, merge_zone_tab_coordinates, non_local_location_count,
+        parse_zone_tab_coordinate, AppConfig, ConfigManager, LocationKey, TimezoneEntry,
+        TimezoneResolver, CLOCK_CARD_LIMIT,
     };
     use std::collections::BTreeMap;
     use std::fs;
@@ -1922,6 +2028,50 @@ mod tests {
         assert_eq!(
             detect_system_time_format_with_paths(Some(&[path])),
             "ampm".to_string()
+        );
+    }
+
+    #[test]
+    fn reads_only_explicit_omarchy_weather_units() {
+        let temp_dir = TempDir::new().unwrap();
+        let metric_path = temp_dir.path().join("metric-shell.json");
+        let automatic_path = temp_dir.path().join("automatic-shell.json");
+        fs::write(
+            &metric_path,
+            r#"{
+  "bar": {
+    "layout": {
+      "right": [
+        { "id": "omarchy.weather", "unit": " Metric " }
+      ]
+    }
+  }
+}
+"#,
+        )
+        .unwrap();
+        fs::write(
+            &automatic_path,
+            r#"{
+  "bar": {
+    "layout": {
+      "right": [
+        { "id": "omarchy.weather", "unit": "auto" }
+      ]
+    }
+  }
+}
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            load_omarchy_shell_weather_unit(Some(&[metric_path])),
+            Some("metric".to_string())
+        );
+        assert_eq!(
+            load_omarchy_shell_weather_unit(Some(&[automatic_path])),
+            None
         );
     }
 

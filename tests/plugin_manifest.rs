@@ -283,9 +283,7 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(globe.contains("ShaderEffect"));
     assert!(globe.contains("DragHandler"));
     assert!(globe.contains("id: fallbackMap"));
-    assert!(globe.contains(
-        "TapHandler {\n    parent: root.shaderAvailable ? sphere : fallbackMap"
-    ));
+    assert!(globe.contains("TapHandler {\n    parent: root.shaderAvailable ? sphere : fallbackMap"));
     assert!(globe.contains("var rootPoint = parent.mapToItem(root, eventPoint.position)"));
     assert!(globe.contains("WheelHandler"));
     assert!(globe.contains("function project(latitudeDegrees, longitudeDegrees)"));

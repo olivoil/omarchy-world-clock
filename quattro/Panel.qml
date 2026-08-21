@@ -89,6 +89,13 @@ Panel {
     Number(snapshot.configured_count || 0) - (localTimezoneConfigured ? 1 : 0))
   readonly property bool canAdd: nonLocalLocationCount < maxClocks
     || nonLocalLocationCount === maxClocks && !localTimezoneConfigured
+  readonly property bool showOpenMeteoAttribution: {
+    if (!searchVisible || !Array.isArray(searchResults)) return false
+    for (var resultIndex = 0; resultIndex < searchResults.length; resultIndex++)
+      if (searchResults[resultIndex]
+          && searchResults[resultIndex].open_meteo_attribution === true) return true
+    return false
+  }
   readonly property var mapClocks: {
     var entries = []
     if (root.hasMapCoordinate(summary)) entries.push(summary)
@@ -495,14 +502,6 @@ Panel {
     return isFinite(latitude) && isFinite(longitude)
       && latitude >= -90 && latitude <= 90
       && longitude >= -180 && longitude <= 180
-  }
-
-  function escapeHtml(value) {
-    return String(value || "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/\"/g, "&quot;")
   }
 
   function mapRectsOverlap(left, right) {
@@ -1514,20 +1513,35 @@ Panel {
 
                       Text {
                         width: parent.width
-                        textFormat: Text.RichText
-                        text: root.escapeHtml(resultButton.modelData.subtitle)
-                          + (resultButton.modelData.open_meteo_attribution
-                            ? "  ·  <a href=\"https://open-meteo.com/\">Open-Meteo</a>" : "")
+                        text: resultButton.modelData.subtitle
                         color: Qt.darker(root.contentForeground, 1.5)
-                        linkColor: root.contentForeground
                         font.family: root.contentFontFamily
                         font.pixelSize: Style.font.caption
                         elide: Text.ElideRight
-                        onLinkActivated: function(link) { Qt.openUrlExternally(link) }
                       }
                     }
                   }
                 }
+              }
+
+              Button {
+                id: openMeteoAttribution
+                visible: root.showOpenMeteoAttribution
+                anchors.left: parent.left
+                anchors.bottom: parent.bottom
+                anchors.margins: Style.space(12)
+                z: 28
+                text: "Location data by Open-Meteo"
+                tooltipText: "Open Open-Meteo"
+                foreground: Qt.darker(root.contentForeground, 1.35)
+                background: root.mixColor(Color.popups.background,
+                  root.contentForeground, 0.025)
+                fontFamily: root.contentFontFamily
+                fontSize: Style.font.caption
+                focusable: true
+                horizontalPadding: Style.space(6)
+                verticalPadding: Style.space(3)
+                onClicked: Qt.openUrlExternally("https://open-meteo.com/")
               }
 
               Repeater {

@@ -17,7 +17,7 @@ Item {
   property real openingZoom: 2.18
   property real zoom: openingZoom
   property real minimumZoom: 0.94
-  property real maximumZoom: 4.2
+  property real maximumZoom: 4.8
   property real diameterRatio: 0.57
   property bool interactive: true
 
@@ -260,8 +260,8 @@ Item {
     id: mapTexture
     visible: false
     source: Qt.resolvedUrl("../assets/world-map.png")
-    sourceSize.width: 6144
-    sourceSize.height: 3072
+    sourceSize.width: 8192
+    sourceSize.height: 4096
     asynchronous: false
     cache: true
     smooth: true

@@ -101,6 +101,7 @@ quattro/Globe.qml
 quattro/WorldClockKeyCatcher.qml
 assets/world-map.png
 assets/world-map.svg
+assets/NATURAL_EARTH.md
 assets/globe.frag
 assets/globe.frag.qsb
 bin/omarchy-world-clock-backend
@@ -145,9 +146,16 @@ featured-city times and offline coordinates. The precompiled package avoids a
 runtime shader-compiler dependency.
 
 `scripts/build-world-map.sh --check` renders the committed SVG geography into
-the 6144×3072 PNG used by the GPU and verifies it byte for byte. The larger
+the 8192×4096 PNG used by the GPU and verifies it byte for byte. The larger
 texture keeps coastlines and boundaries crisp through the globe's extended
 zoom range without adding a runtime SVG-rendering dependency.
+
+`scripts/build-world-map-source.mjs` regenerates that SVG from checksum-pinned
+Natural Earth v5.1.2 country and minor-island GeoJSON. The 1:10m inputs retain
+roughly 87 times as many geographic points as the original simplified source,
+while the 8K derived PNG deliberately trades additional texture memory for
+crisper coastlines at the extended zoom ceiling. Natural Earth publishes the
+source map data in the public domain.
 
 The full upstream polygon database made the backend unnecessarily large. The
 derived 0.1-degree row-run-length grid preserves click-to-add accuracy at the

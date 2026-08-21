@@ -139,8 +139,13 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(!panel.contains("Drag to rotate  ·  Scroll to zoom"));
     assert!(panel.contains("visible: root.summary.pinned === true"));
     assert!(panel.contains("onClicked: root.togglePin(root.summary)"));
+    assert!(panel.contains("readonly property bool showOpenMeteoAttribution"));
+    assert!(panel.contains("id: openMeteoAttribution"));
+    assert!(panel.contains("visible: root.showOpenMeteoAttribution"));
+    assert!(panel.contains("text: \"Location data by Open-Meteo\""));
     assert!(panel.contains("https://open-meteo.com/"));
-    assert!(panel.contains("onLinkActivated: function(link) { Qt.openUrlExternally(link) }"));
+    assert!(!panel.contains("<a href=\"https://open-meteo.com/\">"));
+    assert!(!panel.contains("resultButton.modelData.open_meteo_attribution"));
     assert!(panel.contains("readonly property string currentLocationTitle"));
     assert!(panel.contains("readonly property string currentTimezoneMetadata"));
     assert!(panel.contains("visible: root.mode !== \"add\""));
@@ -164,8 +169,22 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     let map = fs::read(&map_path).expect("read globe texture");
     assert!(map.len() >= 24, "globe texture is not a complete PNG");
     assert_eq!(&map[1..4], b"PNG");
-    assert_eq!(u32::from_be_bytes(map[16..20].try_into().unwrap()), 6144);
-    assert_eq!(u32::from_be_bytes(map[20..24].try_into().unwrap()), 3072);
+    assert_eq!(u32::from_be_bytes(map[16..20].try_into().unwrap()), 8192);
+    assert_eq!(u32::from_be_bytes(map[20..24].try_into().unwrap()), 4096);
+
+    let map_source_path = root.join("assets/world-map.svg");
+    let map_source = fs::read_to_string(&map_source_path).expect("read globe map source");
+    assert!(map_source.contains("Natural Earth v5.1.2"));
+    assert!(
+        map_source.matches(',').count() > 500_000,
+        "globe map source has regressed to simplified geography"
+    );
+    let map_source_builder = root.join("scripts/build-world-map-source.mjs");
+    let map_source_builder =
+        fs::read_to_string(map_source_builder).expect("read globe source builder");
+    assert!(map_source_builder.contains("natural-earth-vector/v5.1.2"));
+    assert!(map_source_builder
+        .contains("4caf607838c3cfd211a52edda259e315513390a717a11067c5eb280f766cfb78"));
 
     let key_catcher_path = qml_path.parent().unwrap().join("WorldClockKeyCatcher.qml");
     assert!(
@@ -193,9 +212,9 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(globe.contains("function focusOnLocations(locations)"));
     assert!(globe.contains("event.pixelDelta.y"));
     assert!(globe.contains("property real openingZoom:"));
-    assert!(globe.contains("property real maximumZoom: 4.2"));
-    assert!(globe.contains("sourceSize.width: 6144"));
-    assert!(globe.contains("sourceSize.height: 3072"));
+    assert!(globe.contains("property real maximumZoom: 4.8"));
+    assert!(globe.contains("sourceSize.width: 8192"));
+    assert!(globe.contains("sourceSize.height: 4096"));
     assert!(globe.contains("../assets/globe.frag.qsb"));
     assert!(globe.contains("visible: !root.shaderAvailable"));
 

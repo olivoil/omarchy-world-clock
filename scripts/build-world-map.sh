@@ -4,8 +4,8 @@ set -euo pipefail
 REPO_ROOT=$(git -C "$(dirname "${BASH_SOURCE[0]}")/.." rev-parse --show-toplevel)
 SOURCE="$REPO_ROOT/assets/world-map.svg"
 OUTPUT="$REPO_ROOT/assets/world-map.png"
-WIDTH=6144
-HEIGHT=3072
+WIDTH=8192
+HEIGHT=4096
 
 if ! command -v rsvg-convert >/dev/null 2>&1; then
   printf 'rsvg-convert is required to render the globe texture.\n' >&2

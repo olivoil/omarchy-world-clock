@@ -165,7 +165,8 @@ Rules:
   a single hovered result
 - locally resolved places include bundled coordinates when timezone data has
   them, allowing the globe to focus the first result without a remote request
-- Open-Meteo results include visible attribution
+- Open-Meteo results show one quiet, clickable attribution in the lower-left
+  map corner while those remote results are visible
 - selecting a result adds it; Enter chooses the first valid result
 - successful addition leaves the add view ready for another query
 - a duplicate or capacity violation produces an inline error
@@ -173,7 +174,8 @@ Rules:
 
 ## Globe and map lookup
 
-- Add mode projects a bundled 6144×3072 equirectangular world texture onto an
+- Add mode projects a bundled 8192×4096 equirectangular world texture, derived
+  from Natural Earth 1:10m country and minor-island geometry, onto an
   orthographic sphere using a precompiled Qt shader package.
 - The globe occupies the full add surface. Search results and contextual
   feedback float over it instead of reducing its viewport.

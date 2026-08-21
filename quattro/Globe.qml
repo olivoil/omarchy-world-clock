@@ -375,7 +375,9 @@ Item {
     id: fallbackMap
     anchors.fill: parent
     visible: !root.shaderAvailable
-    source: root.textureEnabled ? Qt.resolvedUrl("../assets/world-map.png") : ""
+    source: root.textureEnabled && !root.shaderAvailable
+      ? Qt.resolvedUrl("../assets/world-map.png") : ""
+    asynchronous: true
     fillMode: Image.Stretch
     smooth: true
     mipmap: true
@@ -461,6 +463,7 @@ Item {
   }
 
   WheelHandler {
+    parent: root.shaderAvailable ? sphere : fallbackMap
     enabled: root.interactive && root.shaderAvailable
     acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
     onWheel: function(event) {

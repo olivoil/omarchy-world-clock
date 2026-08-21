@@ -296,7 +296,9 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(globe.contains("id: fallbackMap"));
     assert!(globe.contains("TapHandler {\n    parent: root.shaderAvailable ? sphere : fallbackMap"));
     assert!(globe.contains("var rootPoint = parent.mapToItem(root, eventPoint.position)"));
-    assert!(globe.contains("WheelHandler"));
+    assert!(
+        globe.contains("WheelHandler {\n    parent: root.shaderAvailable ? sphere : fallbackMap")
+    );
     assert!(globe.contains("function project(latitudeDegrees, longitudeDegrees)"));
     assert!(globe.contains("function locationAt(viewX, viewY)"));
     assert!(globe.contains("function normalizedWheelDelta(angleDelta, pixelDelta)"));
@@ -308,15 +310,13 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(globe.contains("property real maximumZoom: 4.8"));
     assert!(globe.contains("sourceSize.width: 8192"));
     assert!(globe.contains("sourceSize.height: 4096"));
-    assert_eq!(
-        globe
-            .matches(
-                "source: root.textureEnabled ? Qt.resolvedUrl(\"../assets/world-map.png\") : \"\""
-            )
-            .count(),
-        2
-    );
-    assert!(globe.contains("asynchronous: true"));
+    assert!(globe.contains(
+        "source: root.textureEnabled ? Qt.resolvedUrl(\"../assets/world-map.png\") : \"\""
+    ));
+    assert!(globe.contains(
+        "source: root.textureEnabled && !root.shaderAvailable\n      ? Qt.resolvedUrl(\"../assets/world-map.png\") : \"\""
+    ));
+    assert_eq!(globe.matches("asynchronous: true").count(), 2);
     assert!(globe.contains("../assets/globe.frag.qsb"));
     assert!(globe.contains("visible: !root.shaderAvailable"));
 

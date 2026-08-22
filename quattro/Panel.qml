@@ -82,6 +82,8 @@ Panel {
   property bool searchVisible: false
   property bool keyboardCursorActive: false
   property int keyboardClockIndex: -1
+  property var timelineHoverMinutes: null
+  property string timelineHoverOwner: ""
 
   readonly property var barIdentity: hostWidget || root
   readonly property color contentForeground: bar ? bar.foreground : Color.foreground
@@ -647,6 +649,7 @@ Panel {
       var payload = JSON.parse(String(raw || ""))
       if (!payload || Number(payload.schema_version) !== 1 || !payload.summary)
         throw new Error("Unsupported snapshot")
+      clearTimelineHover()
       snapshot = payload
       snapshotLoaded = true
       invalidConversionSource = ""
@@ -1046,9 +1049,31 @@ Panel {
     return Math.max(0, Math.min(width - itemWidth, center - itemWidth / 2))
   }
 
+  function timelineHoverMatches(relativeMinutes) {
+    return timelineHoverMinutes !== null
+      && Number(relativeMinutes || 0) === Number(timelineHoverMinutes)
+  }
+
+  function updateTimelineHover(owner, relativeMinutes, hovered) {
+    var normalizedOwner = String(owner || "")
+    if (hovered) {
+      timelineHoverOwner = normalizedOwner
+      timelineHoverMinutes = Number(relativeMinutes || 0)
+    } else if (timelineHoverOwner === normalizedOwner) {
+      timelineHoverOwner = ""
+      timelineHoverMinutes = null
+    }
+  }
+
+  function clearTimelineHover() {
+    timelineHoverOwner = ""
+    timelineHoverMinutes = null
+  }
+
   onOpenedChanged: {
     if (!opened) {
       globeDetailRequested = false
+      clearTimelineHover()
       return
     }
     if (mode === "add") Qt.callLater(root.requestGlobeDetailWhenReady)
@@ -1071,6 +1096,7 @@ Panel {
       Qt.callLater(root.flushEditorRefresh)
   }
   onModeChanged: {
+    clearTimelineHover()
     if (mode === "add") {
       searchVisible = false
       Qt.callLater(root.initializeGlobe)
@@ -1722,6 +1748,8 @@ Panel {
                   required property var modelData
                   readonly property bool localPoint:
                     Number(modelData.relative_minutes || 0) === 0
+                  readonly property bool linkedHovered:
+                    root.timelineHoverMatches(modelData.relative_minutes)
                   readonly property bool upperLane: Number(modelData.lane || 0) === 0
                   width: Style.space(96)
                   height: parent.height
@@ -1735,7 +1763,11 @@ Panel {
                     width: Style.spacing.hairline
                     height: Style.space(9)
                     color: root.contentForeground
-                    opacity: 0.24
+                    opacity: timelinePoint.linkedHovered ? 0.48 : 0.24
+
+                    Behavior on opacity {
+                      NumberAnimation { duration: 160; easing.type: Easing.OutQuart }
+                    }
                   }
 
                   Rectangle {
@@ -1746,25 +1778,49 @@ Panel {
                       ? 11 : (Number(timelinePoint.modelData.count || 1) > 1 ? 9 : 7))
                     height: width
                     radius: width / 2
-                    color: timelinePoint.localPoint
+                    scale: timelinePoint.linkedHovered ? 1.45 : 1
+                    color: timelinePoint.localPoint || timelinePoint.linkedHovered
                       ? Style.selectedFillFor(root.contentForeground, Color.accent)
                       : "transparent"
-                    border.width: timelinePoint.localPoint
+                    border.width: timelinePoint.localPoint || timelinePoint.linkedHovered
                       || Number(timelinePoint.modelData.count || 1) > 1
                       ? Style.spacing.hairline : 0
-                    border.color: timelinePoint.localPoint
+                    border.color: timelinePoint.localPoint || timelinePoint.linkedHovered
                       ? Style.selectedStateColor(root.contentForeground, Color.accent)
                       : root.contentForeground
+
+                    Behavior on scale {
+                      NumberAnimation { duration: 180; easing.type: Easing.OutQuart }
+                    }
+
+                    Behavior on color { ColorAnimation { duration: 150 } }
 
                     Rectangle {
                       anchors.centerIn: parent
                       width: Style.space(5)
                       height: width
                       radius: width / 2
-                      color: timelinePoint.localPoint
+                      color: timelinePoint.localPoint || timelinePoint.linkedHovered
                         ? Style.selectedStateColor(root.contentForeground, Color.accent)
                         : root.contentForeground
-                      opacity: timelinePoint.localPoint ? 1 : 0.82
+                      opacity: timelinePoint.localPoint || timelinePoint.linkedHovered ? 1 : 0.82
+
+                      Behavior on color { ColorAnimation { duration: 150 } }
+                      Behavior on opacity { NumberAnimation { duration: 150 } }
+                    }
+                  }
+
+                  Item {
+                    width: Style.space(24)
+                    height: width
+                    x: Math.round((parent.width - width) / 2)
+                    y: timelineView.railY - height / 2
+
+                    HoverHandler {
+                      id: timelinePointHover
+                      onHoveredChanged: root.updateTimelineHover(
+                        "timeline:" + String(timelinePoint.modelData.relative_minutes),
+                        timelinePoint.modelData.relative_minutes, hovered)
                     }
                   }
 
@@ -1781,12 +1837,14 @@ Panel {
                       width: parent.width
                       horizontalAlignment: Text.AlignHCenter
                       text: timelinePoint.modelData.time
-                      color: timelinePoint.localPoint
+                      color: timelinePoint.localPoint || timelinePoint.linkedHovered
                         ? Style.selectedStateColor(root.contentForeground, Color.accent)
                         : root.contentForeground
                       font.family: root.contentFontFamily
                       font.pixelSize: Style.font.bodySmall
-                      font.bold: timelinePoint.localPoint
+                      font.bold: timelinePoint.localPoint || timelinePoint.linkedHovered
+
+                      Behavior on color { ColorAnimation { duration: 150 } }
                     }
 
                     Text {
@@ -1849,6 +1907,8 @@ Panel {
                       readonly property bool hasKeyboardCursor:
                         root.keyboardCursorActive
                           && root.keyboardClockIndex === clockIndex
+                      readonly property bool linkedHovered:
+                        root.timelineHoverMatches(clockData.relative_minutes)
                       property bool labelEditing: false
                       function focusTimeEditor() {
                         cardTimeInput.forceActiveFocus(Qt.ShortcutFocusReason)
@@ -1885,17 +1945,27 @@ Panel {
                       height: clockRow.height
                       clip: true
 
+                      HoverHandler {
+                        id: cardHoverHandler
+                        onHoveredChanged: root.updateTimelineHover(
+                          "card:" + String(clockCell.clockIndex),
+                          clockCell.clockData.relative_minutes, hovered)
+                      }
+
                       Rectangle {
                         id: clockSurface
                         anchors.fill: parent
                         radius: Style.cornerRadius
-                        color: clockCell.hasKeyboardCursor
+                        color: clockCell.hasKeyboardCursor || clockCell.linkedHovered
                           ? Style.hoverFillFor(root.contentForeground, Color.accent)
                           : Style.normalFillFor(root.contentForeground, Color.accent)
-                        border.width: clockCell.hasKeyboardCursor
+                        border.width: clockCell.hasKeyboardCursor || clockCell.linkedHovered
                           ? Style.spacing.hairline : 0
-                        border.color: Style.focusStateColor(
-                          root.contentForeground, Color.accent)
+                        border.color: clockCell.hasKeyboardCursor
+                          ? Style.focusStateColor(root.contentForeground, Color.accent)
+                          : Style.hoverBorderFor(root.contentForeground, Color.accent)
+
+                        Behavior on color { ColorAnimation { duration: 150 } }
                       }
 
                       Column {

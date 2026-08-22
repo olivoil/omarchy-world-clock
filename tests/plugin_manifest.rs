@@ -183,6 +183,11 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("keyCatcher.forceActiveFocus(Qt.MouseFocusReason)"));
     assert!(panel.contains("Accessible.description: \"Press Enter to save or Escape to cancel\""));
     assert!(panel.contains("id: timelineTickRepeater"));
+    assert!(panel.contains("property var timelineHoverMinutes: null"));
+    assert!(panel.contains("function timelineHoverMatches(relativeMinutes)"));
+    assert!(panel.contains("id: timelinePointHover"));
+    assert!(panel.contains("id: cardHoverHandler"));
+    assert!(panel.contains("root.timelineHoverMatches(clockData.relative_minutes)"));
     assert!(panel.contains("function focusSummaryEditor()"));
     assert!(panel.contains("property bool snapshotLoaded: false"));
     assert!(panel.contains("property bool summaryFocusPending: false"));

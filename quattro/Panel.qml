@@ -848,13 +848,13 @@ Panel {
     searchProcess.running = true
   }
 
-  function addFirstResult() {
+  function selectFirstResult() {
     var query = String(addField.text || "").trim()
     if (mode !== "add" || !searchVisible || !query || !canAdd
         || actionProcess.running) return
     if (searchResultsQuery === query) {
       if (searchResults.length > 0)
-        runAction("add", searchResults[0].timezone, searchResults[0])
+        selectMapLocation(searchResults[0])
       return
     }
     searchSubmitQuery = query
@@ -1253,7 +1253,7 @@ Panel {
           if (root.mode === "add"
               && root.searchSubmitQuery === root.searchResultsQuery && root.canAdd) {
             root.searchSubmitQuery = ""
-            root.runAction("add", root.searchResults[0].timezone, root.searchResults[0])
+            root.selectMapLocation(root.searchResults[0])
           }
         }
       } catch (error) {
@@ -2284,7 +2284,7 @@ Panel {
                 foreground: root.contentForeground
                 enabled: root.searchVisible && root.canAdd && !actionProcess.running
                 onTextChanged: root.searchTextChanged()
-                onAccepted: root.addFirstResult()
+                onAccepted: root.selectFirstResult()
                 onActiveFocusChanged: root.editorActive = activeFocus
                 Keys.onEscapePressed: function(event) {
                   if (root.mapSelection !== null) root.dismissMapSelection()
@@ -2470,7 +2470,7 @@ Panel {
                       && !actionProcess.running
                     leftAlign: true
                     text: ""
-                    onClicked: root.runAction("add", resultButton.modelData.timezone, resultButton.modelData)
+                    onClicked: root.selectMapLocation(resultButton.modelData)
 
                     Column {
                       anchors.left: parent.left

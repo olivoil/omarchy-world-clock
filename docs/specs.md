@@ -229,10 +229,11 @@ Rules:
   to focus the result set without a remote request
 - Open-Meteo results show one quiet, clickable attribution in the lower-left
   map corner while those remote results are visible
-- selecting a dropdown result adds it immediately; Enter chooses the first
-  valid result
-- selecting the same result on the map centers it and opens an anchored detail
-  card with an explicit `Add` action instead of mutating configuration
+- selecting a dropdown result, or pressing Enter to choose the first valid
+  result, centers it and opens an anchored detail card with an explicit `Add`
+  action instead of mutating configuration
+- selecting the same result from its map marker follows the identical preview
+  and confirmation flow
 - dismissing a detail card closes any active search and returns focus to the
   globe; the next printable key opens a fresh search through the global
   type-to-search handler

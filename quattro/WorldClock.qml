@@ -232,6 +232,7 @@ BarWidget {
       }
 
       Text {
+        textFormat: Text.PlainText
         anchors.verticalCenter: parent.verticalCenter
         text: root.pinnedTime
         color: pinnedButton.foreground

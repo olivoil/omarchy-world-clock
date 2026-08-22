@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.olivoil.world-clock",
   "name": "World Clock",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "author": "Olivier Melcher",
   "description": "A native Omarchy world clock for comparing time and weather across places, converting time zones, and pinning a place to the bar.",
   "license": "MIT AND ODbL-1.0",

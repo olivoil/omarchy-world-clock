@@ -121,6 +121,11 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("id: mapSelectionCard"));
     assert!(panel.contains("id: mapSelectionAddButton"));
     assert!(panel.contains("root.selectMapLocation(mapMarker.location)"));
+    assert!(panel.contains("onClicked: root.selectMapLocation(resultButton.modelData)"));
+    assert!(panel.contains("function selectFirstResult()"));
+    assert!(panel.contains("onAccepted: root.selectFirstResult()"));
+    assert!(panel.contains("selectMapLocation(searchResults[0])"));
+    assert!(panel.contains("root.selectMapLocation(root.searchResults[0])"));
     assert!(panel.contains("root.runAction(\"add\", root.mapSelection.timezone,"));
     assert!(panel.contains("message = \"That location is already added.\""));
     assert!(!panel.contains("root.runAction(\"add\", mapMarker.location.timezone"));
@@ -144,9 +149,9 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
         "height: Math.min(root.searchResults.length * Style.space(48), Style.space(240))"
     ));
     assert!(panel.contains("id: searchResultList"));
-    assert!(panel.contains(
-        "onClicked: root.runAction(\"add\", resultButton.modelData.timezone, resultButton.modelData)"
-    ));
+    assert!(!panel.contains("root.runAction(\"add\", searchResults[0].timezone"));
+    assert!(!panel.contains("root.runAction(\"add\", root.searchResults[0].timezone"));
+    assert!(!panel.contains("root.runAction(\"add\", resultButton.modelData.timezone"));
     assert!(panel.contains("name === \"pin\" || name === \"remove\""));
     assert!(panel.contains("name === \"rename\""));
     assert!(panel.contains("result.label !== null && result.label !== undefined"));

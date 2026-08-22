@@ -12,6 +12,7 @@ run() {
 run cargo fmt --all -- --check
 run cargo clippy --locked --all-targets -- -D warnings
 run cargo test --locked
+run node tests/timeline-hover-state.mjs
 run bash tests/bundle.sh
 run node scripts/build-world-map-source.mjs --check
 run node scripts/build-featured-cities.mjs --check

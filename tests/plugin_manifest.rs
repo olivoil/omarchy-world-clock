@@ -188,6 +188,13 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("id: timelinePointHover"));
     assert!(panel.contains("id: cardHoverHandler"));
     assert!(panel.contains("root.timelineHoverMatches(clockData.relative_minutes)"));
+    assert_eq!(
+        panel
+            .matches("root.updateTimelineHover(hoverOwner, 0, false)")
+            .count(),
+        2,
+        "destroyed card and timeline delegates must both release hover ownership"
+    );
     let apply_snapshot = panel
         .split("function applySnapshot(raw, manual)")
         .nth(1)

@@ -1752,6 +1752,8 @@ Panel {
                       root.updateTimelineHover(hoverOwner,
                         modelData.relative_minutes, true)
                   }
+                  Component.onDestruction:
+                    root.updateTimelineHover(hoverOwner, 0, false)
 
                   Rectangle {
                     id: markerStem

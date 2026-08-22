@@ -3,6 +3,16 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
+fn assert_text_items_are_plain_text(source: &str, filename: &str) {
+    let text_items = source.matches("Text {").count();
+    let plain_text_items = source.matches("textFormat: Text.PlainText").count();
+    assert!(text_items > 0, "{filename} should contain Text items");
+    assert_eq!(
+        plain_text_items, text_items,
+        "every Text item in {filename} must explicitly use Text.PlainText"
+    );
+}
+
 #[test]
 fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -35,6 +45,7 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     let qml_path = root.join(entry_point);
     assert!(qml_path.is_file(), "missing {}", qml_path.display());
     let qml = fs::read_to_string(&qml_path).expect("read QML entry point");
+    assert_text_items_are_plain_text(&qml, "quattro/WorldClock.qml");
     assert!(qml.contains("moduleName: \"io.github.olivoil.world-clock\""));
     assert!(qml.contains("Qt.resolvedUrl(\"../bin/omarchy-world-clock-backend\")"));
     assert!(!qml.contains("setting(\"command\""));
@@ -63,6 +74,7 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     let panel_path = qml_path.parent().unwrap().join("Panel.qml");
     assert!(panel_path.is_file(), "missing {}", panel_path.display());
     let panel = fs::read_to_string(panel_path).expect("read native panel");
+    assert_text_items_are_plain_text(&panel, "quattro/Panel.qml");
     assert!(!panel.contains("omarchy-world-clock-bin"));
     assert!(panel.contains("KeyboardPanel"));
     assert!(panel.contains("owner: root.barIdentity"));

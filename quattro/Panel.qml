@@ -1455,6 +1455,7 @@ Panel {
               height: implicitHeight
 
               Text {
+                textFormat: Text.PlainText
                 id: headerReadTitle
                 visible: !headerTitle.labelEditing
                 anchors.centerIn: parent
@@ -1610,6 +1611,7 @@ Panel {
                 spacing: Style.space(8)
 
                 Text {
+                  textFormat: Text.PlainText
                   id: summaryMetadata
                   anchors.verticalCenter: parent.verticalCenter
                   text: root.currentTimezoneMetadata
@@ -1621,6 +1623,7 @@ Panel {
                 }
 
                 Text {
+                  textFormat: Text.PlainText
                   visible: summaryWeatherLine.visible
                   anchors.verticalCenter: parent.verticalCenter
                   text: "·"
@@ -1637,6 +1640,7 @@ Panel {
                   height: Style.space(16)
 
                   Text {
+                    textFormat: Text.PlainText
                     id: summaryWeatherText
                     visible: summaryClock.weatherData || !root.weatherLoading
                     anchors.centerIn: parent
@@ -1773,6 +1777,7 @@ Panel {
                       : markerStem.y + markerStem.height + Style.space(4)
 
                     Text {
+                      textFormat: Text.PlainText
                       width: parent.width
                       horizontalAlignment: Text.AlignHCenter
                       text: timelinePoint.modelData.time
@@ -1785,6 +1790,7 @@ Panel {
                     }
 
                     Text {
+                      textFormat: Text.PlainText
                       width: parent.width
                       horizontalAlignment: Text.AlignHCenter
                       elide: Text.ElideRight
@@ -1907,6 +1913,7 @@ Panel {
                             cardLabelInput.implicitHeight, cardControls.implicitHeight)
 
                           Text {
+                            textFormat: Text.PlainText
                             id: cardTitle
                             visible: !clockCell.labelEditing
                             anchors.left: parent.left
@@ -1984,6 +1991,7 @@ Panel {
                           }
 
                           Text {
+                            textFormat: Text.PlainText
                             id: cardNotation
                             visible: !cardControls.visible
                             anchors.right: parent.right
@@ -2073,6 +2081,7 @@ Panel {
                             cardWeatherBlock.implicitHeight)
 
                           Text {
+                            textFormat: Text.PlainText
                             id: cardRelativeMetadata
                             anchors.left: parent.left
                             anchors.right: cardWeatherBlock.left
@@ -2100,6 +2109,7 @@ Panel {
                             height: implicitHeight
 
                             Text {
+                              textFormat: Text.PlainText
                               id: cardWeatherTemperature
                               visible: clockCell.weatherData !== null
                               anchors.right: parent.right
@@ -2114,6 +2124,7 @@ Panel {
                             }
 
                             Text {
+                              textFormat: Text.PlainText
                               id: cardWeatherGlyph
                               visible: clockCell.weatherData !== null
                               anchors.right: cardWeatherTemperature.left
@@ -2229,6 +2240,7 @@ Panel {
                 }
 
                 Text {
+                  textFormat: Text.PlainText
                   id: addSearchCloseGlyph
                   anchors.centerIn: parent
                   text: "󰅖"
@@ -2320,6 +2332,7 @@ Panel {
               border.color: root.mixColor(Color.background, root.contentForeground, 0.24)
 
               Text {
+                textFormat: Text.PlainText
                 id: capacityLabel
                 anchors.centerIn: parent
                 text: "Remove a location before adding another."
@@ -2392,6 +2405,7 @@ Panel {
                       spacing: Style.space(2)
 
                       Text {
+                        textFormat: Text.PlainText
                         width: parent.width
                         text: resultButton.modelData.title
                         color: root.contentForeground
@@ -2402,6 +2416,7 @@ Panel {
                       }
 
                       Text {
+                        textFormat: Text.PlainText
                         width: parent.width
                         text: resultButton.modelData.subtitle
                         color: Qt.darker(root.contentForeground, 1.5)
@@ -2494,6 +2509,7 @@ Panel {
                       spacing: Style.space(1)
 
                       Text {
+                        textFormat: Text.PlainText
                         width: parent.width
                         text: mapMarker.location.title
                         horizontalAlignment: Text.AlignHCenter
@@ -2507,6 +2523,7 @@ Panel {
                       }
 
                       Text {
+                        textFormat: Text.PlainText
                         width: parent.width
                         text: mapMarker.location.time
                           || mapMarker.location.timezone
@@ -2663,6 +2680,7 @@ Panel {
                   spacing: Style.space(8)
 
                   Text {
+                    textFormat: Text.PlainText
                     width: parent.width
                     text: String(root.mapSelection && root.mapSelection.title || "")
                     color: root.contentForeground
@@ -2677,6 +2695,7 @@ Panel {
                     spacing: Style.space(8)
 
                     Text {
+                      textFormat: Text.PlainText
                       id: mapSelectionTime
                       text: String(root.mapSelection && root.mapSelection.time || "--:--")
                       color: root.contentForeground
@@ -2686,6 +2705,7 @@ Panel {
                     }
 
                     Text {
+                      textFormat: Text.PlainText
                       anchors.baseline: mapSelectionTime.baseline
                       text: String(root.mapSelection && root.mapSelection.notation || "")
                       color: root.contentForeground
@@ -2697,6 +2717,7 @@ Panel {
                   }
 
                   Text {
+                    textFormat: Text.PlainText
                     width: parent.width
                     text: {
                       var day = String(root.mapSelection && root.mapSelection.day || "")
@@ -2712,6 +2733,7 @@ Panel {
                   }
 
                   Text {
+                    textFormat: Text.PlainText
                     width: parent.width
                     text: String(root.mapSelection && root.mapSelection.timezone || "")
                     color: root.contentForeground
@@ -2762,6 +2784,7 @@ Panel {
                 opacity: 0.92
 
                 Text {
+                  textFormat: Text.PlainText
                   id: mapLookupLabel
                   anchors.centerIn: parent
                   text: "Locating…"
@@ -2791,6 +2814,7 @@ Panel {
                   : root.mixColor(Color.background, root.contentForeground, 0.24)
 
                 Text {
+                  textFormat: Text.PlainText
                   id: addStatusLabel
                   anchors.centerIn: parent
                   width: parent.width - Style.space(24)
@@ -2806,6 +2830,7 @@ Panel {
           }
 
           Text {
+            textFormat: Text.PlainText
             visible: root.mode !== "add" && root.statusText !== ""
             width: parent.width
             horizontalAlignment: Text.AlignHCenter

@@ -1743,6 +1743,7 @@ impl TimezoneResolver {
 
 impl RemotePlaceSearch {
     const ENDPOINT: &'static str = "https://geocoding-api.open-meteo.com/v1/search";
+    const MAX_DISPLAY_FIELD_CHARS: usize = 256;
 
     pub fn new(zones: Option<Vec<String>>, timeout: Option<f64>) -> Self {
         Self {
@@ -1835,16 +1836,41 @@ impl RemotePlaceSearch {
     }
 
     fn format_title(item: &RemotePlaceResult) -> Option<String> {
-        let parts = Self::unique_parts([
+        let values = [
             item.name.as_deref(),
             item.admin1.as_deref(),
             item.country.as_deref(),
-        ]);
+        ];
+        // Remote place names can be persisted as labels and later cross into
+        // shell-owned text renderers, so reject markup at the trust boundary.
+        if values
+            .iter()
+            .flatten()
+            .any(|value| !Self::display_field_is_safe(value))
+        {
+            return None;
+        }
+
+        let parts = Self::unique_parts(values);
         if parts.is_empty() {
             None
         } else {
             Some(parts.join(", "))
         }
+    }
+
+    fn display_field_is_safe(value: &str) -> bool {
+        let mut char_count = 0;
+        for character in value.chars() {
+            char_count += 1;
+            if char_count > Self::MAX_DISPLAY_FIELD_CHARS
+                || character.is_control()
+                || matches!(character, '<' | '>')
+            {
+                return false;
+            }
+        }
+        true
     }
 
     fn format_location_summary(item: &RemotePlaceResult) -> String {
@@ -1895,8 +1921,8 @@ mod tests {
     use super::{
         canonical_timezone_name, detect_system_time_format_with_paths,
         load_omarchy_shell_weather_unit, merge_zone_tab_coordinates, non_local_location_count,
-        parse_zone_tab_coordinate, AppConfig, ConfigManager, LocationKey, TimezoneEntry,
-        TimezoneResolver, CLOCK_CARD_LIMIT,
+        parse_zone_tab_coordinate, AppConfig, ConfigManager, LocationKey, RemotePlaceResult,
+        RemotePlaceSearch, TimezoneEntry, TimezoneResolver, CLOCK_CARD_LIMIT,
     };
     use std::collections::BTreeMap;
     use std::fs;
@@ -2470,6 +2496,53 @@ mod tests {
         let new_york = parse_zone_tab_coordinate("+404251-0740023").unwrap();
         assert!((new_york.0 - 40.7142).abs() < 0.001);
         assert!((new_york.1 + 74.0064).abs() < 0.001);
+    }
+
+    #[test]
+    fn remote_place_titles_reject_unsafe_display_fields() {
+        let safe = RemotePlaceResult {
+            timezone: Some("Africa/Sao_Tome".to_string()),
+            name: Some("São Tomé & Príncipe".to_string()),
+            admin1: Some("Água Grande".to_string()),
+            country: Some("São Tomé and Príncipe".to_string()),
+            latitude: Some(0.3365),
+            longitude: Some(6.7273),
+        };
+        assert_eq!(
+            RemotePlaceSearch::format_title(&safe).as_deref(),
+            Some("São Tomé & Príncipe, Água Grande, São Tomé and Príncipe")
+        );
+
+        let unsafe_fields = [
+            (
+                Some("<img src='https://example.invalid/probe'>"),
+                None,
+                None,
+            ),
+            (Some("Paris"), Some("Île\0de-France"), Some("France")),
+            (Some("Paris"), None, Some("France > Europe")),
+        ];
+        for (name, admin1, country) in unsafe_fields {
+            let result = RemotePlaceResult {
+                timezone: Some("Europe/Paris".to_string()),
+                name: name.map(str::to_string),
+                admin1: admin1.map(str::to_string),
+                country: country.map(str::to_string),
+                latitude: Some(48.8566),
+                longitude: Some(2.3522),
+            };
+            assert_eq!(RemotePlaceSearch::format_title(&result), None);
+        }
+
+        let oversized = RemotePlaceResult {
+            timezone: Some("Europe/Paris".to_string()),
+            name: Some("x".repeat(257)),
+            admin1: None,
+            country: Some("France".to_string()),
+            latitude: Some(48.8566),
+            longitude: Some(2.3522),
+        };
+        assert_eq!(RemotePlaceSearch::format_title(&oversized), None);
     }
 
     #[test]

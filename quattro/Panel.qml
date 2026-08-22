@@ -4,6 +4,7 @@ import QtQuick
 import Quickshell.Io
 import qs.Commons
 import qs.Ui
+import "TimelineHoverState.js" as TimelineHoverState
 
 // Quattro-native world-clock panel. Rust remains the timezone/config engine;
 // this already-loaded QML surface owns the interaction and visual lifecycle.
@@ -82,8 +83,7 @@ Panel {
   property bool searchVisible: false
   property bool keyboardCursorActive: false
   property int keyboardClockIndex: -1
-  property var timelineHoverMinutes: null
-  property string timelineHoverOwner: ""
+  property var timelineHoverOwners: ({})
 
   readonly property var barIdentity: hostWidget || root
   readonly property color contentForeground: bar ? bar.foreground : Color.foreground
@@ -649,7 +649,6 @@ Panel {
       var payload = JSON.parse(String(raw || ""))
       if (!payload || Number(payload.schema_version) !== 1 || !payload.summary)
         throw new Error("Unsupported snapshot")
-      clearTimelineHover()
       snapshot = payload
       snapshotLoaded = true
       invalidConversionSource = ""
@@ -1050,24 +1049,16 @@ Panel {
   }
 
   function timelineHoverMatches(relativeMinutes) {
-    return timelineHoverMinutes !== null
-      && Number(relativeMinutes || 0) === Number(timelineHoverMinutes)
+    return TimelineHoverState.matchesMinutes(timelineHoverOwners, relativeMinutes)
   }
 
   function updateTimelineHover(owner, relativeMinutes, hovered) {
-    var normalizedOwner = String(owner || "")
-    if (hovered) {
-      timelineHoverOwner = normalizedOwner
-      timelineHoverMinutes = Number(relativeMinutes || 0)
-    } else if (timelineHoverOwner === normalizedOwner) {
-      timelineHoverOwner = ""
-      timelineHoverMinutes = null
-    }
+    timelineHoverOwners = TimelineHoverState.updateOwners(
+      timelineHoverOwners, owner, relativeMinutes, hovered)
   }
 
   function clearTimelineHover() {
-    timelineHoverOwner = ""
-    timelineHoverMinutes = null
+    timelineHoverOwners = ({})
   }
 
   onOpenedChanged: {
@@ -1745,7 +1736,9 @@ Panel {
 
                 Item {
                   id: timelinePoint
+                  required property int index
                   required property var modelData
+                  readonly property string hoverOwner: "timeline:" + String(index)
                   readonly property bool localPoint:
                     Number(modelData.relative_minutes || 0) === 0
                   readonly property bool linkedHovered:
@@ -1754,6 +1747,11 @@ Panel {
                   width: Style.space(96)
                   height: parent.height
                   x: root.timelineX(modelData.relative_minutes, timelineView.width, width)
+                  onModelDataChanged: {
+                    if (timelinePointHover.hovered)
+                      root.updateTimelineHover(hoverOwner,
+                        modelData.relative_minutes, true)
+                  }
 
                   Rectangle {
                     id: markerStem
@@ -1819,7 +1817,7 @@ Panel {
                     HoverHandler {
                       id: timelinePointHover
                       onHoveredChanged: root.updateTimelineHover(
-                        "timeline:" + String(timelinePoint.modelData.relative_minutes),
+                        timelinePoint.hoverOwner,
                         timelinePoint.modelData.relative_minutes, hovered)
                     }
                   }
@@ -1904,6 +1902,7 @@ Panel {
                       readonly property bool showWeather: root.weatherPresentationActive
                         && (weatherData !== null || root.weatherLoading)
                       readonly property int clockIndex: clockRow.startIndex + index
+                      readonly property string hoverOwner: "card:" + String(clockIndex)
                       readonly property bool hasKeyboardCursor:
                         root.keyboardCursorActive
                           && root.keyboardClockIndex === clockIndex
@@ -1940,7 +1939,12 @@ Panel {
                       }
                       onClockDataChanged: {
                         if (!cardLabelInput.activeFocus) cardLabelInput.resetText()
+                        if (cardHoverHandler.hovered)
+                          root.updateTimelineHover(hoverOwner,
+                            clockData.relative_minutes, true)
                       }
+                      Component.onDestruction:
+                        root.updateTimelineHover(hoverOwner, 0, false)
                       width: clockRow.cellWidth
                       height: clockRow.height
                       clip: true
@@ -1948,7 +1952,7 @@ Panel {
                       HoverHandler {
                         id: cardHoverHandler
                         onHoveredChanged: root.updateTimelineHover(
-                          "card:" + String(clockCell.clockIndex),
+                          clockCell.hoverOwner,
                           clockCell.clockData.relative_minutes, hovered)
                       }
 

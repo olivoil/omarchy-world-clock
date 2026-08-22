@@ -201,6 +201,19 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
         !apply_snapshot.contains("clearTimelineHover()"),
         "snapshot refreshes must preserve active card and timeline hover state"
     );
+    let mode_changed = panel
+        .split("onModeChanged: {")
+        .nth(1)
+        .and_then(|source| source.split("onCanAddChanged:").next())
+        .expect("onModeChanged handler body");
+    assert!(
+        mode_changed.contains("if (mode === \"add\") {\n      clearTimelineHover()"),
+        "hover state should clear when leaving the clock and timeline view"
+    );
+    assert!(
+        !mode_changed.starts_with("\n    clearTimelineHover()"),
+        "switching between read and edit mode must preserve active hover state"
+    );
     assert!(panel.contains("function focusSummaryEditor()"));
     assert!(panel.contains("property bool snapshotLoaded: false"));
     assert!(panel.contains("property bool summaryFocusPending: false"));

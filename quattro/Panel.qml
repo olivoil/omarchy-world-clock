@@ -1087,8 +1087,8 @@ Panel {
       Qt.callLater(root.flushEditorRefresh)
   }
   onModeChanged: {
-    clearTimelineHover()
     if (mode === "add") {
+      clearTimelineHover()
       searchVisible = false
       Qt.callLater(root.initializeGlobe)
       Qt.callLater(root.requestGlobeDetailWhenReady)

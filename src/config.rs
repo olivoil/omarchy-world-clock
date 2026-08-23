@@ -1,10 +1,12 @@
+use crate::remote_response::{
+    open_meteo_client, read_json_response, MAX_OPEN_METEO_RESPONSE_BYTES,
+};
 use crate::time::friendly_timezone_name;
 use crate::timezone_grid::timezone_at;
 use anyhow::Context;
 use chrono::{Datelike, TimeZone, Utc};
 use chrono_tz::{Tz, TZ_VARIANTS};
 use regex::Regex;
-use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::env;
@@ -1744,6 +1746,7 @@ impl TimezoneResolver {
 impl RemotePlaceSearch {
     const ENDPOINT: &'static str = "https://geocoding-api.open-meteo.com/v1/search";
     const MAX_DISPLAY_FIELD_CHARS: usize = 256;
+    const MAX_REMOTE_RESULTS: usize = 12;
 
     pub fn new(zones: Option<Vec<String>>, timeout: Option<f64>) -> Self {
         Self {
@@ -1774,27 +1777,41 @@ impl RemotePlaceSearch {
     }
 
     fn fetch(&self, query: &str) -> Vec<TimezoneSearchResult> {
-        let Ok(client) = Client::builder()
-            .timeout(Duration::from_secs_f64(self.timeout))
-            .build()
-        else {
+        let Ok(payload) = self.fetch_payload(query, Self::ENDPOINT) else {
             return Vec::new();
         };
 
-        let Ok(response) = client
-            .get(Self::ENDPOINT)
-            .query(&[("name", query), ("count", "12"), ("format", "json")])
+        self.results_from_payload(payload)
+    }
+
+    fn fetch_payload(&self, query: &str, endpoint: &str) -> anyhow::Result<RemotePlaceResponse> {
+        let client = open_meteo_client(Duration::from_secs_f64(self.timeout))
+            .context("could not initialize the Open-Meteo geocoding client")?;
+
+        let requested_count = Self::MAX_REMOTE_RESULTS.to_string();
+        let response = client
+            .get(endpoint)
+            .query(&[
+                ("name", query),
+                ("count", requested_count.as_str()),
+                ("format", "json"),
+            ])
             .header(reqwest::header::ACCEPT, "application/json")
             .header(reqwest::header::USER_AGENT, "omarchy-world-clock/1.0")
             .send()
-        else {
-            return Vec::new();
-        };
+            .context("could not reach Open-Meteo geocoding")?;
+        if !response.status().is_success() {
+            anyhow::bail!(
+                "Open-Meteo geocoding returned HTTP status {}",
+                response.status()
+            );
+        }
 
-        let Ok(payload) = response.json::<RemotePlaceResponse>() else {
-            return Vec::new();
-        };
+        read_json_response::<RemotePlaceResponse>(response, MAX_OPEN_METEO_RESPONSE_BYTES)
+            .context("could not read the Open-Meteo geocoding response")
+    }
 
+    fn results_from_payload(&self, payload: RemotePlaceResponse) -> Vec<TimezoneSearchResult> {
         let mut results = Vec::new();
         let mut seen_locations = HashSet::new();
         for item in payload.results.unwrap_or_default() {
@@ -1830,6 +1847,9 @@ impl RemotePlaceSearch {
                 longitude,
                 open_meteo_attribution: true,
             });
+            if results.len() == Self::MAX_REMOTE_RESULTS {
+                break;
+            }
         }
 
         results
@@ -1921,8 +1941,12 @@ mod tests {
     use super::{
         canonical_timezone_name, detect_system_time_format_with_paths,
         load_omarchy_shell_weather_unit, merge_zone_tab_coordinates, non_local_location_count,
-        parse_zone_tab_coordinate, AppConfig, ConfigManager, LocationKey, RemotePlaceResult,
-        RemotePlaceSearch, TimezoneEntry, TimezoneResolver, CLOCK_CARD_LIMIT,
+        parse_zone_tab_coordinate, AppConfig, ConfigManager, LocationKey, RemotePlaceResponse,
+        RemotePlaceResult, RemotePlaceSearch, TimezoneEntry, TimezoneResolver, CLOCK_CARD_LIMIT,
+    };
+    use crate::remote_response::{
+        serve_http_redirect_to_response, serve_http_response_without_length,
+        MAX_OPEN_METEO_RESPONSE_BYTES,
     };
     use std::collections::BTreeMap;
     use std::fs;
@@ -2543,6 +2567,65 @@ mod tests {
             longitude: Some(2.3522),
         };
         assert_eq!(RemotePlaceSearch::format_title(&oversized), None);
+    }
+
+    #[test]
+    fn remote_place_payload_retains_at_most_the_requested_result_count() {
+        let search = RemotePlaceSearch::new(Some(vec!["Europe/Paris".to_string()]), None);
+        let payload = RemotePlaceResponse {
+            results: Some(
+                (0..20)
+                    .map(|index| RemotePlaceResult {
+                        timezone: Some("Europe/Paris".to_string()),
+                        name: Some(format!("Place {index}")),
+                        admin1: None,
+                        country: Some("France".to_string()),
+                        latitude: Some(48.8566),
+                        longitude: Some(2.3522),
+                    })
+                    .collect(),
+            ),
+        };
+
+        let results = search.results_from_payload(payload);
+
+        assert_eq!(results.len(), RemotePlaceSearch::MAX_REMOTE_RESULTS);
+        assert_eq!(results.last().unwrap().title, "Place 11, France");
+    }
+
+    #[test]
+    fn remote_geocoding_rejects_an_oversized_unknown_length_response() {
+        let body = format!(
+            r#"{{"results":[],"padding":"{}"}}"#,
+            "x".repeat(MAX_OPEN_METEO_RESPONSE_BYTES)
+        )
+        .into_bytes();
+        let (endpoint, server) = serve_http_response_without_length(body);
+        let search = RemotePlaceSearch::new(Some(vec!["Europe/Paris".to_string()]), Some(1.0));
+
+        let error = search.fetch_payload("Paris", &endpoint).unwrap_err();
+        server.join().unwrap();
+
+        assert!(format!("{error:#}").contains("exceeds 65536-byte limit"));
+    }
+
+    #[test]
+    fn remote_geocoding_does_not_follow_redirects() {
+        let (endpoint, redirect_server, stop_target, target_server) =
+            serve_http_redirect_to_response(br#"{"results":[]}"#.to_vec());
+        let search = RemotePlaceSearch::new(Some(vec!["Europe/Paris".to_string()]), Some(1.0));
+
+        let result = search.fetch_payload("Paris", &endpoint);
+        redirect_server.join().unwrap();
+        let _ = stop_target.send(());
+        let target_was_requested = target_server.join().unwrap();
+
+        let error = result.expect_err("redirect response should be rejected");
+        assert!(
+            !target_was_requested,
+            "redirect target should not be requested"
+        );
+        assert!(format!("{error:#}").contains("HTTP status 302 Found"));
     }
 
     #[test]

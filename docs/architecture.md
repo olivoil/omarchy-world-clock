@@ -208,6 +208,13 @@ possible and lets the plugin manager install without running build or setup
 code. Maintainers must never replace it without rebuilding from the checked-in
 source and passing the reproducibility checks.
 
+Both Open-Meteo request paths read no more than 64 KiB plus one byte and reject
+oversized bodies before JSON deserialization, regardless of whether the server
+declares a content length. Remote geocoding also validates every displayed
+field and retains no more than the 12 results requested from the service. The
+fixed API endpoints must return a successful response directly; redirects are
+rejected so the provider cannot induce requests to another origin.
+
 ## Compatibility policy
 
 The Quattro frontend and bundled backend form one release unit. New versions do

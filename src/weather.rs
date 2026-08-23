@@ -1,5 +1,8 @@
 use crate::config::{place_coordinate, AppConfig};
 use crate::quattro::visible_location_entries;
+use crate::remote_response::{
+    open_meteo_client, read_json_response, MAX_OPEN_METEO_RESPONSE_BYTES,
+};
 use anyhow::{bail, Context, Result};
 use chrono::{DateTime, Utc};
 use reqwest::blocking::Client;
@@ -84,28 +87,43 @@ pub fn current_weather(
         .map(|location| location.longitude.to_string())
         .collect::<Vec<_>>()
         .join(",");
-    let client = Client::builder()
-        .timeout(Duration::from_secs(5))
-        .build()
+    let client = open_meteo_client(Duration::from_secs(5))
         .context("could not initialize the weather client")?;
+    let response = fetch_weather_response(
+        &client,
+        OPEN_METEO_FORECAST_ENDPOINT,
+        &latitudes,
+        &longitudes,
+    )?;
+
+    payload.locations = weather_from_response(response, &locations)?;
+    Ok(payload)
+}
+
+fn fetch_weather_response(
+    client: &Client,
+    endpoint: &str,
+    latitudes: &str,
+    longitudes: &str,
+) -> Result<OpenMeteoResponse> {
     let response = client
-        .get(OPEN_METEO_FORECAST_ENDPOINT)
+        .get(endpoint)
         .query(&[
-            ("latitude", latitudes.as_str()),
-            ("longitude", longitudes.as_str()),
+            ("latitude", latitudes),
+            ("longitude", longitudes),
             ("current", "temperature_2m,weather_code,is_day"),
             ("temperature_unit", "celsius"),
             ("forecast_days", "1"),
         ])
         .send()
-        .context("could not reach Open-Meteo")?
-        .error_for_status()
-        .context("Open-Meteo returned an error")?
-        .text()
+        .context("could not reach Open-Meteo")?;
+    if !response.status().is_success() {
+        bail!("Open-Meteo returned HTTP status {}", response.status());
+    }
+    let response = read_json_response::<OpenMeteoResponse>(response, MAX_OPEN_METEO_RESPONSE_BYTES)
         .context("could not read the Open-Meteo response")?;
 
-    payload.locations = parse_weather_response(&response, &locations)?;
-    Ok(payload)
+    Ok(response)
 }
 
 fn weather_locations(
@@ -129,12 +147,20 @@ fn weather_locations(
         .collect()
 }
 
+#[cfg(test)]
 fn parse_weather_response(
     raw: &str,
     locations: &[WeatherLocation],
 ) -> Result<Vec<LocationWeather>> {
     let response = serde_json::from_str::<OpenMeteoResponse>(raw)
         .context("Open-Meteo returned invalid weather data")?;
+    weather_from_response(response, locations)
+}
+
+fn weather_from_response(
+    response: OpenMeteoResponse,
+    locations: &[WeatherLocation],
+) -> Result<Vec<LocationWeather>> {
     let forecasts = match response {
         OpenMeteoResponse::One(forecast) => vec![forecast],
         OpenMeteoResponse::Many(forecasts) => forecasts,
@@ -188,10 +214,19 @@ fn weather_condition(code: i64) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_weather_response, weather_condition, weather_locations, WeatherLocation};
+    use super::{
+        fetch_weather_response, parse_weather_response, weather_condition, weather_locations,
+        WeatherLocation,
+    };
     use crate::config::{AppConfig, LocationKey, TimezoneEntry, CLOCK_CARD_LIMIT};
     use crate::quattro::build_snapshot;
+    use crate::remote_response::{
+        open_meteo_client, serve_http_redirect_to_response, serve_http_response_without_length,
+        MAX_OPEN_METEO_RESPONSE_BYTES,
+    };
     use chrono::{TimeZone, Utc};
+    use reqwest::blocking::Client;
+    use std::time::Duration;
 
     fn location(timezone: &str, label: &str) -> WeatherLocation {
         WeatherLocation {
@@ -266,6 +301,46 @@ mod tests {
         .unwrap_err();
 
         assert!(error.to_string().contains("1 locations for 2 requests"));
+    }
+
+    #[test]
+    fn weather_rejects_an_oversized_unknown_length_response() {
+        let body = format!(
+            r#"{{"padding":"{}"}}"#,
+            "x".repeat(MAX_OPEN_METEO_RESPONSE_BYTES)
+        )
+        .into_bytes();
+        let (endpoint, server) = serve_http_response_without_length(body);
+        let client = Client::builder()
+            .timeout(Duration::from_secs(1))
+            .build()
+            .unwrap();
+
+        let error = fetch_weather_response(&client, &endpoint, "0", "0").unwrap_err();
+        server.join().unwrap();
+
+        assert!(format!("{error:#}").contains("exceeds 65536-byte limit"));
+    }
+
+    #[test]
+    fn weather_does_not_follow_redirects() {
+        let (endpoint, redirect_server, stop_target, target_server) =
+            serve_http_redirect_to_response(
+                br#"{"current":{"temperature_2m":20,"weather_code":0,"is_day":1}}"#.to_vec(),
+            );
+        let client = open_meteo_client(Duration::from_secs(1)).unwrap();
+
+        let result = fetch_weather_response(&client, &endpoint, "0", "0");
+        redirect_server.join().unwrap();
+        let _ = stop_target.send(());
+        let target_was_requested = target_server.join().unwrap();
+
+        let error = result.expect_err("redirect response should be rejected");
+        assert!(
+            !target_was_requested,
+            "redirect target should not be requested"
+        );
+        assert!(format!("{error:#}").contains("HTTP status 302 Found"));
     }
 
     #[test]

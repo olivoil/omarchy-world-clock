@@ -1087,6 +1087,7 @@ Panel {
       Qt.callLater(root.flushEditorRefresh)
   }
   onModeChanged: {
+    clearStatus()
     if (mode === "add") {
       clearTimelineHover()
       searchVisible = false

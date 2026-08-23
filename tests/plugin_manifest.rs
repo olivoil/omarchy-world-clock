@@ -219,6 +219,10 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
         .and_then(|source| source.split("onCanAddChanged:").next())
         .expect("onModeChanged handler body");
     assert!(
+        mode_changed.starts_with("\n    clearStatus()"),
+        "mode transitions must discard status from the previous panel surface"
+    );
+    assert!(
         mode_changed.contains("if (mode === \"add\") {\n      clearTimelineHover()"),
         "hover state should clear when leaving the clock and timeline view"
     );

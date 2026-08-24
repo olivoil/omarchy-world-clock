@@ -734,6 +734,7 @@ Panel {
     invalidateSnapshotRequests()
     invalidConversionSource = ""
     live = true
+    keyCatcher.forceActiveFocus(Qt.MouseFocusReason)
     requestLiveSnapshot()
     requestWeather(false)
   }

@@ -123,15 +123,9 @@ BarWidget {
     try {
       payload = JSON.parse(String(raw || ""))
       if (!payload || typeof payload !== "object" || Array.isArray(payload)
-          || typeof payload.protocol_version !== "number"
-          || typeof payload.tooltip !== "string"
-          || (payload.pinned_time !== undefined && typeof payload.pinned_time !== "string")
-          || (payload.pinned_label !== undefined && typeof payload.pinned_label !== "string"))
+          || typeof payload.protocol_version !== "number")
         throw new Error("Invalid World Clock backend response")
       protocol = Number(payload.protocol_version)
-      tooltip = payload.tooltip
-      nextPinnedTime = payload.pinned_time || ""
-      nextPinnedLabel = payload.pinned_label || ""
     } catch (error) {
       markBackendUnavailable("The bundled backend returned an invalid response")
       return
@@ -141,6 +135,18 @@ BarWidget {
       // QML component cached after `omarchy plugin update`, while replacing
       // this binary in place. A shell restart loads both halves of one release.
       markBackendUnavailable("Run omarchy restart shell to finish updating")
+      return
+    }
+    try {
+      if (typeof payload.tooltip !== "string"
+          || (payload.pinned_time !== undefined && typeof payload.pinned_time !== "string")
+          || (payload.pinned_label !== undefined && typeof payload.pinned_label !== "string"))
+        throw new Error("Invalid World Clock backend response")
+      tooltip = payload.tooltip
+      nextPinnedTime = payload.pinned_time || ""
+      nextPinnedLabel = payload.pinned_label || ""
+    } catch (error) {
+      markBackendUnavailable("The bundled backend returned an invalid response")
       return
     }
     backendChecked = true

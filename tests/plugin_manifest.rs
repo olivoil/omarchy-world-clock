@@ -581,3 +581,30 @@ fn globe_artifact_freshness_checks_are_mandatory_and_reproducible() {
     assert!(workflow.contains("node-version: 26.7.0"));
     assert!(workflow.contains("command -v node"));
 }
+
+#[test]
+fn return_to_live_releases_the_active_editor_before_requesting_now() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let panel =
+        fs::read_to_string(root.join("quattro/Panel.qml")).expect("read native panel source");
+    let return_to_live = panel
+        .split("function returnToLive() {")
+        .nth(1)
+        .and_then(|source| source.split("function convertFrom(").next())
+        .expect("returnToLive function body");
+
+    let invalidate = return_to_live
+        .find("invalidateSnapshotRequests()")
+        .expect("returning live must invalidate converted snapshot work");
+    let release_focus = return_to_live
+        .find("keyCatcher.forceActiveFocus(Qt.MouseFocusReason)")
+        .expect("returning live must release any active inline editor");
+    let request_now = return_to_live
+        .find("requestLiveSnapshot()")
+        .expect("returning live must request the current instant");
+
+    assert!(
+        invalidate < release_focus && release_focus < request_now,
+        "converted work must be invalidated and editor focus released before requesting now"
+    );
+}

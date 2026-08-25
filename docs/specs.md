@@ -141,7 +141,8 @@ Time-only input is interpreted in the edited place's timezone using that
 timezone's current local date at the active reference instant. On success, the
 input is normalized and every clock displays the same instant in its timezone.
 On failure, only the edited source receives an error state and the current
-reference instant is retained. Refresh returns to live time.
+reference instant is retained. Refresh ends any active time edit, moves focus
+back to the panel, and returns every clock to live time.
 
 Pressing `Enter` in read mode focuses and selects the summary time for direct
 replacement.

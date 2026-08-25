@@ -117,12 +117,21 @@ BarWidget {
   function applyModulePayload(raw) {
     var payload
     var protocol
+    var tooltip
+    var nextPinnedTime
+    var nextPinnedLabel
     try {
       payload = JSON.parse(String(raw || ""))
       if (!payload || typeof payload !== "object" || Array.isArray(payload)
-          || typeof payload.protocol_version !== "number")
+          || typeof payload.protocol_version !== "number"
+          || typeof payload.tooltip !== "string"
+          || (payload.pinned_time !== undefined && typeof payload.pinned_time !== "string")
+          || (payload.pinned_label !== undefined && typeof payload.pinned_label !== "string"))
         throw new Error("Invalid World Clock backend response")
       protocol = Number(payload.protocol_version)
+      tooltip = payload.tooltip
+      nextPinnedTime = payload.pinned_time || ""
+      nextPinnedLabel = payload.pinned_label || ""
     } catch (error) {
       markBackendUnavailable("The bundled backend returned an invalid response")
       return
@@ -137,9 +146,9 @@ BarWidget {
     backendChecked = true
     backendAvailable = true
     backendFailureDetail = ""
-    clockTooltip = String(payload.tooltip || "World Clock")
-    pinnedTime = String(payload.pinned_time || "")
-    pinnedLabel = String(payload.pinned_label || "")
+    clockTooltip = tooltip || "World Clock"
+    pinnedTime = nextPinnedTime
+    pinnedLabel = nextPinnedLabel
     injectPanel()
   }
 

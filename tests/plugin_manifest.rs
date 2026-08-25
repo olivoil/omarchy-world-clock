@@ -70,6 +70,16 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(qml.contains("function markBackendUnavailable(detail)"));
     assert!(qml.contains("!payload || typeof payload !== \"object\" || Array.isArray(payload)"));
     assert!(qml.contains("typeof payload.protocol_version !== \"number\""));
+    assert!(qml.contains("typeof payload.tooltip !== \"string\""));
+    assert!(qml.contains(
+        "payload.pinned_time !== undefined && typeof payload.pinned_time !== \"string\""
+    ));
+    assert!(qml.contains(
+        "payload.pinned_label !== undefined && typeof payload.pinned_label !== \"string\""
+    ));
+    assert!(!qml.contains("String(payload.tooltip"));
+    assert!(!qml.contains("String(payload.pinned_time"));
+    assert!(!qml.contains("String(payload.pinned_label"));
     assert!(qml.contains("Run omarchy restart shell to finish updating"));
     assert!(qml.contains("The bundled backend returned an invalid response"));
     assert!(qml.contains("function flushModuleRefresh()"));

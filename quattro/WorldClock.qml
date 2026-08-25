@@ -116,13 +116,18 @@ BarWidget {
 
   function applyModulePayload(raw) {
     var payload
+    var protocol
     try {
       payload = JSON.parse(String(raw || ""))
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)
+          || typeof payload.protocol_version !== "number")
+        throw new Error("Invalid World Clock backend response")
+      protocol = Number(payload.protocol_version)
     } catch (error) {
       markBackendUnavailable("The bundled backend returned an invalid response")
       return
     }
-    if (Number(payload.protocol_version) !== supportedBackendProtocol) {
+    if (protocol !== supportedBackendProtocol) {
       // Omarchy releases without revisioned plugin URLs can keep the previous
       // QML component cached after `omarchy plugin update`, while replacing
       // this binary in place. A shell restart loads both halves of one release.

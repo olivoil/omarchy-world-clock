@@ -68,6 +68,8 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(qml.contains("property bool moduleRefreshPending: false"));
     assert!(qml.contains("readonly property int supportedBackendProtocol: 2"));
     assert!(qml.contains("function markBackendUnavailable(detail)"));
+    assert!(qml.contains("!payload || typeof payload !== \"object\" || Array.isArray(payload)"));
+    assert!(qml.contains("typeof payload.protocol_version !== \"number\""));
     assert!(qml.contains("Run omarchy restart shell to finish updating"));
     assert!(qml.contains("The bundled backend returned an invalid response"));
     assert!(qml.contains("function flushModuleRefresh()"));

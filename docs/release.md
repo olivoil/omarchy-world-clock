@@ -104,6 +104,7 @@ Then replace only the plugin checkout with the local candidate:
 omarchy plugin remove io.github.olivoil.world-clock --yes
 omarchy plugin add "$candidate" --enable --yes
 omarchy bar move io.github.olivoil.world-clock --after omarchy.clock
+omarchy restart shell
 ```
 
 Saved places remain in `~/.config/omarchy-world-clock/config.json` and are not
@@ -141,7 +142,9 @@ After the tester explicitly approves the candidate:
    the intended bundled backend version.
 3. Create and push the immutable `v<version>` tag.
 4. Create the matching GitHub release; no separate binary asset is needed.
-5. Verify a clean user install and `omarchy plugin update` from the public URL.
+5. Verify a clean user install and `omarchy plugin update` from the public URL,
+   followed by `omarchy restart shell` so affected Omarchy releases do not
+   retain the previous QML component cache.
 6. Open the marketplace's
    [plugin verification issue form](https://github.com/HANCORE-linux/omarchy-plugin-marketplace/issues/new?template=verify-plugin.yml),
    select **Verify and publish a newer upstream commit**, and supply the exact

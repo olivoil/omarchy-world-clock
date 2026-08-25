@@ -37,8 +37,10 @@ AUR package, `PATH` lookup, user-configured backend command, or install hook.
 - Its tooltip is a compact, time-sorted table of the visible non-local places;
   it omits both a title row and the local summary place.
 - With no additional places, the tooltip says `No additional timezones yet.`
-- If the bundled backend cannot start or has an incompatible protocol, the
-  widget is dimmed and its tooltip explains that the plugin is unavailable.
+- If the bundled backend cannot start, returns invalid output, or has an
+  incompatible protocol, the widget is dimmed and its tooltip gives the
+  specific recovery. A protocol mismatch tells the user to restart the shell,
+  because older Omarchy releases can retain cached plugin QML across updates.
 
 ## Panel
 

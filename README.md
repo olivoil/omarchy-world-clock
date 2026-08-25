@@ -35,7 +35,14 @@ Use `center` or `right` instead of `left` as needed.
 
 ```bash
 omarchy plugin update io.github.olivoil.world-clock
+omarchy restart shell
 ```
+
+The restart ensures the updated QML frontend and bundled backend are loaded
+together. Omarchy releases affected by its
+[stale plugin hot-reload bug](https://github.com/basecamp/omarchy/issues/6981)
+can otherwise keep the previous QML component cached until the shell restarts.
+Saved places and widget settings are preserved.
 
 ### Upgrading from the old AUR release
 

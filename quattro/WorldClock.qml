@@ -17,6 +17,7 @@ BarWidget {
   property string pinnedTime: ""
   property string pinnedLabel: ""
   property bool moduleRefreshPending: false
+  property string backendFailureDetail: "The bundled backend could not be started"
 
   readonly property int supportedBackendProtocol: 2
   readonly property string backendCommand:
@@ -33,7 +34,7 @@ BarWidget {
     ? pinnedContent.implicitWidth
     : Math.max(Style.space(10), Math.round(activeButton.implicitWidth * 0.55))
   readonly property string unavailableTooltip:
-    "World Clock unavailable\nThe bundled backend could not be started"
+    "World Clock unavailable\n" + backendFailureDetail
 
   implicitWidth: activeButton.implicitWidth
   implicitHeight: activeButton.implicitHeight
@@ -105,23 +106,36 @@ BarWidget {
     else if (buttonCode === Qt.LeftButton) root.togglePanel()
   }
 
+  function markBackendUnavailable(detail) {
+    backendChecked = true
+    backendAvailable = false
+    backendFailureDetail = String(detail || "The bundled backend could not be started")
+    pinnedTime = ""
+    pinnedLabel = ""
+  }
+
   function applyModulePayload(raw) {
+    var payload
     try {
-      var payload = JSON.parse(String(raw || ""))
-      if (Number(payload.protocol_version) !== supportedBackendProtocol)
-        throw new Error("Unsupported World Clock backend protocol")
-      backendChecked = true
-      backendAvailable = true
-      clockTooltip = String(payload.tooltip || "World Clock")
-      pinnedTime = String(payload.pinned_time || "")
-      pinnedLabel = String(payload.pinned_label || "")
-      injectPanel()
+      payload = JSON.parse(String(raw || ""))
     } catch (error) {
-      backendChecked = true
-      backendAvailable = false
-      pinnedTime = ""
-      pinnedLabel = ""
+      markBackendUnavailable("The bundled backend returned an invalid response")
+      return
     }
+    if (Number(payload.protocol_version) !== supportedBackendProtocol) {
+      // Omarchy releases without revisioned plugin URLs can keep the previous
+      // QML component cached after `omarchy plugin update`, while replacing
+      // this binary in place. A shell restart loads both halves of one release.
+      markBackendUnavailable("Run omarchy restart shell to finish updating")
+      return
+    }
+    backendChecked = true
+    backendAvailable = true
+    backendFailureDetail = ""
+    clockTooltip = String(payload.tooltip || "World Clock")
+    pinnedTime = String(payload.pinned_time || "")
+    pinnedLabel = String(payload.pinned_label || "")
+    injectPanel()
   }
 
   onBarChanged: injectPanel()
@@ -163,10 +177,7 @@ BarWidget {
     }
     onExited: function(exitCode) {
       if (exitCode === 0) root.applyModulePayload(moduleOutput.text)
-      else {
-        root.backendChecked = true
-        root.backendAvailable = false
-      }
+      else root.markBackendUnavailable("The bundled backend could not be started")
       Qt.callLater(root.flushModuleRefresh)
     }
   }

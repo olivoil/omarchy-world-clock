@@ -32,8 +32,12 @@ AUR package, `PATH` lookup, user-configured backend command, or install hook.
 - It uses the normal compact status slot and native open-panel underline
   without recoloring the world icon.
 - With no pin, it displays only the icon.
-- With a pin, it displays the icon and that place's current time.
-- The pinned time updates on minute boundaries.
+- With one or more pins, it displays the icon followed by a `CODE time` group
+  for every pinned place, in the order the places were pinned.
+- A code is derived from the first segment of the display label: multi-word
+  names use up to three initials (`New York` becomes `NY`), while single-word
+  names use their first three alphanumeric characters (`Tokyo` becomes `TOK`).
+- Pinned times update on minute boundaries. A vertical bar stays icon-only.
 - Its tooltip is a compact, time-sorted table of the visible non-local places;
   it omits both a title row and the local summary place.
 - With no additional places, the tooltip says `No additional timezones yet.`
@@ -72,11 +76,17 @@ State lives in `~/.config/omarchy-world-clock/config.json`.
 
 ```json
 {
-  "version": 6,
-  "pinned_location": {
-    "timezone": "Europe/Paris",
-    "label": "Rennes"
-  },
+  "version": 7,
+  "pinned_locations": [
+    {
+      "timezone": "Europe/Paris",
+      "label": "Rennes"
+    },
+    {
+      "timezone": "Asia/Tokyo",
+      "label": "Tokyo"
+    }
+  ],
   "timezones": [
     {
       "timezone": "America/Cancun",
@@ -89,6 +99,12 @@ State lives in `~/.config/omarchy-world-clock/config.json`.
       "label": "Rennes",
       "latitude": 48.1173,
       "longitude": -1.6778
+    },
+    {
+      "timezone": "Asia/Tokyo",
+      "label": "Tokyo",
+      "latitude": 35.6764,
+      "longitude": 139.65
     }
   ]
 }
@@ -102,15 +118,16 @@ Persistence rules:
 - distinct named places may share a timezone
 - duplicate places are identified by canonical timezone and normalized label
 - saved order is preserved
+- pin order is preserved and duplicate pins are discarded
 - an empty label displays as a friendly timezone name
 - submitting an empty inline name removes the custom label and restores that
   friendly timezone name
 - renaming a location preserves its timezone and saved coordinates
-- renaming a pinned location updates the pin to the new label
+- renaming a pinned location updates its matching pin to the new label
 - a rename cannot duplicate another normalized label in the same timezone
 - invalid coordinates are discarded
-- a pin must match one configured location
-- removing the pinned location clears the pin
+- every pin must match one configured location
+- removing a pinned location clears only its matching pin
 - `disable_open_meteo_geolocation` defaults to `false` and is only persisted
   when true; it disables both remote place search and current weather
 
@@ -292,11 +309,13 @@ Rules:
   saves the trimmed label and `Escape` cancels the draft. Clearing a label
   restores the friendly timezone name.
 - Edit mode exposes `PIN` for non-local locations.
-- Only one location can be pinned; choosing another replaces it.
-- The pin records timezone and label so two places sharing a timezone remain
+- Any number of configured locations can be pinned; pinning another appends it
+  without disturbing earlier pins, and pinning the same location is idempotent.
+- Each pin records timezone and label so two places sharing a timezone remain
   independently addressable.
-- `UNPIN`, removal of the pinned place, or config normalization of an invalid
-  pin returns the bar widget to icon-only display.
+- `UNPIN` removes only the selected location. Removal or config normalization
+  also discards only pins that no longer match configured locations.
+- The bar returns to icon-only display after the final pin is removed.
 - Add/remove/pin mutations refresh the panel and bar state immediately.
 
 ## Backend contract and failure behavior
@@ -319,7 +338,7 @@ Rules:
 - The QML always resolves the backend from its plugin directory.
 - Plugin and backend versions match and the module protocol handshake passes.
 - The panel toggles and coordinates with built-in Quattro panels.
-- Pinning persists and updates the bar display.
+- Multiple pins persist, update independently, and all appear in the bar.
 - Renaming persists, including for a pinned location and places that share a
   timezone.
 - Time conversion works from the summary and every visible location.

@@ -1,7 +1,7 @@
 use std::fs;
 use std::process::Command;
 
-const BACKEND_PROTOCOL_VERSION: u64 = 3;
+const BACKEND_PROTOCOL_VERSION: u64 = 4;
 
 #[test]
 fn package_exposes_only_the_quattro_backend_binary() {
@@ -18,14 +18,15 @@ fn bundled_backend_reports_its_protocol_and_version() {
     fs::write(
         &config_path,
         r#"{
-  "version": 6,
-  "pinned_location": {
-    "timezone": "Asia/Tokyo",
-    "label": "Tokyo"
-  },
+  "version": 7,
+  "pinned_locations": [
+    { "timezone": "Asia/Tokyo", "label": "Tokyo" },
+    { "timezone": "America/New_York", "label": "New York" }
+  ],
   "timezones": [
     { "timezone": "UTC", "label": "Home" },
-    { "timezone": "Asia/Tokyo", "label": "Tokyo" }
+    { "timezone": "Asia/Tokyo", "label": "Tokyo" },
+    { "timezone": "America/New_York", "label": "New York" }
   ]
 }
 "#,
@@ -43,10 +44,17 @@ fn bundled_backend_reports_its_protocol_and_version() {
         serde_json::from_slice(&output.stdout).expect("parse module payload");
     assert_eq!(payload["protocol_version"], BACKEND_PROTOCOL_VERSION);
     assert_eq!(payload["backend_version"], env!("CARGO_PKG_VERSION"));
-    assert_eq!(payload["pinned_label"], "Tokyo");
-    assert!(payload["pinned_time"]
+    let pinned = payload["pinned_clocks"]
+        .as_array()
+        .expect("pinned clock payload");
+    assert_eq!(pinned.len(), 2);
+    assert_eq!(pinned[0]["code"], "TOK");
+    assert_eq!(pinned[0]["label"], "Tokyo");
+    assert!(pinned[0]["time"]
         .as_str()
         .is_some_and(|time| !time.is_empty()));
+    assert_eq!(pinned[1]["code"], "NY");
+    assert_eq!(pinned[1]["label"], "New York");
 }
 
 #[test]
@@ -234,6 +242,31 @@ fn bundled_backend_supports_the_complete_quattro_command_protocol() {
         .expect("add location");
     assert!(add.success());
 
+    let pin_boston = Command::new(backend)
+        .args(["pin", "America/New_York", "--label", "Boston"])
+        .env("HOME", &home)
+        .env("OMARCHY_WORLD_CLOCK_CONFIG", &config_path)
+        .status()
+        .expect("pin second location");
+    assert!(pin_boston.success());
+
+    let module = Command::new(backend)
+        .arg("module")
+        .env("HOME", &home)
+        .env("OMARCHY_WORLD_CLOCK_CONFIG", &config_path)
+        .output()
+        .expect("render module with multiple pins");
+    assert!(module.status.success());
+    let module: serde_json::Value =
+        serde_json::from_slice(&module.stdout).expect("parse multi-pin module");
+    let pin_codes = module["pinned_clocks"]
+        .as_array()
+        .expect("pinned clocks")
+        .iter()
+        .map(|clock| clock["code"].as_str().expect("pin code"))
+        .collect::<Vec<_>>();
+    assert_eq!(pin_codes, vec!["TOK", "BOS"]);
+
     let add_flag_named_label = Command::new(backend)
         .args(["add", "Europe/London", "--label", "--new-label"])
         .env("HOME", &home)
@@ -332,12 +365,18 @@ fn bundled_backend_supports_the_complete_quattro_command_protocol() {
     assert!(remove.success());
 
     let unpin = Command::new(backend)
-        .arg("unpin")
+        .args(["unpin", "Asia/Tokyo", "--label", "Tokyo"])
         .env("HOME", &home)
         .env("OMARCHY_WORLD_CLOCK_CONFIG", &config_path)
         .status()
-        .expect("unpin timezone");
+        .expect("unpin remaining timezone");
     assert!(unpin.success());
+
+    let saved: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(&config_path).expect("read config after unpinning"),
+    )
+    .expect("parse config after unpinning");
+    assert!(saved.get("pinned_locations").is_none());
 }
 
 #[test]

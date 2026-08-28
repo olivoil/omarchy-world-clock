@@ -229,14 +229,23 @@ pub fn execute(args: &[String]) -> Result<Option<String>> {
             let timezone = remaining_args
                 .first()
                 .ok_or_else(|| anyhow::anyhow!("missing timezone to pin"))?;
-            ConfigManager::new(None).set_pinned_location(
-                Some(timezone),
+            ConfigManager::new(None).pin_location(
+                timezone,
                 optional_flag(remaining_args, "--label")?.as_deref(),
             )?;
             None
         }
         "unpin" => {
-            ConfigManager::new(None).set_pinned_timezone(None)?;
+            if let Some(timezone) = remaining_args.first() {
+                ConfigManager::new(None).unpin_location(
+                    timezone,
+                    optional_flag(remaining_args, "--label")?.as_deref(),
+                )?;
+            } else {
+                // Keep the argument-free form as a compatibility shortcut for
+                // clearing every pin from scripts written before config v7.
+                ConfigManager::new(None).clear_pinned_locations()?;
+            }
             None
         }
         "version" | "--version" | "-V" => Some(env!("CARGO_PKG_VERSION").to_string()),

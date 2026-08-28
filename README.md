@@ -1,6 +1,6 @@
 # Omarchy World Clock
 
-A native Omarchy Quattro world clock. Open the bar widget for current time and weather across your places, add new timezones, pin one to be always visible, or scrub and enter times to convert from one timezone to the others.
+A native Omarchy Quattro world clock. Open the bar widget for current time and weather across your places, add new timezones, pin the ones you want always visible, or scrub and enter times to convert from one timezone to the others.
 
 This repository is the installable root of the native Quattro plugin
 `io.github.olivoil.world-clock`. It is listed in the independent community
@@ -61,7 +61,8 @@ the AUR package is no longer required.
 - Use the **pencil** to rename, pin, or remove locations. Click a location name
   to edit it, then press **Enter** to save it or **Escape** to cancel. Submit an
   empty name to restore the location's default place name.
-- Pin one place to keep its current time always visible beside the bar icon.
+- Pin any combination of places to keep compact location codes and their
+  current times visible beside the bar icon.
 - Hover across the time rail to compare every place at that moment, then click
   to keep the selected time.
 - Select a displayed time and enter another time to convert the same instant
@@ -78,7 +79,8 @@ the AUR package is no longer required.
   coordinate.
 - Multiple named places in the same timezone, such as Boston and New York.
 - Personal labels for saved locations, such as a person's name or "Home".
-- One pinned home/place clock in the bar.
+- Multiple pinned place clocks in the bar, kept in pin order and identified by
+  compact codes such as `TOK` or `NY`.
 - Manual time conversion with DST-aware IANA timezone handling.
 - Local timezone and alias search that works offline.
 - Optional Open-Meteo city search for queries not resolved locally.
@@ -117,11 +119,17 @@ Example:
 
 ```json
 {
-  "version": 6,
-  "pinned_location": {
-    "timezone": "Europe/Paris",
-    "label": "Rennes"
-  },
+  "version": 7,
+  "pinned_locations": [
+    {
+      "timezone": "Europe/Paris",
+      "label": "Rennes"
+    },
+    {
+      "timezone": "Asia/Tokyo",
+      "label": "Tokyo"
+    }
+  ],
   "timezones": [
     {
       "timezone": "America/Cancun",
@@ -134,6 +142,12 @@ Example:
       "label": "Rennes",
       "latitude": 48.1173,
       "longitude": -1.6778
+    },
+    {
+      "timezone": "Asia/Tokyo",
+      "label": "Tokyo",
+      "latitude": 35.6764,
+      "longitude": 139.65
     }
   ]
 }

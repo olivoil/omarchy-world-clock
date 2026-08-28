@@ -72,7 +72,7 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(!qml.contains("text: \"\\uf0ac\""));
     assert!(qml.contains("openPanelIndicatorWidth"));
     assert!(qml.contains("property bool moduleRefreshPending: false"));
-    assert!(qml.contains("readonly property int supportedBackendProtocol: 2"));
+    assert!(qml.contains("readonly property int supportedBackendProtocol: 3"));
     assert!(qml.contains("function markBackendUnavailable(detail)"));
     assert!(qml.contains("!payload || typeof payload !== \"object\" || Array.isArray(payload)"));
     assert!(qml.contains("typeof payload.protocol_version !== \"number\""));
@@ -232,9 +232,7 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     );
     assert!(panel.contains("backendCommand,\n      \"scrub\""));
     assert!(panel.contains("function applyScrubSlot(slotIndex)"));
-    assert!(panel.contains(
-        "if (scrubPreviewActive && scrubSelectedSlotIndex === index) return"
-    ));
+    assert!(panel.contains("if (scrubPreviewActive && scrubSelectedSlotIndex === index) return"));
     assert!(panel.contains("TimeRail.mergeSnapshot(scrubBaseSnapshot, frame)"));
     assert!(panel.contains("property real scrubAnchorMinute: 0"));
     assert!(panel.contains("readonly property bool scrubSourceIsSummary"));
@@ -245,9 +243,7 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(!panel.contains("HOVER TO COMPARE"));
     assert!(!panel.contains("CLICK TO SET"));
     assert!(panel.contains("id: scrubPlayhead"));
-    assert!(panel.contains(
-        "Behavior on x {\n                  enabled: !root.scrubPreviewActive"
-    ));
+    assert!(panel.contains("Behavior on x {\n                  enabled: !root.scrubPreviewActive"));
     assert!(panel.contains("id: scrubValueBubble"));
     assert!(panel.contains("Accessible.name: \"Compare times across the day\""));
     assert!(panel.contains("Keys.onLeftPressed"));

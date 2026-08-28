@@ -19,7 +19,7 @@ BarWidget {
   property bool moduleRefreshPending: false
   property string backendFailureDetail: "The bundled backend could not be started"
 
-  readonly property int supportedBackendProtocol: 2
+  readonly property int supportedBackendProtocol: 3
   readonly property string backendCommand:
     String(Qt.resolvedUrl("../bin/omarchy-world-clock-backend")).replace(/^file:\/\//, "")
   readonly property bool opened: panelLoader.item ? panelLoader.item.opened === true : false

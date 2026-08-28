@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, sync::OnceLock};
 
 pub const SNAPSHOT_SCHEMA_VERSION: u64 = 1;
-pub const BACKEND_PROTOCOL_VERSION: u64 = 2;
+pub const BACKEND_PROTOCOL_VERSION: u64 = 3;
 pub const SCRUB_STEP_MINUTES: u32 = 15;
 const QUATTRO_CLOCK_LIMIT: usize = CLOCK_CARD_LIMIT;
 

@@ -1,7 +1,7 @@
 use std::fs;
 use std::process::Command;
 
-const BACKEND_PROTOCOL_VERSION: u64 = 2;
+const BACKEND_PROTOCOL_VERSION: u64 = 3;
 
 #[test]
 fn package_exposes_only_the_quattro_backend_binary() {

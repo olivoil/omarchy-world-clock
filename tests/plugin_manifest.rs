@@ -233,6 +233,37 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("backendCommand,\n      \"scrub\""));
     assert!(panel.contains("function applyScrubSlot(slotIndex)"));
     assert!(panel.contains("if (scrubPreviewActive && scrubSelectedSlotIndex === index) return"));
+    let apply_scrub_slot = panel
+        .split("function applyScrubSlot(slotIndex) {")
+        .nth(1)
+        .and_then(|source| source.split("function cancelScrubPreview() {").next())
+        .expect("applyScrubSlot function body");
+    let invalidate_snapshot = apply_scrub_slot
+        .find("invalidateSnapshotRequests()")
+        .expect("starting a scrub preview must invalidate snapshot work");
+    let capture_snapshot = apply_scrub_slot
+        .find("scrubBaseSnapshot = snapshot")
+        .expect("starting a scrub preview must capture its base snapshot");
+    assert!(
+        invalidate_snapshot < capture_snapshot,
+        "in-flight snapshots must be invalidated before capturing the scrub preview base"
+    );
+    assert!(apply_scrub_slot.contains("var resumeSnapshotRequest = snapshotRequestPending"));
+    assert!(apply_scrub_slot.contains("snapshotRequestReference = resumeSnapshotReference"));
+    let cancel_scrub_preview = panel
+        .split("function cancelScrubPreview() {")
+        .nth(1)
+        .and_then(|source| source.split("function lockScrubSelection() {").next())
+        .expect("cancelScrubPreview function body");
+    assert!(cancel_scrub_preview.contains("Qt.callLater(root.flushSnapshotRequest)"));
+    let request_snapshot = panel
+        .split("function requestSnapshot(referenceUtc) {")
+        .nth(1)
+        .and_then(|source| source.split("function flushSnapshotRequest() {").next())
+        .expect("requestSnapshot function body");
+    assert!(request_snapshot.contains(
+        "if (scrubPreviewActive) {\n      snapshotRequestPending = true\n      snapshotRequestReference = reference\n      return"
+    ));
     assert!(panel.contains("TimeRail.mergeSnapshot(scrubBaseSnapshot, frame)"));
     assert!(panel.contains("property real scrubAnchorMinute: 0"));
     assert!(panel.contains("readonly property bool scrubSourceIsSummary"));

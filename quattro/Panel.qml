@@ -630,7 +630,19 @@ Panel {
     var index = Math.max(0, Math.min(scrubSlots.length - 1, Number(slotIndex)))
     if (scrubPreviewActive && scrubSelectedSlotIndex === index) return
     var frame = scrubSlots[index]
-    if (!scrubBaseSnapshot) scrubBaseSnapshot = snapshot
+    if (!scrubPreviewActive) {
+      var resumeSnapshotRequest = snapshotRequestPending
+        || (snapshotProcess.running
+          && snapshotActiveGeneration === snapshotStateGeneration)
+      var resumeSnapshotReference = snapshotRequestPending
+        ? snapshotRequestReference : snapshotActiveReference
+      invalidateSnapshotRequests()
+      if (resumeSnapshotRequest) {
+        snapshotRequestPending = true
+        snapshotRequestReference = resumeSnapshotReference
+      }
+      scrubBaseSnapshot = snapshot
+    }
     scrubSelectedSlotIndex = index
     scrubPreviewActive = true
     if (!frame || !frame.reference_utc || !frame.summary) {
@@ -662,6 +674,7 @@ Panel {
       scrubAnchorMinute = Number(clock.local_minutes || 0)
       scrubSelectedSlotIndex = nearestScrubSlot(clock)
     }
+    Qt.callLater(root.flushSnapshotRequest)
   }
 
   function lockScrubSelection() {
@@ -856,6 +869,11 @@ Panel {
 
   function requestSnapshot(referenceUtc) {
     var reference = String(referenceUtc || "")
+    if (scrubPreviewActive) {
+      snapshotRequestPending = true
+      snapshotRequestReference = reference
+      return
+    }
     if (timeEditorActive || labelEditorActive) {
       snapshotRequestPending = false
       snapshotRequestReference = ""
@@ -899,9 +917,7 @@ Panel {
   }
 
   function requestLiveSnapshot() {
-    if (!live || scrubPreviewActive) {
-      return
-    }
+    if (!live) return
     requestSnapshot("")
   }
 

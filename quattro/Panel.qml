@@ -989,8 +989,8 @@ Panel {
       mapCanvas.focusOnLocations([result])
     actionName = name
     var command = [backendCommand, name]
-    if (name !== "unpin") command.push(String(timezone || ""))
-    if ((name === "add" || name === "pin" || name === "remove"
+    command.push(String(timezone || ""))
+    if ((name === "add" || name === "pin" || name === "unpin" || name === "remove"
         || name === "rename") && result) {
       var actionLabel = result.label !== null && result.label !== undefined
         ? result.label : result.title

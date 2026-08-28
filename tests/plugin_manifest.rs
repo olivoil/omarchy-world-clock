@@ -71,21 +71,21 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     );
     assert!(!qml.contains("text: \"\\uf0ac\""));
     assert!(qml.contains("openPanelIndicatorWidth"));
+    assert!(qml.contains("property var pinnedClocks: []"));
+    assert!(qml.contains("readonly property bool hasPinnedClocks:"));
     assert!(qml.contains("property bool moduleRefreshPending: false"));
-    assert!(qml.contains("readonly property int supportedBackendProtocol: 3"));
+    assert!(qml.contains("readonly property int supportedBackendProtocol: 4"));
     assert!(qml.contains("function markBackendUnavailable(detail)"));
+    assert!(qml.contains("function validPinnedClocks(value)"));
     assert!(qml.contains("!payload || typeof payload !== \"object\" || Array.isArray(payload)"));
     assert!(qml.contains("typeof payload.protocol_version !== \"number\""));
     assert!(qml.contains("typeof payload.tooltip !== \"string\""));
-    assert!(qml.contains(
-        "payload.pinned_time !== undefined && typeof payload.pinned_time !== \"string\""
-    ));
-    assert!(qml.contains(
-        "payload.pinned_label !== undefined && typeof payload.pinned_label !== \"string\""
-    ));
+    assert!(qml.contains("!root.validPinnedClocks(payload.pinned_clocks)"));
+    assert!(qml.contains("typeof clock.code !== \"string\""));
+    assert!(qml.contains("typeof clock.label !== \"string\""));
+    assert!(qml.contains("typeof clock.time !== \"string\""));
     assert!(!qml.contains("String(payload.tooltip"));
-    assert!(!qml.contains("String(payload.pinned_time"));
-    assert!(!qml.contains("String(payload.pinned_label"));
+    assert!(!qml.contains("String(payload.pinned_clocks"));
     assert!(qml.contains("Run omarchy restart shell to finish updating"));
     assert!(
         qml.find("if (protocol !== supportedBackendProtocol)")
@@ -181,7 +181,8 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(!panel.contains("root.runAction(\"add\", searchResults[0].timezone"));
     assert!(!panel.contains("root.runAction(\"add\", root.searchResults[0].timezone"));
     assert!(!panel.contains("root.runAction(\"add\", resultButton.modelData.timezone"));
-    assert!(panel.contains("name === \"pin\" || name === \"remove\""));
+    assert!(panel.contains("name === \"pin\" || name === \"unpin\" || name === \"remove\""));
+    assert!(panel.contains("command.push(String(timezone || \"\"))"));
     assert!(panel.contains("name === \"rename\""));
     assert!(panel.contains("result.label !== null && result.label !== undefined"));
     assert!(panel.contains("command.push(\"--new-label\", String(value || \"\"))"));
@@ -528,7 +529,9 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(qml.contains("function edit(): void { root.editCurrentTime() }"));
     assert!(qml.contains("panelLoader.item.opened && panelLoader.item.live"));
     assert!(qml.contains("onDateChanged: root.refresh()"));
-    assert!(!qml.contains("root.pinnedLabel + \" · \""));
+    assert!(qml.contains("model: root.pinnedClocks"));
+    assert!(qml.contains("text: pinnedClock.modelData.code"));
+    assert!(qml.contains("text: pinnedClock.modelData.time"));
 
     for (filename, width, height) in [
         ("world-map-preview.png", 2048, 1024),

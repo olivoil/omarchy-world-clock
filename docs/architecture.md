@@ -72,7 +72,7 @@ The executable exposes a deliberately small command/JSON boundary:
 
 | Command | Purpose | Output |
 | --- | --- | --- |
-| `module` | bar tooltip, pinned label/time, compatibility handshake | JSON |
+| `module` | bar tooltip, ordered coded pin clocks, compatibility handshake | JSON |
 | `snapshot` | complete read/edit model at now or `--at` | JSON |
 | `convert` | parse a local input and return a converted snapshot | JSON |
 | `weather` | fetch current conditions for visible coordinates at now or `--at` | JSON |
@@ -81,7 +81,7 @@ The executable exposes a deliberately small command/JSON boundary:
 | `add` | persist a location | no output |
 | `rename` | change a matching location label | no output |
 | `remove` | remove a matching location | no output |
-| `pin` / `unpin` | mutate the pinned location | no output |
+| `pin` / `unpin` | add or remove one pinned location | no output |
 | `version` | report the source/package version | text |
 
 `module.protocol_version` lets QML reject an incompatible executable before

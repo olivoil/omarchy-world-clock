@@ -37,7 +37,7 @@ Native, precise, quiet.
 - Keep weather quiet and subordinate to each location's time.
 - Use Omarchy's active runtime tokens instead of approximating a theme.
 - Keep advanced editing available without adding noise to the read view.
-- Treat a pinned timezone as quiet ambient context, not an alert state.
+- Treat pinned timezones as quiet ambient context, not alert states.
 - Prefer a focused, native Quattro experience over compatibility layers for
   older Omarchy shells.
 

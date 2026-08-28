@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, sync::OnceLock};
 
 pub const SNAPSHOT_SCHEMA_VERSION: u64 = 1;
-pub const BACKEND_PROTOCOL_VERSION: u64 = 3;
+pub const BACKEND_PROTOCOL_VERSION: u64 = 4;
 pub const SCRUB_STEP_MINUTES: u32 = 15;
 const QUATTRO_CLOCK_LIMIT: usize = CLOCK_CARD_LIMIT;
 
@@ -34,14 +34,55 @@ fn featured_city_catalog() -> &'static [FeaturedCity] {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct QuattroPinnedClock {
+    pub code: String,
+    pub label: String,
+    pub time: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct QuattroModulePayload {
     pub protocol_version: u64,
     pub backend_version: &'static str,
     pub tooltip: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub pinned_time: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub pinned_label: Option<String>,
+    pub pinned_clocks: Vec<QuattroPinnedClock>,
+}
+
+fn short_code(value: &str) -> String {
+    let words = value
+        .split(|character: char| !character.is_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .collect::<Vec<_>>();
+    let characters = if words.len() > 1 {
+        words
+            .iter()
+            .filter_map(|word| word.chars().next())
+            .collect::<Vec<_>>()
+    } else {
+        words
+            .first()
+            .into_iter()
+            .flat_map(|word| word.chars())
+            .collect::<Vec<_>>()
+    };
+    characters
+        .into_iter()
+        .flat_map(char::to_uppercase)
+        .take(3)
+        .collect()
+}
+
+fn location_short_code(entry: &TimezoneEntry) -> String {
+    let label_code = short_code(&entry.read_card_title());
+    if !label_code.is_empty() {
+        return label_code;
+    }
+    let timezone_code = short_code(entry.timezone.rsplit('/').next().unwrap_or(&entry.timezone));
+    if timezone_code.is_empty() {
+        "TZ".to_string()
+    } else {
+        timezone_code
+    }
 }
 
 fn pad_right(value: &str, width: usize) -> String {
@@ -84,7 +125,6 @@ pub fn build_module_payload(
     local_timezone: &str,
     time_format: &str,
 ) -> QuattroModulePayload {
-    let pinned_entry = config.pinned_entry();
     let (_, visible_entries) = visible_location_entries(config, now, local_timezone);
     let tooltip_rows = visible_entries
         .into_iter()
@@ -102,9 +142,14 @@ pub fn build_module_payload(
         } else {
             format_tooltip_clock_rows(&tooltip_rows)
         },
-        pinned_time: pinned_entry
-            .map(|entry| format_display_time(&zoned_datetime(now, &entry.timezone), time_format)),
-        pinned_label: pinned_entry.map(TimezoneEntry::read_card_title),
+        pinned_clocks: config
+            .pinned_entries()
+            .map(|entry| QuattroPinnedClock {
+                code: location_short_code(entry),
+                label: entry.read_card_title(),
+                time: format_display_time(&zoned_datetime(now, &entry.timezone), time_format),
+            })
+            .collect(),
     }
 }
 
@@ -453,20 +498,25 @@ pub(crate) fn visible_location_entries(
             .then_with(|| left.display_label().cmp(&right.display_label()))
     });
     if entries.len() > QUATTRO_CLOCK_LIMIT {
-        if let Some(pinned_index) = entries
+        let mut selected = entries
             .iter()
-            .position(|entry| config.is_pinned(entry))
-            .filter(|index| *index >= QUATTRO_CLOCK_LIMIT)
-        {
-            entries = entries
-                .into_iter()
-                .enumerate()
-                .filter(|(index, _)| *index < QUATTRO_CLOCK_LIMIT - 1 || *index == pinned_index)
-                .map(|(_, entry)| entry)
-                .collect();
-        } else {
-            entries.truncate(QUATTRO_CLOCK_LIMIT);
+            .map(|entry| config.is_pinned(entry))
+            .collect::<Vec<_>>();
+        let mut selected_count = selected.iter().filter(|selected| **selected).count();
+        for is_selected in &mut selected {
+            if selected_count >= QUATTRO_CLOCK_LIMIT {
+                break;
+            }
+            if !*is_selected {
+                *is_selected = true;
+                selected_count += 1;
+            }
         }
+        entries = entries
+            .into_iter()
+            .zip(selected)
+            .filter_map(|(entry, selected)| selected.then_some(entry))
+            .collect();
     }
 
     let mut visible = Vec::with_capacity(entries.len() + 1);
@@ -674,7 +724,7 @@ mod tests {
                 entry("America/Cancun", "Home"),
                 entry("America/Vancouver", "Vancouver"),
             ],
-            pinned_location: None,
+            pinned_locations: vec![],
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
@@ -690,7 +740,7 @@ mod tests {
     fn module_tooltip_explains_when_there_are_no_additional_locations() {
         let config = AppConfig {
             timezones: vec![entry("America/Cancun", "Home")],
-            pinned_location: None,
+            pinned_locations: vec![],
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
@@ -698,6 +748,40 @@ mod tests {
         let payload = build_module_payload(&config, now, "America/Cancun", "24h");
 
         assert_eq!(payload.tooltip, "No additional timezones yet.");
+        assert!(payload.pinned_clocks.is_empty());
+    }
+
+    #[test]
+    fn module_payload_lists_every_pin_with_a_compact_location_code() {
+        let config = AppConfig {
+            timezones: vec![
+                entry("America/Cancun", "Home"),
+                entry("America/New_York", "New York"),
+                entry("Asia/Tokyo", "Tokyo"),
+            ],
+            pinned_locations: vec![
+                LocationKey {
+                    timezone: "Asia/Tokyo".to_string(),
+                    label: "Tokyo".to_string(),
+                },
+                LocationKey {
+                    timezone: "America/New_York".to_string(),
+                    label: "New York".to_string(),
+                },
+            ],
+            disable_open_meteo_geolocation: false,
+        };
+        let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
+
+        let payload = build_module_payload(&config, now, "America/Cancun", "24h");
+
+        assert_eq!(payload.pinned_clocks.len(), 2);
+        assert_eq!(payload.pinned_clocks[0].code, "TOK");
+        assert_eq!(payload.pinned_clocks[0].label, "Tokyo");
+        assert_eq!(payload.pinned_clocks[0].time, "20:05");
+        assert_eq!(payload.pinned_clocks[1].code, "NY");
+        assert_eq!(payload.pinned_clocks[1].label, "New York");
+        assert_eq!(payload.pinned_clocks[1].time, "07:05");
     }
 
     #[test]
@@ -708,10 +792,10 @@ mod tests {
                 entry("America/Cancun", "Local"),
                 entry("America/Vancouver", "Vancouver"),
             ],
-            pinned_location: Some(LocationKey {
+            pinned_locations: vec![LocationKey {
                 timezone: "Europe/Paris".to_string(),
                 label: "Rennes".to_string(),
-            }),
+            }],
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
@@ -734,7 +818,7 @@ mod tests {
                 entry("America/Cancun", "Local"),
                 entry("Asia/Kolkata", "Delhi"),
             ],
-            pinned_location: None,
+            pinned_locations: vec![],
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 8, 11, 23, 45, 0).unwrap();
@@ -754,7 +838,7 @@ mod tests {
                 entry("America/Cancun", "Local"),
                 entry("Asia/Tokyo", "Tokyo"),
             ],
-            pinned_location: None,
+            pinned_locations: vec![],
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
@@ -792,7 +876,7 @@ mod tests {
     fn scrub_payload_marks_the_spring_clock_change_gap() {
         let config = AppConfig {
             timezones: vec![entry("America/New_York", "New York")],
-            pinned_location: None,
+            pinned_locations: vec![],
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 3, 8, 12, 0, 0).unwrap();
@@ -813,7 +897,7 @@ mod tests {
     fn scrub_payload_marks_ambiguous_fall_back_times() {
         let config = AppConfig {
             timezones: vec![entry("America/New_York", "New York")],
-            pinned_location: None,
+            pinned_locations: vec![],
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 11, 1, 12, 0, 0).unwrap();
@@ -837,10 +921,10 @@ mod tests {
                 entry("America/New_York", "New York"),
                 entry("America/New_York", "Boston"),
             ],
-            pinned_location: Some(LocationKey {
+            pinned_locations: vec![LocationKey {
                 timezone: "America/New_York".to_string(),
                 label: "Boston".to_string(),
-            }),
+            }],
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
@@ -857,10 +941,10 @@ mod tests {
     fn snapshot_marks_a_pinned_local_location_on_the_summary() {
         let config = AppConfig {
             timezones: vec![entry("America/Cancun", "Cancun")],
-            pinned_location: Some(LocationKey {
+            pinned_locations: vec![LocationKey {
                 timezone: "America/Cancun".to_string(),
                 label: "Cancun".to_string(),
-            }),
+            }],
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
@@ -875,7 +959,7 @@ mod tests {
     fn snapshot_populates_timezone_coordinates_when_the_config_has_none() {
         let config = AppConfig {
             timezones: vec![entry("America/New_York", "New York")],
-            pinned_location: None,
+            pinned_locations: vec![],
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
@@ -890,7 +974,7 @@ mod tests {
     fn snapshot_supplies_live_featured_cities_for_the_globe() {
         let config = AppConfig {
             timezones: vec![entry("America/Cancun", "Cancun")],
-            pinned_location: None,
+            pinned_locations: vec![],
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
@@ -918,7 +1002,7 @@ mod tests {
                 entry("America/Cancun", "Cancun"),
                 entry("Asia/Tokyo", "Tokyo"),
             ],
-            pinned_location: None,
+            pinned_locations: vec![],
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
@@ -942,7 +1026,7 @@ mod tests {
                 entry("America/Cancun", "Cancun"),
                 entry("Europe/Paris", "Rennes"),
             ],
-            pinned_location: None,
+            pinned_locations: vec![],
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
@@ -974,7 +1058,7 @@ mod tests {
                 entry("Asia/Kolkata", "Delhi"),
                 entry("Asia/Tokyo", "Tokyo"),
             ],
-            pinned_location: None,
+            pinned_locations: vec![],
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
@@ -987,7 +1071,7 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_keeps_pinned_clock_inside_the_travel_cap() {
+    fn snapshot_keeps_all_pinned_clocks_inside_the_travel_cap() {
         let config = AppConfig {
             timezones: vec![
                 entry("America/Vancouver", "Vancouver"),
@@ -1001,10 +1085,16 @@ mod tests {
                 entry("Asia/Kolkata", "Delhi"),
                 entry("Asia/Tokyo", "Tokyo"),
             ],
-            pinned_location: Some(LocationKey {
-                timezone: "Asia/Tokyo".to_string(),
-                label: "Tokyo".to_string(),
-            }),
+            pinned_locations: vec![
+                LocationKey {
+                    timezone: "Asia/Kolkata".to_string(),
+                    label: "Delhi".to_string(),
+                },
+                LocationKey {
+                    timezone: "Asia/Tokyo".to_string(),
+                    label: "Tokyo".to_string(),
+                },
+            ],
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
@@ -1016,6 +1106,38 @@ mod tests {
             .clocks
             .iter()
             .any(|clock| clock.title == "Tokyo" && clock.pinned));
+        assert!(snapshot
+            .clocks
+            .iter()
+            .any(|clock| clock.title == "Delhi" && clock.pinned));
+    }
+
+    #[test]
+    fn snapshot_keeps_every_pin_accessible_when_travel_adds_a_summary() {
+        let timezones = vec![
+            entry("America/Vancouver", "Vancouver"),
+            entry("America/Los_Angeles", "Los Angeles"),
+            entry("America/Denver", "Denver"),
+            entry("America/Chicago", "Chicago"),
+            entry("America/New_York", "New York"),
+            entry("America/Halifax", "Halifax"),
+            entry("Europe/London", "London"),
+            entry("Europe/Paris", "Paris"),
+            entry("Asia/Kolkata", "Delhi"),
+            entry("Asia/Tokyo", "Tokyo"),
+        ];
+        let pinned_locations = timezones.iter().map(TimezoneEntry::location_key).collect();
+        let config = AppConfig {
+            timezones,
+            pinned_locations,
+            disable_open_meteo_geolocation: false,
+        };
+        let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
+
+        let snapshot = build_snapshot(&config, now, "America/Cancun", "24h");
+
+        assert_eq!(snapshot.clocks.len(), 10);
+        assert!(snapshot.clocks.iter().all(|clock| clock.pinned));
     }
 
     #[test]
@@ -1027,7 +1149,7 @@ mod tests {
                 entry("America/Cancun", "Local"),
                 entry("America/New_York", "New York"),
             ],
-            pinned_location: None,
+            pinned_locations: vec![],
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();

@@ -114,7 +114,7 @@ Test at minimum:
 
 - fresh panel open and native panel handoff
 - existing config migration/load
-- pin and unpin, including the bar time
+- multiple pin and targeted unpin, including every coded bar time
 - add/remove and two named places sharing one timezone
 - local search, an Open-Meteo result, and the privacy opt-out
 - map clicks on representative land and ocean locations

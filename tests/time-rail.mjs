@@ -83,6 +83,24 @@ assert.deepEqual(merged.featured_cities, base.featured_cities,
   "large static map data is not duplicated by the scrub payload")
 assert.equal(context.mergeSnapshot(base, { summary: {}, clocks: [] }), null,
   "a stale payload with different visible clocks is rejected")
+assert.equal(context.relativeDayLabel(merged.clocks[0], merged.summary), "Next day",
+  "scrub frames describe dates relative to the selected rail source")
+assert.equal(context.relativeDayLabel({ source_day_offset: -1 }, {}), "Previous day")
+assert.equal(context.relativeDayLabel({ source_day_offset: 0 }, {}), "Same day")
+assert.equal(context.relativeDayLabel({
+  date: "2026-08-30",
+}, {
+  date: "2026-08-28",
+}), "2 days later", "locked snapshots fall back to their absolute dates")
+assert.equal(context.compactDateLabel("2026-08-28", 1), "SAT 29")
+assert.equal(context.compactDateLabel("2026-08-31", 1), "TUE 1",
+  "compact dates cross month boundaries")
+assert.equal(context.selectionLabel({ date: "2026-08-28" }, {
+  day_offset: 1, label: "00:45", ambiguous: false,
+}, false), "SAT 29  ·  00:45", "the selected time includes its source date")
+assert.equal(context.selectionLabel({ date: "2026-11-01" }, {
+  day_offset: 0, label: "01:30", ambiguous: true,
+}, false), "SUN 1  ·  01:30  ·  FIRST")
 
 const markers = context.buildMarkers(merged, "America/Cancun", 660)
 assert.equal(markers.length, 2)

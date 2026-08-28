@@ -267,6 +267,10 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("TimeRail.mergeSnapshot(scrubBaseSnapshot, frame)"));
     assert!(panel.contains("property real scrubAnchorMinute: 0"));
     assert!(panel.contains("readonly property bool scrubSourceIsSummary"));
+    assert!(panel.contains("function clockDayLabel(clock)"));
+    assert!(panel.contains("if (root.live && !root.scrubPreviewActive) return liveLabel"));
+    assert!(panel.contains("TimeRail.relativeDayLabel(clock, root.clockForScrubSource())"));
+    assert!(panel.contains("root.clockDayLabel(clockCell.clockData).toUpperCase()"));
     let scrub_ready = panel
         .split("readonly property bool scrubReady: {")
         .nth(1)
@@ -298,6 +302,8 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("id: scrubPlayhead"));
     assert!(panel.contains("Behavior on x {\n                  enabled: !root.scrubPreviewActive"));
     assert!(panel.contains("id: scrubValueBubble"));
+    assert!(panel.contains("root.scrubPreviewActive || railMouse.activeFocus || !root.live"));
+    assert!(panel.contains("TimeRail.selectionLabel(root.scrubPayload,"));
     assert!(panel.contains("Accessible.name: \"Compare times across the day\""));
     assert!(panel.contains("Keys.onLeftPressed"));
     assert!(panel.contains("Keys.onRightPressed"));

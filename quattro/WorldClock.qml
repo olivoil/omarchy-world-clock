@@ -278,6 +278,9 @@ BarWidget {
           id: pinnedClock
           required property int index
           required property var modelData
+          // Native-rendered caption glyphs sit slightly high beside the
+          // body-sized time even when their line boxes share a center.
+          readonly property real captionVerticalOffset: 0.5
           anchors.verticalCenter: parent.verticalCenter
           spacing: Style.space(3)
 
@@ -285,6 +288,7 @@ BarWidget {
             textFormat: Text.PlainText
             visible: pinnedClock.index > 0
             anchors.verticalCenter: parent.verticalCenter
+            anchors.verticalCenterOffset: pinnedClock.captionVerticalOffset
             text: "·"
             color: pinnedButton.foreground
             opacity: 0.58
@@ -296,6 +300,7 @@ BarWidget {
           Text {
             textFormat: Text.PlainText
             anchors.verticalCenter: parent.verticalCenter
+            anchors.verticalCenterOffset: pinnedClock.captionVerticalOffset
             text: pinnedClock.modelData.code
             color: pinnedButton.foreground
             opacity: 0.76

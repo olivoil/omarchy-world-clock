@@ -557,6 +557,12 @@ Panel {
     return summary
   }
 
+  function clockDayLabel(clock) {
+    var liveLabel = String(clock && clock.day || "")
+    if (root.live && !root.scrubPreviewActive) return liveLabel
+    return TimeRail.relativeDayLabel(clock, root.clockForScrubSource()) || liveLabel
+  }
+
   function nearestScrubSlot(clock) {
     var minute = Number(clock && clock.local_minutes)
     if (!isFinite(minute)) minute = 0
@@ -1952,7 +1958,7 @@ Panel {
               readonly property real railWidth: Math.max(1, width - railInset * 2)
               readonly property real railY: Style.space(70)
               readonly property bool interacting:
-                root.scrubPreviewActive || railMouse.activeFocus
+                root.scrubPreviewActive || railMouse.activeFocus || !root.live
               readonly property real selectedX: railInset + (interacting
                 && root.scrubSelectedFrame
                   ? Math.max(0, Math.min(railWidth, TimeRail.framePosition(
@@ -2129,7 +2135,7 @@ Panel {
                 width: Style.spacing.hairline
                 height: Style.space(68)
                 color: Style.selectedStateColor(root.contentForeground, Color.accent)
-                opacity: root.scrubPreviewActive || railMouse.activeFocus ? 0.9 : 0.38
+                opacity: timelineView.interacting ? 0.9 : 0.38
 
                 Behavior on x {
                   enabled: !root.scrubPreviewActive
@@ -2148,7 +2154,7 @@ Panel {
               Rectangle {
                 id: scrubValueBubble
                 visible: root.scrubReady
-                  && (root.scrubPreviewActive || railMouse.activeFocus)
+                  && timelineView.interacting
                 x: Math.max(0, Math.min(timelineView.width - width,
                   timelineView.selectedX - width / 2))
                 y: Style.space(17)
@@ -2163,11 +2169,8 @@ Panel {
                   textFormat: Text.PlainText
                   id: scrubValueText
                   anchors.centerIn: parent
-                  text: timelineView.selectedUnavailable
-                    ? "CLOCK CHANGE"
-                    : String(root.scrubSelectedFrame && root.scrubSelectedFrame.label || "")
-                      + (root.scrubSelectedFrame
-                          && root.scrubSelectedFrame.ambiguous === true ? "  ·  FIRST" : "")
+                  text: TimeRail.selectionLabel(root.scrubPayload,
+                    root.scrubSelectedFrame, timelineView.selectedUnavailable)
                   color: root.contentForeground
                   font.family: root.contentFontFamily
                   font.pixelSize: Style.font.bodySmall
@@ -2542,7 +2545,7 @@ Panel {
                             anchors.rightMargin: cardWeatherBlock.visible
                               ? Style.space(8) : 0
                             anchors.verticalCenter: parent.verticalCenter
-                            text: String(clockCell.clockData.day || "").toUpperCase()
+                            text: root.clockDayLabel(clockCell.clockData).toUpperCase()
                               + "  ·  "
                               + String(clockCell.clockData.relative_label || "").toUpperCase()
                             color: Qt.darker(root.contentForeground, 1.5)

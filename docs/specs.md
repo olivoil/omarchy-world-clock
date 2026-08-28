@@ -146,6 +146,12 @@ On failure, only the edited source receives an error state and the current
 reference instant is retained. Refresh ends any active time edit, moves focus
 back to the panel, and returns every clock to live time.
 
+Live cards describe their date as `Yesterday`, `Today`, or `Tomorrow` relative
+to the local summary place. While previewing or viewing a selected time, cards
+instead use `Previous day`, `Same day`, or `Next day` relative to the selected
+timeline source. The timeline selection includes that source's compact date and
+remains visible after the selected time is locked.
+
 Pressing `Enter` in read mode focuses and selects the summary time for direct
 replacement.
 

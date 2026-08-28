@@ -134,6 +134,44 @@ function dateDayOffset(date, sourceDate) {
   return Math.round((value - source) / (24 * 60 * 60 * 1000))
 }
 
+function relativeDayLabel(clock, sourceClock) {
+  if (!clock) return ""
+  var hasSourceOffset = clock.source_day_offset !== undefined
+    && isFinite(Number(clock.source_day_offset))
+  var hasDates = sourceClock
+    && String(clock.date || "") !== ""
+    && String(sourceClock.date || "") !== ""
+  if (!hasSourceOffset && !hasDates) return ""
+
+  var offset = hasSourceOffset
+    ? Math.round(Number(clock.source_day_offset))
+    : dateDayOffset(clock.date, sourceClock.date)
+  if (offset === -1) return "Previous day"
+  if (offset === 0) return "Same day"
+  if (offset === 1) return "Next day"
+  return String(Math.abs(offset)) + (offset < 0 ? " days earlier" : " days later")
+}
+
+function compactDateLabel(date, dayOffset) {
+  var match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(date || ""))
+  if (!match) return ""
+  var timestamp = Date.UTC(
+    Number(match[1]), Number(match[2]) - 1, Number(match[3]) + Number(dayOffset || 0))
+  var value = new Date(timestamp)
+  if (!isFinite(value.getTime())) return ""
+  var weekdays = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"]
+  return weekdays[value.getUTCDay()] + " " + String(value.getUTCDate())
+}
+
+function selectionLabel(payload, frame, unavailable) {
+  if (!frame) return ""
+  var date = compactDateLabel(payload && payload.date, frame.day_offset)
+  var time = unavailable === true ? "CLOCK CHANGE" : String(frame.label || "")
+  if (frame.ambiguous === true && unavailable !== true) time += "  ·  FIRST"
+  if (date && time) return date + "  ·  " + time
+  return date || time
+}
+
 function markerLabel(clock, sourceDate) {
   var notation = String(clock && clock.notation || "").toUpperCase()
   var offset = clock && clock.source_day_offset !== undefined

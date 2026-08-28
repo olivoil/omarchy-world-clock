@@ -3,15 +3,17 @@ use crate::config::{
     TimezoneSearchResult, CLOCK_CARD_LIMIT,
 };
 use crate::time::{
-    format_display_time, format_timezone_notation, friendly_timezone_name, zoned_datetime,
+    format_display_time, format_timezone_notation, friendly_timezone_name, parse_timezone,
+    zoned_datetime,
 };
 use crate::timezone_grid::timezone_at;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, LocalResult, TimeZone, Timelike, Utc};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, sync::OnceLock};
 
 pub const SNAPSHOT_SCHEMA_VERSION: u64 = 1;
 pub const BACKEND_PROTOCOL_VERSION: u64 = 2;
+pub const SCRUB_STEP_MINUTES: u32 = 15;
 const QUATTRO_CLOCK_LIMIT: usize = CLOCK_CARD_LIMIT;
 
 #[derive(Debug, Deserialize)]
@@ -112,13 +114,51 @@ pub struct QuattroClock {
     pub label: String,
     pub title: String,
     pub time: String,
+    pub date: String,
     pub day: String,
     pub notation: String,
+    pub local_minutes: u32,
     pub relative_minutes: i64,
     pub relative_label: String,
     pub latitude: Option<f64>,
     pub longitude: Option<f64>,
     pub pinned: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct QuattroScrubClock {
+    pub time: String,
+    pub day: String,
+    pub notation: String,
+    pub local_minutes: u32,
+    pub source_day_offset: i64,
+    pub relative_minutes: i64,
+    pub relative_label: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct QuattroScrubFrame {
+    pub day_offset: i64,
+    pub minute: u32,
+    pub label: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reference_utc: Option<String>,
+    pub ambiguous: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<QuattroScrubClock>,
+    pub clocks: Vec<QuattroScrubClock>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct QuattroScrubPayload {
+    pub schema_version: u64,
+    pub source_timezone: String,
+    pub date: String,
+    pub date_label: String,
+    pub step_minutes: u32,
+    pub first_day_offset: i64,
+    pub day_count: u32,
+    pub slots: Vec<QuattroScrubFrame>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -238,14 +278,123 @@ fn clock_from_entry(
         label: entry.display_label(),
         title: entry.read_card_title(),
         time: format_display_time(&zoned, time_format),
+        date: zoned.format("%Y-%m-%d").to_string(),
         day: day_label(reference_utc, local_timezone, &entry.timezone),
         notation: format_timezone_notation(&zoned),
+        local_minutes: zoned.hour() * 60 + zoned.minute(),
         relative_minutes,
         relative_label: relative_label(relative_minutes),
         latitude,
         longitude,
         pinned: config.is_pinned(entry),
     }
+}
+
+fn scrub_clock(
+    clock: QuattroClock,
+    reference_utc: DateTime<Utc>,
+    source_date: chrono::NaiveDate,
+) -> QuattroScrubClock {
+    let local_date = zoned_datetime(reference_utc, &clock.timezone).date_naive();
+    QuattroScrubClock {
+        time: clock.time,
+        day: clock.day,
+        notation: clock.notation,
+        local_minutes: clock.local_minutes,
+        source_day_offset: local_date.signed_duration_since(source_date).num_days(),
+        relative_minutes: clock.relative_minutes,
+        relative_label: clock.relative_label,
+    }
+}
+
+pub fn build_scrub_payload(
+    config: &AppConfig,
+    reference_utc: DateTime<Utc>,
+    source_timezone: &str,
+    local_timezone: &str,
+    time_format: &str,
+) -> Result<QuattroScrubPayload, &'static str> {
+    let source = parse_timezone(source_timezone).ok_or("source timezone is invalid")?;
+    let source_date = reference_utc.with_timezone(&source).date_naive();
+    let (_, visible_entries) = visible_location_entries(config, reference_utc, local_timezone);
+    let first_day_offset = -1;
+    let day_count = 3;
+    let slots_per_day = 24 * 60 / SCRUB_STEP_MINUTES;
+    let mut slots = Vec::with_capacity((slots_per_day * day_count) as usize);
+
+    for day_offset in first_day_offset..first_day_offset + i64::from(day_count) {
+        let slot_date = source_date
+            .checked_add_signed(Duration::days(day_offset))
+            .ok_or("source date is outside the supported range")?;
+        for minute in (0..24 * 60).step_by(SCRUB_STEP_MINUTES as usize) {
+            let local = slot_date
+                .and_hms_opt(minute / 60, minute % 60, 0)
+                .expect("a minute inside a day should be valid");
+            let localized = source.from_local_datetime(&local);
+            let (selected, ambiguous) = match localized {
+                LocalResult::Single(value) => (Some(value), false),
+                LocalResult::Ambiguous(first, second) => (Some(first.min(second)), true),
+                LocalResult::None => (None, false),
+            };
+            let Some(reference) = selected.map(|value| value.with_timezone(&Utc)) else {
+                slots.push(QuattroScrubFrame {
+                    day_offset,
+                    minute,
+                    label: format!("{:02}:{:02}", minute / 60, minute % 60),
+                    reference_utc: None,
+                    ambiguous,
+                    summary: None,
+                    clocks: Vec::new(),
+                });
+                continue;
+            };
+
+            let mut entries = visible_entries.iter();
+            let summary_entry = entries
+                .next()
+                .expect("visible locations always include the local summary");
+            let summary = scrub_clock(
+                clock_from_entry(
+                    summary_entry,
+                    config,
+                    reference,
+                    local_timezone,
+                    time_format,
+                ),
+                reference,
+                slot_date,
+            );
+            let clocks = entries
+                .map(|entry| {
+                    scrub_clock(
+                        clock_from_entry(entry, config, reference, local_timezone, time_format),
+                        reference,
+                        slot_date,
+                    )
+                })
+                .collect();
+            slots.push(QuattroScrubFrame {
+                day_offset,
+                minute,
+                label: format_display_time(&reference.with_timezone(&source), time_format),
+                reference_utc: Some(reference.to_rfc3339()),
+                ambiguous,
+                summary: Some(summary),
+                clocks,
+            });
+        }
+    }
+
+    Ok(QuattroScrubPayload {
+        schema_version: SNAPSHOT_SCHEMA_VERSION,
+        source_timezone: source_timezone.to_string(),
+        date: source_date.format("%Y-%m-%d").to_string(),
+        date_label: source_date.format("%a, %b %-d").to_string(),
+        step_minutes: SCRUB_STEP_MINUTES,
+        first_day_offset,
+        day_count,
+        slots,
+    })
 }
 
 fn local_entry(config: &AppConfig, local_timezone: &str) -> (Option<usize>, TimezoneEntry) {
@@ -487,7 +636,7 @@ pub fn build_snapshot(
 
 #[cfg(test)]
 mod tests {
-    use super::{build_module_payload, build_snapshot};
+    use super::{build_module_payload, build_scrub_payload, build_snapshot};
     use crate::config::{AppConfig, LocationKey, TimezoneEntry};
     use chrono::{TimeZone, Utc};
 
@@ -577,6 +726,86 @@ mod tests {
 
         assert_eq!(snapshot.clocks[0].relative_label, "10h 30m ahead");
         assert_eq!(snapshot.clocks[0].day, "Tomorrow");
+        assert_eq!(snapshot.summary.date, "2026-08-11");
+        assert_eq!(snapshot.summary.local_minutes, 18 * 60 + 45);
+    }
+
+    #[test]
+    fn scrub_payload_precomputes_adjacent_days_of_quarter_hour_frames() {
+        let config = AppConfig {
+            timezones: vec![
+                entry("America/Cancun", "Local"),
+                entry("Asia/Tokyo", "Tokyo"),
+            ],
+            pinned_location: None,
+            disable_open_meteo_geolocation: false,
+        };
+        let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
+
+        let payload = build_scrub_payload(&config, now, "America/Cancun", "America/Cancun", "24h")
+            .expect("build scrub payload");
+        let eleven = &payload.slots[96 + 44];
+
+        assert_eq!(payload.date, "2026-08-11");
+        assert_eq!(payload.step_minutes, 15);
+        assert_eq!(payload.first_day_offset, -1);
+        assert_eq!(payload.day_count, 3);
+        assert_eq!(payload.slots.len(), 288);
+        assert_eq!(payload.slots[95].day_offset, -1);
+        assert_eq!(payload.slots[96].day_offset, 0);
+        assert_eq!(payload.slots[192].day_offset, 1);
+        assert_eq!(eleven.minute, 11 * 60);
+        assert_eq!(eleven.day_offset, 0);
+        assert_eq!(eleven.label, "11:00");
+        assert_eq!(
+            eleven.reference_utc.as_deref(),
+            Some("2026-08-11T16:00:00+00:00")
+        );
+        assert_eq!(eleven.summary.as_ref().unwrap().time, "11:00");
+        assert_eq!(eleven.clocks[0].time, "01:00");
+        assert_eq!(eleven.clocks[0].source_day_offset, 1);
+    }
+
+    #[test]
+    fn scrub_payload_marks_the_spring_clock_change_gap() {
+        let config = AppConfig {
+            timezones: vec![entry("America/New_York", "New York")],
+            pinned_location: None,
+            disable_open_meteo_geolocation: false,
+        };
+        let now = Utc.with_ymd_and_hms(2026, 3, 8, 12, 0, 0).unwrap();
+
+        let payload =
+            build_scrub_payload(&config, now, "America/New_York", "America/New_York", "24h")
+                .expect("build spring scrub payload");
+
+        for index in 96 + 8..96 + 12 {
+            assert!(payload.slots[index].reference_utc.is_none());
+            assert!(payload.slots[index].summary.is_none());
+        }
+        assert!(payload.slots[96 + 7].reference_utc.is_some());
+        assert!(payload.slots[96 + 12].reference_utc.is_some());
+    }
+
+    #[test]
+    fn scrub_payload_marks_ambiguous_fall_back_times() {
+        let config = AppConfig {
+            timezones: vec![entry("America/New_York", "New York")],
+            pinned_location: None,
+            disable_open_meteo_geolocation: false,
+        };
+        let now = Utc.with_ymd_and_hms(2026, 11, 1, 12, 0, 0).unwrap();
+
+        let payload =
+            build_scrub_payload(&config, now, "America/New_York", "America/New_York", "24h")
+                .expect("build fall scrub payload");
+
+        for index in 96 + 4..96 + 8 {
+            assert!(payload.slots[index].ambiguous);
+            assert!(payload.slots[index].reference_utc.is_some());
+        }
+        assert!(!payload.slots[96 + 3].ambiguous);
+        assert!(!payload.slots[96 + 8].ambiguous);
     }
 
     #[test]

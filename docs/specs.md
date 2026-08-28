@@ -139,6 +139,9 @@ the user later removes it, it is not automatically re-added.
 - Visible locations are ordered by wall-clock time at the reference instant.
 - Equal-time locations fall back to display-label ordering.
 - Up to nine non-local locations may be configured.
+- If travel makes more than nine configured locations non-local, every pinned
+  location remains visible so it can still be unpinned; unpinned locations fill
+  the remaining slots up to the normal nine-clock limit.
 - The UI never permits removing the final configured location.
 - If there are no non-local locations, opening the panel goes directly to add
   mode.

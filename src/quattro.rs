@@ -498,19 +498,13 @@ pub(crate) fn visible_location_entries(
             .then_with(|| left.display_label().cmp(&right.display_label()))
     });
     if entries.len() > QUATTRO_CLOCK_LIMIT {
-        let mut selected = vec![false; entries.len()];
-        let mut selected_count = 0;
-        for (index, entry) in entries.iter().enumerate() {
-            if selected_count == QUATTRO_CLOCK_LIMIT {
-                break;
-            }
-            if config.is_pinned(entry) {
-                selected[index] = true;
-                selected_count += 1;
-            }
-        }
+        let mut selected = entries
+            .iter()
+            .map(|entry| config.is_pinned(entry))
+            .collect::<Vec<_>>();
+        let mut selected_count = selected.iter().filter(|selected| **selected).count();
         for is_selected in &mut selected {
-            if selected_count == QUATTRO_CLOCK_LIMIT {
+            if selected_count >= QUATTRO_CLOCK_LIMIT {
                 break;
             }
             if !*is_selected {
@@ -1116,6 +1110,34 @@ mod tests {
             .clocks
             .iter()
             .any(|clock| clock.title == "Delhi" && clock.pinned));
+    }
+
+    #[test]
+    fn snapshot_keeps_every_pin_accessible_when_travel_adds_a_summary() {
+        let timezones = vec![
+            entry("America/Vancouver", "Vancouver"),
+            entry("America/Los_Angeles", "Los Angeles"),
+            entry("America/Denver", "Denver"),
+            entry("America/Chicago", "Chicago"),
+            entry("America/New_York", "New York"),
+            entry("America/Halifax", "Halifax"),
+            entry("Europe/London", "London"),
+            entry("Europe/Paris", "Paris"),
+            entry("Asia/Kolkata", "Delhi"),
+            entry("Asia/Tokyo", "Tokyo"),
+        ];
+        let pinned_locations = timezones.iter().map(TimezoneEntry::location_key).collect();
+        let config = AppConfig {
+            timezones,
+            pinned_locations,
+            disable_open_meteo_geolocation: false,
+        };
+        let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
+
+        let snapshot = build_snapshot(&config, now, "America/Cancun", "24h");
+
+        assert_eq!(snapshot.clocks.len(), 10);
+        assert!(snapshot.clocks.iter().all(|clock| clock.pinned));
     }
 
     #[test]

@@ -274,7 +274,7 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
         .expect("scrubReady binding body");
     assert!(scrub_ready
         .contains("String(scrubPayload.date || \"\") === String(sourceClock.date || \"\")"));
-    assert!(scrub_ready.contains("scrubPayloadLocationSignature === root.scrubLocationSignature()"));
+    assert!(scrub_ready.contains("TimeRail.payloadMatchesSnapshot(scrubPayload, snapshot)"));
     assert!(scrub_ready.contains(
         "String(scrubPayload.time_format || \"\")\n        === String(snapshot.time_format || \"24h\")"
     ));
@@ -284,6 +284,9 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
         .and_then(|source| source.split("function startScrubRequest() {").next())
         .expect("requestScrubFor function body");
     assert!(request_scrub.contains("String(scrubPayload.time_format || \"\") === timeFormat"));
+    assert!(request_scrub.contains("TimeRail.payloadMatchesSnapshot(scrubPayload, snapshot)"));
+    assert!(panel.contains("|| !TimeRail.payloadMatchesSnapshot(payload, root.snapshot)"));
+    assert!(!panel.contains("scrubPayloadLocationSignature = root.scrubActiveLocationSignature"));
     assert!(panel.contains("visible: root.scrubLoading || !root.scrubSourceIsSummary"));
     assert!(panel.contains("TimeRail.centeredSlotIndexAt("));
     assert!(panel.contains("TimeRail.framePosition("));

@@ -50,6 +50,20 @@ const base = {
   }],
   featured_cities: [{ title: "Paris" }],
 }
+const matchingLocations = {
+  locations: [
+    { timezone: "America/Cancun", label: "Cancun" },
+    { timezone: "Asia/Tokyo", label: "Tokyo" },
+  ],
+}
+assert.equal(context.payloadMatchesSnapshot(matchingLocations, base), true,
+  "ordered backend identities authenticate against the displayed snapshot")
+assert.equal(context.payloadMatchesSnapshot({
+  locations: matchingLocations.locations.slice().reverse(),
+}, base), false, "reordered backend clocks are rejected before positional merging")
+assert.equal(context.payloadMatchesSnapshot({
+  locations: [matchingLocations.locations[0], { timezone: "Asia/Tokyo", label: "Osaka" }],
+}, base), false, "a backend clock with a different identity is rejected")
 const frame = {
   day_offset: 0,
   reference_utc: "2026-08-28T16:00:00Z",

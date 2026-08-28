@@ -89,6 +89,24 @@ function mergeRecord(base, dynamic) {
   return result
 }
 
+function locationIdentity(location) {
+  if (!location) return ""
+  var label = location.label !== null && location.label !== undefined
+    ? location.label : location.title
+  return String(location.timezone || "") + "\u001f" + String(label || "")
+}
+
+function payloadMatchesSnapshot(payload, snapshot) {
+  if (!payload || !Array.isArray(payload.locations)
+      || !snapshot || !snapshot.summary || !Array.isArray(snapshot.clocks)) return false
+  var snapshotLocations = [snapshot.summary].concat(snapshot.clocks)
+  if (payload.locations.length !== snapshotLocations.length) return false
+  for (var index = 0; index < snapshotLocations.length; index++)
+    if (locationIdentity(payload.locations[index]) !== locationIdentity(snapshotLocations[index]))
+      return false
+  return true
+}
+
 function mergeSnapshot(base, frame) {
   if (!base || !frame || !frame.summary || !Array.isArray(frame.clocks)
       || !Array.isArray(base.clocks) || frame.clocks.length !== base.clocks.length)

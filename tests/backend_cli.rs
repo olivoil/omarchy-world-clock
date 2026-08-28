@@ -136,6 +136,17 @@ fn bundled_backend_supports_the_complete_quattro_command_protocol() {
     assert_eq!(scrub["source_timezone"], "UTC");
     assert_eq!(scrub["date"], "2026-08-11");
     assert_eq!(scrub["time_format"], "24h");
+    let scrub_locations = scrub["locations"].as_array().expect("scrub locations");
+    let snapshot_locations = std::iter::once(&snapshot["summary"])
+        .chain(snapshot["clocks"].as_array().expect("snapshot clocks"));
+    assert_eq!(
+        scrub_locations.len(),
+        snapshot["clocks"].as_array().unwrap().len() + 1
+    );
+    for (scrub_location, snapshot_location) in scrub_locations.iter().zip(snapshot_locations) {
+        assert_eq!(scrub_location["timezone"], snapshot_location["timezone"]);
+        assert_eq!(scrub_location["label"], snapshot_location["label"]);
+    }
     assert_eq!(scrub["step_minutes"], 15);
     assert_eq!(scrub["first_day_offset"], -1);
     assert_eq!(scrub["day_count"], 3);

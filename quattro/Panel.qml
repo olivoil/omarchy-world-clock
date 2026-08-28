@@ -90,7 +90,6 @@ Panel {
   property string scrubSourceTimezone: ""
   property string scrubSourceTitle: ""
   property string scrubSourceKey: ""
-  property string scrubPayloadLocationSignature: ""
   property string scrubActiveTimezone: ""
   property string scrubActiveLocationSignature: ""
   property bool scrubRequestPending: false
@@ -210,7 +209,7 @@ Panel {
     var sourceClock = root.clockForScrubSource()
     if (!sourceClock) return false
     return String(scrubPayload.date || "") === String(sourceClock.date || "")
-      && scrubPayloadLocationSignature === root.scrubLocationSignature()
+      && TimeRail.payloadMatchesSnapshot(scrubPayload, snapshot)
       && String(scrubPayload.time_format || "")
         === String(snapshot.time_format || "24h")
   }
@@ -574,11 +573,10 @@ Panel {
     scrubSourceKey = conversionSource(clock)
     var date = String(clock.date || "")
     var timeFormat = String(snapshot.time_format || "24h")
-    var locationSignature = scrubLocationSignature()
     if (scrubPayload && scrubPayload.source_timezone === timezone
         && String(scrubPayload.date || "") === date
         && String(scrubPayload.time_format || "") === timeFormat
-        && scrubPayloadLocationSignature === locationSignature) {
+        && TimeRail.payloadMatchesSnapshot(scrubPayload, snapshot)) {
       if (scrubSelectedSlotIndex < 0)
         scrubSelectedSlotIndex = nearestScrubSlot(clock)
       return
@@ -1349,12 +1347,12 @@ Panel {
           if (!payload || Number(payload.schema_version) !== 1
               || payload.source_timezone !== root.scrubActiveTimezone
               || (payload.time_format !== "24h" && payload.time_format !== "ampm")
+              || !TimeRail.payloadMatchesSnapshot(payload, root.snapshot)
               || Number(payload.first_day_offset) > -1
               || Number(payload.day_count) < 3
               || !Array.isArray(payload.slots) || payload.slots.length === 0)
             throw new Error("Unsupported time rail response")
           root.scrubPayload = payload
-          root.scrubPayloadLocationSignature = root.scrubActiveLocationSignature
           var sourceClock = root.clockForScrubSource()
           root.scrubAnchorMinute = Number(sourceClock.local_minutes || 0)
           root.scrubSelectedSlotIndex = root.nearestScrubSlot(sourceClock)

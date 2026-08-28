@@ -150,12 +150,19 @@ pub struct QuattroScrubFrame {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct QuattroScrubLocation {
+    pub timezone: String,
+    pub label: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct QuattroScrubPayload {
     pub schema_version: u64,
     pub source_timezone: String,
     pub date: String,
     pub date_label: String,
     pub time_format: String,
+    pub locations: Vec<QuattroScrubLocation>,
     pub step_minutes: u32,
     pub first_day_offset: i64,
     pub day_count: u32,
@@ -318,6 +325,13 @@ pub fn build_scrub_payload(
     let source = parse_timezone(source_timezone).ok_or("source timezone is invalid")?;
     let source_date = reference_utc.with_timezone(&source).date_naive();
     let (_, visible_entries) = visible_location_entries(config, reference_utc, local_timezone);
+    let locations = visible_entries
+        .iter()
+        .map(|entry| QuattroScrubLocation {
+            timezone: entry.timezone.clone(),
+            label: entry.display_label(),
+        })
+        .collect();
     let first_day_offset = -1;
     let day_count = 3;
     let slots_per_day = 24 * 60 / SCRUB_STEP_MINUTES;
@@ -392,6 +406,7 @@ pub fn build_scrub_payload(
         date: source_date.format("%Y-%m-%d").to_string(),
         date_label: source_date.format("%a, %b %-d").to_string(),
         time_format: time_format.to_string(),
+        locations,
         step_minutes: SCRUB_STEP_MINUTES,
         first_day_offset,
         day_count,
@@ -750,6 +765,10 @@ mod tests {
 
         assert_eq!(payload.date, "2026-08-11");
         assert_eq!(payload.time_format, "24h");
+        assert_eq!(payload.locations[0].timezone, "America/Cancun");
+        assert_eq!(payload.locations[0].label, "Local");
+        assert_eq!(payload.locations[1].timezone, "Asia/Tokyo");
+        assert_eq!(payload.locations[1].label, "Tokyo");
         assert_eq!(payload.step_minutes, 15);
         assert_eq!(payload.first_day_offset, -1);
         assert_eq!(payload.day_count, 3);

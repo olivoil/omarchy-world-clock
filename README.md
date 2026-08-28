@@ -1,13 +1,13 @@
 # Omarchy World Clock
 
-A native Omarchy Quattro world clock. Open the bar widget for current time and weather across your places, add new timezones, pin one to be always visible, or enter any time to convert from one timezone to the others.
+A native Omarchy Quattro world clock. Open the bar widget for current time and weather across your places, add new timezones, pin one to be always visible, or scrub and enter times to convert from one timezone to the others.
 
 This repository is the installable root of the native Quattro plugin
 `io.github.olivoil.world-clock`. It is listed in the independent community
 [Omarchy Plugin Marketplace](https://omarchyplugins.com/plugin.html?id=io.github.olivoil.world-clock).
 
 <p>
-  <img src="preview.png" alt="Omarchy World Clock panel with a pinned home time, proportional timezone timeline, and six location clocks" width="960">
+  <img src="preview.png" alt="Omarchy World Clock live panel, interactive time scrubber, globe, and add-location flow" width="960">
 </p>
 
 ## Install
@@ -62,6 +62,8 @@ the AUR package is no longer required.
   to edit it, then press **Enter** to save it or **Escape** to cancel. Submit an
   empty name to restore the location's default place name.
 - Pin one place to keep its current time always visible beside the bar icon.
+- Hover across the time rail to compare every place at that moment, then click
+  to keep the selected time.
 - Select a displayed time and enter another time to convert the same instant
   across every visible place.
 - Use **plus** to open the full-panel globe. Start typing or select **search**
@@ -71,7 +73,7 @@ the AUR package is no longer required.
 ## Features
 
 - Up to nine non-local places in a compact three-column view.
-- A proportional timezone timeline with day and offset context.
+- An interactive, DST-aware time scrubber with day and offset context.
 - Optional current temperature and conditions for every place with a known
   coordinate.
 - Multiple named places in the same timezone, such as Boston and New York.

@@ -29,11 +29,16 @@ assert.equal(context.centeredMinutePosition(469, 589, 960), 400,
   "other wall times rotate around the centered source minute")
 assert.ok(context.framePosition({ day_offset: -1, minute: 1305 }, 589, 960) < 0,
   "the previous-day snapped frame sits just outside the exact left boundary")
-const ticks = context.axisTicks(589)
+const ticks = context.axisTicks(589, "24h")
 assert.equal(ticks.filter(tick => tick.major).map(tick => tick.label).join(","),
   "00,03,06,09,12,15,18,21")
 assert.ok(ticks.find(tick => tick.label === "09").position < 0.5,
   "the 09:00 tick sits just before a 09:49 center anchor")
+const ampmTicks = context.axisTicks(589, "ampm")
+assert.equal(ampmTicks.filter(tick => tick.major).map(tick => tick.label).join(","),
+  "12 AM,3 AM,6 AM,9 AM,12 PM,3 PM,6 PM,9 PM")
+assert.deepEqual(ampmTicks.map(tick => tick.position), ticks.map(tick => tick.position),
+  "changing the display format does not move the ticks")
 
 const base = {
   reference_utc: "live",

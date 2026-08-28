@@ -239,7 +239,9 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("visible: root.scrubLoading || !root.scrubSourceIsSummary"));
     assert!(panel.contains("TimeRail.centeredSlotIndexAt("));
     assert!(panel.contains("TimeRail.framePosition("));
-    assert!(panel.contains("TimeRail.axisTicks(scrubAnchorMinute)"));
+    assert!(panel.contains(
+        "TimeRail.axisTicks(scrubAnchorMinute, String(snapshot.time_format || \"24h\"))"
+    ));
     assert!(!panel.contains("HOVER TO COMPARE"));
     assert!(!panel.contains("CLICK TO SET"));
     assert!(panel.contains("id: scrubPlayhead"));

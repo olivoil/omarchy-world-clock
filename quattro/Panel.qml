@@ -206,7 +206,8 @@ Panel {
   readonly property bool scrubReady: scrubPayload !== null
     && scrubPayload.source_timezone === scrubSourceTimezone
     && scrubSlots.length > 0
-  readonly property var scrubAxisTicks: TimeRail.axisTicks(scrubAnchorMinute)
+  readonly property var scrubAxisTicks:
+    TimeRail.axisTicks(scrubAnchorMinute, String(snapshot.time_format || "24h"))
 
   onClocksChanged: {
     if (keyboardClockIndex >= clocks.length)

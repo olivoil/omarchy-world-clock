@@ -53,7 +53,15 @@ function centeredSlotIndexAt(position, width, payload, anchorMinute) {
   return slotIndexFor(payload, dayOffset, unwrapped - dayOffset * DAY_MINUTES)
 }
 
-function axisTicks(anchorMinute) {
+function axisHourLabel(hour, timeFormat) {
+  if (String(timeFormat || "").toLowerCase() === "ampm") {
+    var twelveHour = hour % 12 || 12
+    return String(twelveHour) + (hour < 12 ? " AM" : " PM")
+  }
+  return hour < 10 ? "0" + String(hour) : String(hour)
+}
+
+function axisTicks(anchorMinute, timeFormat) {
   var start = Number(anchorMinute || 0) - DAY_MINUTES / 2
   var end = start + DAY_MINUTES
   var firstHour = Math.ceil(start / 60) * 60
@@ -65,7 +73,7 @@ function axisTicks(anchorMinute) {
     ticks.push({
       position: (value - start) / DAY_MINUTES,
       major: major,
-      label: major ? (hour < 10 ? "0" + String(hour) : String(hour)) : ""
+      label: major ? axisHourLabel(hour, timeFormat) : ""
     })
   }
   return ticks

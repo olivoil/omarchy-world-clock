@@ -267,6 +267,14 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("TimeRail.mergeSnapshot(scrubBaseSnapshot, frame)"));
     assert!(panel.contains("property real scrubAnchorMinute: 0"));
     assert!(panel.contains("readonly property bool scrubSourceIsSummary"));
+    let scrub_ready = panel
+        .split("readonly property bool scrubReady: {")
+        .nth(1)
+        .and_then(|source| source.split("readonly property var scrubAxisTicks:").next())
+        .expect("scrubReady binding body");
+    assert!(scrub_ready
+        .contains("String(scrubPayload.date || \"\") === String(sourceClock.date || \"\")"));
+    assert!(scrub_ready.contains("scrubPayloadLocationSignature === root.scrubLocationSignature()"));
     assert!(panel.contains("visible: root.scrubLoading || !root.scrubSourceIsSummary"));
     assert!(panel.contains("TimeRail.centeredSlotIndexAt("));
     assert!(panel.contains("TimeRail.framePosition("));

@@ -203,9 +203,15 @@ Panel {
       ? scrubSlots[scrubSelectedSlotIndex] : null
   readonly property bool scrubLoading: scrubProcess.running
     && scrubActiveTimezone === scrubSourceTimezone
-  readonly property bool scrubReady: scrubPayload !== null
-    && scrubPayload.source_timezone === scrubSourceTimezone
-    && scrubSlots.length > 0
+  readonly property bool scrubReady: {
+    if (scrubPayload === null
+        || scrubPayload.source_timezone !== scrubSourceTimezone
+        || scrubSlots.length === 0) return false
+    var sourceClock = root.clockForScrubSource()
+    if (!sourceClock) return false
+    return String(scrubPayload.date || "") === String(sourceClock.date || "")
+      && scrubPayloadLocationSignature === root.scrubLocationSignature()
+  }
   readonly property var scrubAxisTicks:
     TimeRail.axisTicks(scrubAnchorMinute, String(snapshot.time_format || "24h"))
 

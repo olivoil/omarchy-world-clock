@@ -19,7 +19,7 @@ BarWidget {
   property bool moduleRefreshPending: false
   property string backendFailureDetail: "The bundled backend could not be started"
 
-  readonly property int supportedBackendProtocol: 2
+  readonly property int supportedBackendProtocol: 3
   readonly property string backendCommand:
     String(Qt.resolvedUrl("../bin/omarchy-world-clock-backend")).replace(/^file:\/\//, "")
   readonly property bool opened: panelLoader.item ? panelLoader.item.opened === true : false
@@ -219,7 +219,7 @@ BarWidget {
     anchors.fill: parent
     bar: root.bar
     visible: root.pinnedTime === "" || root.vertical
-    text: "\uf0ac"
+    text: "\uf017"
     slotSize: Style.bar.statusSlot
     useActiveColor: false
     dimmed: root.backendChecked && !root.backendAvailable
@@ -255,7 +255,7 @@ BarWidget {
 
         OpticalGlyph {
           anchors.fill: parent
-          text: "\uf0ac"
+          text: "\uf017"
           fontFamily: pinnedButton.fontFamily
           fontSize: Style.bar.iconFont
           color: pinnedButton.foreground

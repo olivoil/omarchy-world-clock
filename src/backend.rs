@@ -3,8 +3,8 @@ use crate::config::{
     RemotePlaceSearch, TimezoneResolver,
 };
 use crate::quattro::{
-    build_map_location, build_module_payload, build_search_location, build_snapshot,
-    QuattroSnapshot,
+    build_map_location, build_module_payload, build_scrub_payload, build_search_location,
+    build_snapshot, QuattroSnapshot,
 };
 use crate::time::parse_manual_reference_details;
 use crate::timezone_grid::timezone_at;
@@ -13,7 +13,7 @@ use anyhow::{bail, Context, Result};
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 
-pub const USAGE: &str = "Usage: omarchy-world-clock-backend <module|snapshot|convert|weather|search|locate|add|rename|remove|pin|unpin|version>";
+pub const USAGE: &str = "Usage: omarchy-world-clock-backend <module|snapshot|scrub|convert|weather|search|locate|add|rename|remove|pin|unpin|version>";
 
 fn optional_flag(args: &[String], flag: &str) -> Result<Option<String>> {
     let mut index = 0;
@@ -102,6 +102,21 @@ pub fn execute(args: &[String]) -> Result<Option<String>> {
         "snapshot" => {
             let reference_utc = parse_reference_utc(optional_flag(remaining_args, "--at")?)?;
             Some(serde_json::to_string(&current_snapshot(reference_utc)?)?)
+        }
+        "scrub" => {
+            let config = ConfigManager::new(None).load()?;
+            let source_timezone = required_flag(remaining_args, "--timezone")?;
+            let reference_utc = parse_reference_utc(optional_flag(remaining_args, "--at")?)?;
+            let local_timezone = detect_local_timezone();
+            let payload = build_scrub_payload(
+                &config,
+                reference_utc,
+                &source_timezone,
+                &local_timezone,
+                &system_time_format(),
+            )
+            .map_err(|message| anyhow::anyhow!(message))?;
+            Some(serde_json::to_string(&payload)?)
         }
         "convert" => {
             let timezone = required_flag(remaining_args, "--timezone")?;

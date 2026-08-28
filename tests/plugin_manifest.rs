@@ -64,9 +64,15 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(qml.contains("source: Qt.resolvedUrl(\"Panel.qml\")"));
     assert!(qml.contains("slotSize: Style.bar.statusSlot"));
     assert!(qml.contains("useActiveColor: false"));
+    assert_eq!(
+        qml.matches("text: \"\\uf017\"").count(),
+        2,
+        "the normal and pinned widget states should use the clock glyph"
+    );
+    assert!(!qml.contains("text: \"\\uf0ac\""));
     assert!(qml.contains("openPanelIndicatorWidth"));
     assert!(qml.contains("property bool moduleRefreshPending: false"));
-    assert!(qml.contains("readonly property int supportedBackendProtocol: 2"));
+    assert!(qml.contains("readonly property int supportedBackendProtocol: 3"));
     assert!(qml.contains("function markBackendUnavailable(detail)"));
     assert!(qml.contains("!payload || typeof payload !== \"object\" || Array.isArray(payload)"));
     assert!(qml.contains("typeof payload.protocol_version !== \"number\""));
@@ -212,17 +218,96 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("Accessible.description: \"Press Enter to save or Escape to cancel\""));
     assert!(panel.contains("id: timelineTickRepeater"));
     assert!(panel.contains("property var timelineHoverOwners: ({})"));
-    assert!(panel.contains("function timelineHoverMatches(relativeMinutes)"));
-    assert!(panel.contains("id: timelinePointHover"));
+    assert!(panel.contains("import \"TimeRail.js\" as TimeRail"));
+    assert!(panel.contains("function timelineHoverMatches(localMinutes)"));
+    assert!(!panel.contains("id: timelinePointHover"));
     assert!(panel.contains("id: cardHoverHandler"));
-    assert!(panel.contains("root.timelineHoverMatches(clockData.relative_minutes)"));
+    assert!(panel.contains("root.timelineHoverMatches(clockData.local_minutes)"));
     assert_eq!(
         panel
             .matches("root.updateTimelineHover(hoverOwner, 0, false)")
             .count(),
-        2,
-        "destroyed card and timeline delegates must both release hover ownership"
+        1,
+        "destroyed card delegates must release hover ownership"
     );
+    assert!(panel.contains("backendCommand,\n      \"scrub\""));
+    assert!(panel.contains("function applyScrubSlot(slotIndex)"));
+    assert!(panel.contains("if (scrubPreviewActive && scrubSelectedSlotIndex === index) return"));
+    let apply_scrub_slot = panel
+        .split("function applyScrubSlot(slotIndex) {")
+        .nth(1)
+        .and_then(|source| source.split("function cancelScrubPreview() {").next())
+        .expect("applyScrubSlot function body");
+    let invalidate_snapshot = apply_scrub_slot
+        .find("invalidateSnapshotRequests()")
+        .expect("starting a scrub preview must invalidate snapshot work");
+    let capture_snapshot = apply_scrub_slot
+        .find("scrubBaseSnapshot = snapshot")
+        .expect("starting a scrub preview must capture its base snapshot");
+    assert!(
+        invalidate_snapshot < capture_snapshot,
+        "in-flight snapshots must be invalidated before capturing the scrub preview base"
+    );
+    assert!(apply_scrub_slot.contains("var resumeSnapshotRequest = snapshotRequestPending"));
+    assert!(apply_scrub_slot.contains("snapshotRequestReference = resumeSnapshotReference"));
+    let cancel_scrub_preview = panel
+        .split("function cancelScrubPreview() {")
+        .nth(1)
+        .and_then(|source| source.split("function lockScrubSelection() {").next())
+        .expect("cancelScrubPreview function body");
+    assert!(cancel_scrub_preview.contains("Qt.callLater(root.flushSnapshotRequest)"));
+    let request_snapshot = panel
+        .split("function requestSnapshot(referenceUtc) {")
+        .nth(1)
+        .and_then(|source| source.split("function flushSnapshotRequest() {").next())
+        .expect("requestSnapshot function body");
+    assert!(request_snapshot.contains(
+        "if (scrubPreviewActive) {\n      snapshotRequestPending = true\n      snapshotRequestReference = reference\n      return"
+    ));
+    assert!(panel.contains("TimeRail.mergeSnapshot(scrubBaseSnapshot, frame)"));
+    assert!(panel.contains("property real scrubAnchorMinute: 0"));
+    assert!(panel.contains("readonly property bool scrubSourceIsSummary"));
+    let scrub_ready = panel
+        .split("readonly property bool scrubReady: {")
+        .nth(1)
+        .and_then(|source| source.split("readonly property var scrubAxisTicks:").next())
+        .expect("scrubReady binding body");
+    assert!(scrub_ready
+        .contains("String(scrubPayload.date || \"\") === String(sourceClock.date || \"\")"));
+    assert!(scrub_ready.contains("TimeRail.payloadMatchesSnapshot(scrubPayload, snapshot)"));
+    assert!(scrub_ready.contains(
+        "String(scrubPayload.time_format || \"\")\n        === String(snapshot.time_format || \"24h\")"
+    ));
+    let request_scrub = panel
+        .split("function requestScrubFor(clock) {")
+        .nth(1)
+        .and_then(|source| source.split("function startScrubRequest() {").next())
+        .expect("requestScrubFor function body");
+    assert!(request_scrub.contains("String(scrubPayload.time_format || \"\") === timeFormat"));
+    assert!(request_scrub.contains("TimeRail.payloadMatchesSnapshot(scrubPayload, snapshot)"));
+    assert!(panel.contains("|| !TimeRail.payloadMatchesSnapshot(payload, root.snapshot)"));
+    assert!(!panel.contains("scrubPayloadLocationSignature = root.scrubActiveLocationSignature"));
+    assert!(panel.contains("visible: root.scrubLoading || !root.scrubSourceIsSummary"));
+    assert!(panel.contains("TimeRail.centeredSlotIndexAt("));
+    assert!(panel.contains("TimeRail.framePosition("));
+    assert!(panel.contains(
+        "TimeRail.axisTicks(scrubAnchorMinute, String(snapshot.time_format || \"24h\"))"
+    ));
+    assert!(!panel.contains("HOVER TO COMPARE"));
+    assert!(!panel.contains("CLICK TO SET"));
+    assert!(panel.contains("id: scrubPlayhead"));
+    assert!(panel.contains("Behavior on x {\n                  enabled: !root.scrubPreviewActive"));
+    assert!(panel.contains("id: scrubValueBubble"));
+    assert!(panel.contains("Accessible.name: \"Compare times across the day\""));
+    assert!(panel.contains("Keys.onLeftPressed"));
+    assert!(panel.contains("Keys.onRightPressed"));
+    assert!(panel.contains("function focusTimeRail()"));
+    assert!(panel.contains("root.focusTimeRail()"));
+    assert!(panel.contains("root.lockScrubSelection()"));
+    assert!(panel.contains("if (activeFocus) root.selectScrubSource(root.summary)"));
+    assert!(panel.contains("root.selectScrubSource(clockCell.clockData)"));
+    assert!(root.join("quattro/TimeRail.js").is_file());
+    assert!(root.join("tests/time-rail.mjs").is_file());
     let apply_snapshot = panel
         .split("function applySnapshot(raw, manual)")
         .nth(1)
@@ -246,7 +331,9 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
         "mode transitions must discard status from the previous panel surface"
     );
     assert!(
-        mode_changed.contains("if (mode === \"add\") {\n      clearTimelineHover()"),
+        mode_changed.contains(
+            "if (mode === \"add\") {\n      cancelScrubPreview()\n      clearTimelineHover()"
+        ),
         "hover state should clear when leaving the clock and timeline view"
     );
     assert!(

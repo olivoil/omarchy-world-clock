@@ -5,6 +5,7 @@ import Quickshell.Io
 import qs.Commons
 import qs.Ui
 import "TimelineHoverState.js" as TimelineHoverState
+import "TimeRail.js" as TimeRail
 
 // Quattro-native world-clock panel. Rust remains the timezone/config engine;
 // this already-loaded QML surface owns the interaction and visual lifecycle.
@@ -27,7 +28,7 @@ Panel {
     configured_count: 0,
     local_configured: false,
     pinned_timezone: null,
-    summary: ({ timezone: "", label: "", title: "", time: "--:--", day: "", notation: "", relative_minutes: 0, relative_label: "Same time" }),
+    summary: ({ timezone: "", label: "", title: "", time: "--:--", date: "", day: "", notation: "", local_minutes: 0, relative_minutes: 0, relative_label: "Same time" }),
     clocks: [],
     timeline: [],
     featured_cities: []
@@ -84,6 +85,17 @@ Panel {
   property bool keyboardCursorActive: false
   property int keyboardClockIndex: -1
   property var timelineHoverOwners: ({})
+  property var scrubPayload: null
+  property var scrubBaseSnapshot: null
+  property string scrubSourceTimezone: ""
+  property string scrubSourceTitle: ""
+  property string scrubSourceKey: ""
+  property string scrubActiveTimezone: ""
+  property string scrubActiveLocationSignature: ""
+  property bool scrubRequestPending: false
+  property int scrubSelectedSlotIndex: -1
+  property bool scrubPreviewActive: false
+  property real scrubAnchorMinute: 0
 
   readonly property var barIdentity: hostWidget || root
   readonly property color contentForeground: bar ? bar.foreground : Color.foreground
@@ -98,7 +110,8 @@ Panel {
     return Qt.rgba(mixed.r, mixed.g, mixed.b, 1)
   }
   readonly property var clocks: snapshot && Array.isArray(snapshot.clocks) ? snapshot.clocks : []
-  readonly property var timeline: snapshot && Array.isArray(snapshot.timeline) ? snapshot.timeline : []
+  readonly property var timeline:
+    TimeRail.buildMarkers(snapshot, scrubSourceTimezone, scrubAnchorMinute)
   readonly property var featuredCities: snapshot && Array.isArray(snapshot.featured_cities)
     ? snapshot.featured_cities : []
   readonly property var summary: snapshot && snapshot.summary ? snapshot.summary : ({ time: "--:--", title: "", timezone: "", day: "", notation: "" })
@@ -113,6 +126,7 @@ Panel {
     || (weatherUnitOverride !== "metric"
       && root.localeUsesImperial(Qt.locale().name))
   readonly property bool weatherPresentationActive: root.weatherEnabled && root.live
+    && !root.scrubPreviewActive
     && weather.disabled !== true
     && (root.weatherLoading || root.weatherLocations.length > 0)
   readonly property int weatherRefreshMilliseconds: 15 * 60 * 1000
@@ -127,6 +141,8 @@ Panel {
     if (timezone && notation) return timezone + "  ·  " + notation
     return timezone || notation
   }
+  readonly property bool scrubSourceIsSummary: !scrubSourceKey
+    || scrubSourceKey === root.conversionSource(root.summary)
   readonly property int maxClocks: 9
   readonly property bool canRemove: Number(snapshot.configured_count || 0) > 1
   readonly property bool localTimezoneConfigured: snapshot.local_configured === true
@@ -179,12 +195,26 @@ Panel {
   }
   readonly property var mapLocations: searchHasQuery
     ? searchMapLocations : globeLocations
-  readonly property int timelineExtent: {
-    var extent = 60
-    for (var i = 0; i < timeline.length; i++)
-      extent = Math.max(extent, Math.abs(Number(timeline[i].relative_minutes || 0)))
-    return Math.ceil(extent / 60) * 60 + 60
+  readonly property var scrubSlots: scrubPayload && Array.isArray(scrubPayload.slots)
+    ? scrubPayload.slots : []
+  readonly property var scrubSelectedFrame:
+    scrubSelectedSlotIndex >= 0 && scrubSelectedSlotIndex < scrubSlots.length
+      ? scrubSlots[scrubSelectedSlotIndex] : null
+  readonly property bool scrubLoading: scrubProcess.running
+    && scrubActiveTimezone === scrubSourceTimezone
+  readonly property bool scrubReady: {
+    if (scrubPayload === null
+        || scrubPayload.source_timezone !== scrubSourceTimezone
+        || scrubSlots.length === 0) return false
+    var sourceClock = root.clockForScrubSource()
+    if (!sourceClock) return false
+    return String(scrubPayload.date || "") === String(sourceClock.date || "")
+      && TimeRail.payloadMatchesSnapshot(scrubPayload, snapshot)
+      && String(scrubPayload.time_format || "")
+        === String(snapshot.time_format || "24h")
   }
+  readonly property var scrubAxisTicks:
+    TimeRail.axisTicks(scrubAnchorMinute, String(snapshot.time_format || "24h"))
 
   onClocksChanged: {
     if (keyboardClockIndex >= clocks.length)
@@ -300,6 +330,7 @@ Panel {
   }
 
   function close() {
+    cancelScrubPreview()
     mode = "read"
     globeDetailRequested = false
     summaryFocusPending = false
@@ -507,6 +538,184 @@ Panel {
     return String(clock.timezone || "") + "\u001f" + String(label || "")
   }
 
+  function scrubLocationSignature() {
+    if (!snapshotLoaded) return ""
+    var entries = [summary].concat(clocks)
+    var values = []
+    for (var index = 0; index < entries.length; index++)
+      values.push(conversionSource(entries[index]))
+    return values.join("\u001e")
+  }
+
+  function clockForScrubSource() {
+    var entries = [summary].concat(clocks)
+    for (var index = 0; index < entries.length; index++)
+      if (conversionSource(entries[index]) === scrubSourceKey) return entries[index]
+    for (var timezoneIndex = 0; timezoneIndex < entries.length; timezoneIndex++)
+      if (String(entries[timezoneIndex].timezone || "") === scrubSourceTimezone)
+        return entries[timezoneIndex]
+    return summary
+  }
+
+  function nearestScrubSlot(clock) {
+    var minute = Number(clock && clock.local_minutes)
+    if (!isFinite(minute)) minute = 0
+    if (scrubPayload) return TimeRail.slotIndexFor(scrubPayload, 0, minute)
+    return Math.max(0, Math.min(95, Math.round(minute / 15)))
+  }
+
+  function requestScrubFor(clock) {
+    if (!snapshotLoaded || !clock) return
+    var timezone = String(clock.timezone || "").trim()
+    if (!timezone) return
+    scrubSourceTimezone = timezone
+    scrubSourceTitle = String(clock.title || clock.label || timezone)
+    scrubSourceKey = conversionSource(clock)
+    var date = String(clock.date || "")
+    var timeFormat = String(snapshot.time_format || "24h")
+    if (scrubPayload && scrubPayload.source_timezone === timezone
+        && String(scrubPayload.date || "") === date
+        && String(scrubPayload.time_format || "") === timeFormat
+        && TimeRail.payloadMatchesSnapshot(scrubPayload, snapshot)) {
+      if (scrubSelectedSlotIndex < 0)
+        scrubSelectedSlotIndex = nearestScrubSlot(clock)
+      return
+    }
+    if (scrubProcess.running) {
+      scrubRequestPending = true
+      return
+    }
+    startScrubRequest()
+  }
+
+  function startScrubRequest() {
+    if (!snapshotLoaded || scrubProcess.running || !scrubSourceTimezone) return
+    var reference = String(snapshot.reference_utc || "").trim()
+    if (!reference) return
+    scrubRequestPending = false
+    scrubActiveTimezone = scrubSourceTimezone
+    scrubActiveLocationSignature = scrubLocationSignature()
+    scrubProcess.command = [
+      backendCommand,
+      "scrub",
+      "--timezone", scrubActiveTimezone,
+      "--at", reference
+    ]
+    scrubProcess.running = true
+  }
+
+  function flushScrubRequest() {
+    if (scrubProcess.running) return
+    if (!scrubRequestPending) return
+    scrubRequestPending = false
+    var clock = clockForScrubSource()
+    requestScrubFor(clock)
+  }
+
+  function selectScrubSource(clock) {
+    if (!clock || mode === "add") return
+    cancelScrubPreview()
+    scrubAnchorMinute = Number(clock.local_minutes || 0)
+    scrubSelectedSlotIndex = -1
+    requestScrubFor(clock)
+  }
+
+  function ensureScrubSource() {
+    if (!snapshotLoaded || mode === "add") return
+    var clock = clockForScrubSource()
+    if (!scrubSourceTimezone || !clock
+        || String(clock.timezone || "") !== scrubSourceTimezone)
+      clock = summary
+    requestScrubFor(clock)
+    if (!scrubPreviewActive) {
+      scrubAnchorMinute = Number(clock.local_minutes || 0)
+      scrubSelectedSlotIndex = nearestScrubSlot(clock)
+    }
+  }
+
+  function applyScrubSlot(slotIndex) {
+    if (!scrubReady || scrubSlots.length === 0) return
+    var index = Math.max(0, Math.min(scrubSlots.length - 1, Number(slotIndex)))
+    if (scrubPreviewActive && scrubSelectedSlotIndex === index) return
+    var frame = scrubSlots[index]
+    if (!scrubPreviewActive) {
+      var resumeSnapshotRequest = snapshotRequestPending
+        || (snapshotProcess.running
+          && snapshotActiveGeneration === snapshotStateGeneration)
+      var resumeSnapshotReference = snapshotRequestPending
+        ? snapshotRequestReference : snapshotActiveReference
+      invalidateSnapshotRequests()
+      if (resumeSnapshotRequest) {
+        snapshotRequestPending = true
+        snapshotRequestReference = resumeSnapshotReference
+      }
+      scrubBaseSnapshot = snapshot
+    }
+    scrubSelectedSlotIndex = index
+    scrubPreviewActive = true
+    if (!frame || !frame.reference_utc || !frame.summary) {
+      snapshot = scrubBaseSnapshot
+      summaryInput.text = String(snapshot.summary.time || "--:--")
+      return
+    }
+    var merged = TimeRail.mergeSnapshot(scrubBaseSnapshot, frame)
+    if (!merged) {
+      cancelScrubPreview()
+      scrubPayload = null
+      requestScrubFor(clockForScrubSource())
+      return
+    }
+    snapshot = merged
+    summaryInput.text = String(merged.summary.time || "--:--")
+    invalidConversionSource = ""
+  }
+
+  function cancelScrubPreview() {
+    if (scrubBaseSnapshot) {
+      snapshot = scrubBaseSnapshot
+      summaryInput.text = String(snapshot.summary.time || "--:--")
+    }
+    scrubBaseSnapshot = null
+    scrubPreviewActive = false
+    if (snapshotLoaded) {
+      var clock = clockForScrubSource()
+      scrubAnchorMinute = Number(clock.local_minutes || 0)
+      scrubSelectedSlotIndex = nearestScrubSlot(clock)
+    }
+    Qt.callLater(root.flushSnapshotRequest)
+  }
+
+  function lockScrubSelection() {
+    if (!scrubReady || !scrubSelectedFrame
+        || !scrubSelectedFrame.reference_utc || !scrubSelectedFrame.summary) return
+    var base = scrubBaseSnapshot || snapshot
+    var merged = TimeRail.mergeSnapshot(base, scrubSelectedFrame)
+    if (!merged) return
+    snapshot = merged
+    summaryInput.text = String(merged.summary.time || "--:--")
+    scrubBaseSnapshot = null
+    scrubPreviewActive = false
+    invalidateSnapshotRequests()
+    live = false
+    requestSnapshot(String(scrubSelectedFrame.reference_utc))
+  }
+
+  function moveScrubSelection(delta) {
+    if (!scrubReady) return
+    var current = scrubSelectedSlotIndex >= 0
+      ? scrubSelectedSlotIndex : nearestScrubSlot(clockForScrubSource())
+    var next = Math.max(0, Math.min(scrubSlots.length - 1,
+      current + Number(delta)))
+    var position = TimeRail.framePosition(scrubSlots[next], scrubAnchorMinute, 1)
+    if (position < 0 || position > 1) return
+    applyScrubSlot(next)
+  }
+
+  function focusTimeRail() {
+    if (mode !== "read" || !scrubReady) return
+    railMouse.forceActiveFocus(Qt.ShortcutFocusReason)
+  }
+
   function localeTerritory(localeName) {
     var name = String(localeName || "").split(/[.@]/)[0]
     var parts = name.split(/[-_]/)
@@ -599,7 +808,7 @@ Panel {
       weatherRequestPending = false
       return
     }
-    if (!opened || !snapshotLoaded || !live) return
+    if (!opened || !snapshotLoaded || !live || scrubPreviewActive) return
     var signature = weatherSignature()
     if (!signature) return
     var fresh = !weatherError && signature === weatherLoadedSignature
@@ -658,6 +867,7 @@ Panel {
         mode = "add"
       clearStatus()
       if (summaryFocusPending) Qt.callLater(root.focusSummaryEditor)
+      Qt.callLater(root.ensureScrubSource)
       requestWeather(false)
       if (mode === "add") Qt.callLater(root.initializeGlobe)
     } catch (error) {
@@ -667,6 +877,11 @@ Panel {
 
   function requestSnapshot(referenceUtc) {
     var reference = String(referenceUtc || "")
+    if (scrubPreviewActive) {
+      snapshotRequestPending = true
+      snapshotRequestReference = reference
+      return
+    }
     if (timeEditorActive || labelEditorActive) {
       snapshotRequestPending = false
       snapshotRequestReference = ""
@@ -710,9 +925,7 @@ Panel {
   }
 
   function requestLiveSnapshot() {
-    if (!live) {
-      return
-    }
+    if (!live) return
     requestSnapshot("")
   }
 
@@ -731,6 +944,7 @@ Panel {
   }
 
   function returnToLive() {
+    cancelScrubPreview()
     invalidateSnapshotRequests()
     invalidConversionSource = ""
     live = true
@@ -1037,25 +1251,13 @@ Panel {
     setStatus("Locating timezone…", false)
   }
 
-  function timelinePosition(relativeMinutes, width) {
-    var railInset = Style.space(36)
-    var usable = Math.max(1, width - railInset * 2)
-    var normalized = (Number(relativeMinutes || 0) + timelineExtent) / (timelineExtent * 2)
-    return railInset + Math.max(0, Math.min(1, normalized)) * usable
+  function timelineHoverMatches(localMinutes) {
+    return TimelineHoverState.matchesMinutes(timelineHoverOwners, localMinutes)
   }
 
-  function timelineX(relativeMinutes, width, itemWidth) {
-    var center = timelinePosition(relativeMinutes, width)
-    return Math.max(0, Math.min(width - itemWidth, center - itemWidth / 2))
-  }
-
-  function timelineHoverMatches(relativeMinutes) {
-    return TimelineHoverState.matchesMinutes(timelineHoverOwners, relativeMinutes)
-  }
-
-  function updateTimelineHover(owner, relativeMinutes, hovered) {
+  function updateTimelineHover(owner, localMinutes, hovered) {
     timelineHoverOwners = TimelineHoverState.updateOwners(
-      timelineHoverOwners, owner, relativeMinutes, hovered)
+      timelineHoverOwners, owner, localMinutes, hovered)
   }
 
   function clearTimelineHover() {
@@ -1065,6 +1267,7 @@ Panel {
   onOpenedChanged: {
     if (!opened) {
       globeDetailRequested = false
+      cancelScrubPreview()
       clearTimelineHover()
       return
     }
@@ -1090,6 +1293,7 @@ Panel {
   onModeChanged: {
     clearStatus()
     if (mode === "add") {
+      cancelScrubPreview()
       clearTimelineHover()
       searchVisible = false
       Qt.callLater(root.initializeGlobe)
@@ -1127,6 +1331,42 @@ Panel {
       root.snapshotActiveReference = ""
       Qt.callLater(root.flushSnapshotRequest)
       Qt.callLater(root.flushEditorRefresh)
+    }
+  }
+
+  Process {
+    id: scrubProcess
+    stdout: StdioCollector { id: scrubOutput; waitForEnd: true }
+    stderr: StdioCollector { waitForEnd: true }
+    onExited: function(exitCode) {
+      var current = root.scrubActiveTimezone === root.scrubSourceTimezone
+        && root.scrubActiveLocationSignature === root.scrubLocationSignature()
+      if (exitCode === 0 && current) {
+        try {
+          var payload = JSON.parse(String(scrubOutput.text || ""))
+          if (!payload || Number(payload.schema_version) !== 1
+              || payload.source_timezone !== root.scrubActiveTimezone
+              || (payload.time_format !== "24h" && payload.time_format !== "ampm")
+              || !TimeRail.payloadMatchesSnapshot(payload, root.snapshot)
+              || Number(payload.first_day_offset) > -1
+              || Number(payload.day_count) < 3
+              || !Array.isArray(payload.slots) || payload.slots.length === 0)
+            throw new Error("Unsupported time rail response")
+          root.scrubPayload = payload
+          var sourceClock = root.clockForScrubSource()
+          root.scrubAnchorMinute = Number(sourceClock.local_minutes || 0)
+          root.scrubSelectedSlotIndex = root.nearestScrubSlot(sourceClock)
+        } catch (error) {
+          root.scrubPayload = null
+          root.setStatus("The time rail could not be prepared.", true)
+        }
+      } else if (exitCode !== 0 && current) {
+        root.scrubPayload = null
+        root.setStatus("The time rail is unavailable.", true)
+      }
+      root.scrubActiveTimezone = ""
+      root.scrubActiveLocationSignature = ""
+      Qt.callLater(root.flushScrubRequest)
     }
   }
 
@@ -1359,6 +1599,7 @@ Panel {
         if (text === "a" || text === "A") root.mode = "add"
         else if (text === "e" || text === "E") root.mode = root.mode === "edit" ? "read" : "edit"
         else if (text === "r" || text === "R") root.returnToLive()
+        else if (text === "s" || text === "S") root.focusTimeRail()
       }
 
       // Observe pointer taps without covering the controls below. Empty
@@ -1403,7 +1644,7 @@ Panel {
 
               Button {
                 iconText: "󰑐"
-                active: !root.live
+                active: !root.live || root.scrubPreviewActive
                 enabled: !actionProcess.running
                 tooltipText: "Return to live time"
                 horizontalPadding: Style.space(8)
@@ -1415,6 +1656,7 @@ Panel {
                 id: weatherProviderAttribution
                 anchors.verticalCenter: parent.verticalCenter
                 visible: root.mode !== "add" && root.weatherEnabled && root.live
+                  && !root.scrubPreviewActive
                   && root.weather.disabled !== true
                 text: root.weatherLocations.length > 0 || !root.weatherError
                   ? "Open-Meteo"
@@ -1574,7 +1816,7 @@ Panel {
             id: readPage
             visible: root.mode !== "add"
             width: parent.width
-            spacing: Style.space(14)
+            spacing: Style.space(18)
 
             Item {
               id: summaryClock
@@ -1605,6 +1847,7 @@ Panel {
                 onActiveFocusChanged: {
                   root.editorActive = activeFocus
                   root.timeEditorActive = activeFocus
+                  if (activeFocus) root.selectScrubSource(root.summary)
                   if (!activeFocus && !conversionInvalid && text !== root.summary.time)
                     text = root.summary.time
                 }
@@ -1702,34 +1945,82 @@ Panel {
 
             Item {
               id: timelineView
-              visible: root.timeline.length > 1
+              visible: root.clocks.length > 0
               width: parent.width
-              height: visible ? Style.space(120) : 0
-              readonly property real railY: Math.round(height / 2)
+              height: visible ? Style.space(128) : 0
+              readonly property real railInset: Style.space(36)
+              readonly property real railWidth: Math.max(1, width - railInset * 2)
+              readonly property real railY: Style.space(70)
+              readonly property bool interacting:
+                root.scrubPreviewActive || railMouse.activeFocus
+              readonly property real selectedX: railInset + (interacting
+                && root.scrubSelectedFrame
+                  ? Math.max(0, Math.min(railWidth, TimeRail.framePosition(
+                    root.scrubSelectedFrame, root.scrubAnchorMinute, railWidth)))
+                  : railWidth / 2)
+              readonly property bool selectedUnavailable: root.scrubSelectedFrame
+                && !root.scrubSelectedFrame.reference_utc
+
+              Text {
+                textFormat: Text.PlainText
+                visible: root.scrubLoading || !root.scrubSourceIsSummary
+                anchors.left: parent.left
+                anchors.leftMargin: timelineView.railInset
+                anchors.top: parent.top
+                width: parent.width * 0.54
+                elide: Text.ElideRight
+                text: root.scrubLoading
+                  ? "PREPARING " + String(root.scrubSourceTitle || "TIME RAIL").toUpperCase()
+                  : "FROM " + String(root.scrubSourceTitle || root.currentLocationTitle).toUpperCase()
+                color: Qt.darker(root.contentForeground, 1.55)
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.font.caption
+                font.letterSpacing: 0.6
+              }
 
               Rectangle {
-                x: Style.space(36)
-                width: parent.width - Style.space(72)
+                x: timelineView.railInset
+                width: timelineView.railWidth
                 y: timelineView.railY
                 height: Style.spacing.hairline
                 color: root.contentForeground
-                opacity: 0.20
+                opacity: root.scrubReady ? 0.26 : 0.12
               }
 
               Repeater {
                 id: timelineTickRepeater
-                model: Math.floor(root.timelineExtent * 2 / 60) + 1
+                model: root.scrubAxisTicks
 
-                Rectangle {
+                Item {
+                  id: axisTick
                   required property int index
-                  readonly property bool major: index % 3 === 0
-                  x: root.timelinePosition(-root.timelineExtent + index * 60,
-                    timelineView.width) - width / 2
-                  y: timelineView.railY - height / 2
+                  required property var modelData
+                  x: timelineView.railInset
+                    + Number(modelData.position || 0) * timelineView.railWidth
                   width: Style.spacing.hairline
-                  height: major ? Style.space(10) : Style.space(6)
-                  color: root.contentForeground
-                  opacity: major ? 0.22 : 0.12
+                  height: timelineView.height
+
+                  Rectangle {
+                    y: timelineView.railY - height / 2
+                    width: parent.width
+                    height: axisTick.modelData.major ? Style.space(10) : Style.space(6)
+                    color: root.contentForeground
+                    opacity: axisTick.modelData.major ? 0.22 : 0.12
+                  }
+
+                  Text {
+                    textFormat: Text.PlainText
+                    visible: axisTick.modelData.major === true
+                    width: Style.space(34)
+                    x: -width / 2
+                    y: timelineView.railY + Style.space(34)
+                    horizontalAlignment: Text.AlignHCenter
+                    text: String(axisTick.modelData.label || "")
+                    color: Qt.darker(root.contentForeground, 1.65)
+                    font.family: root.contentFontFamily
+                    font.pixelSize: Style.font.caption
+                    font.letterSpacing: 0.4
+                  }
                 }
               }
 
@@ -1740,22 +2031,16 @@ Panel {
                   id: timelinePoint
                   required property int index
                   required property var modelData
-                  readonly property string hoverOwner: "timeline:" + String(index)
-                  readonly property bool localPoint:
-                    Number(modelData.relative_minutes || 0) === 0
+                  readonly property bool sourcePoint: modelData.source === true
                   readonly property bool linkedHovered:
-                    root.timelineHoverMatches(modelData.relative_minutes)
+                    root.timelineHoverMatches(modelData.minute)
                   readonly property bool upperLane: Number(modelData.lane || 0) === 0
-                  width: Style.space(96)
+                  width: Style.space(72)
                   height: parent.height
-                  x: root.timelineX(modelData.relative_minutes, timelineView.width, width)
-                  onModelDataChanged: {
-                    if (timelinePointHover.hovered)
-                      root.updateTimelineHover(hoverOwner,
-                        modelData.relative_minutes, true)
-                  }
-                  Component.onDestruction:
-                    root.updateTimelineHover(hoverOwner, 0, false)
+                  x: Math.max(0, Math.min(timelineView.width - width,
+                    timelineView.railInset
+                      + Number(modelData.position || 0) * timelineView.railWidth
+                      - width / 2))
 
                   Rectangle {
                     id: markerStem
@@ -1763,7 +2048,7 @@ Panel {
                     y: timelinePoint.upperLane
                       ? markerHalo.y - height : markerHalo.y + markerHalo.height
                     width: Style.spacing.hairline
-                    height: Style.space(9)
+                    height: Style.space(7)
                     color: root.contentForeground
                     opacity: timelinePoint.linkedHovered ? 0.48 : 0.24
 
@@ -1776,18 +2061,18 @@ Panel {
                     id: markerHalo
                     x: Math.round((parent.width - width) / 2)
                     y: timelineView.railY - height / 2
-                    width: Style.space(timelinePoint.localPoint
+                    width: Style.space(timelinePoint.sourcePoint
                       ? 11 : (Number(timelinePoint.modelData.count || 1) > 1 ? 9 : 7))
                     height: width
                     radius: width / 2
                     scale: timelinePoint.linkedHovered ? 1.45 : 1
-                    color: timelinePoint.localPoint || timelinePoint.linkedHovered
+                    color: timelinePoint.sourcePoint || timelinePoint.linkedHovered
                       ? Style.selectedFillFor(root.contentForeground, Color.accent)
                       : "transparent"
-                    border.width: timelinePoint.localPoint || timelinePoint.linkedHovered
+                    border.width: timelinePoint.sourcePoint || timelinePoint.linkedHovered
                       || Number(timelinePoint.modelData.count || 1) > 1
                       ? Style.spacing.hairline : 0
-                    border.color: timelinePoint.localPoint || timelinePoint.linkedHovered
+                    border.color: timelinePoint.sourcePoint || timelinePoint.linkedHovered
                       ? Style.selectedStateColor(root.contentForeground, Color.accent)
                       : root.contentForeground
 
@@ -1802,66 +2087,155 @@ Panel {
                       width: Style.space(5)
                       height: width
                       radius: width / 2
-                      color: timelinePoint.localPoint || timelinePoint.linkedHovered
+                      color: timelinePoint.sourcePoint || timelinePoint.linkedHovered
                         ? Style.selectedStateColor(root.contentForeground, Color.accent)
                         : root.contentForeground
-                      opacity: timelinePoint.localPoint || timelinePoint.linkedHovered ? 1 : 0.82
+                      opacity: timelinePoint.sourcePoint || timelinePoint.linkedHovered ? 1 : 0.82
 
                       Behavior on color { ColorAnimation { duration: 150 } }
                       Behavior on opacity { NumberAnimation { duration: 150 } }
                     }
                   }
 
-                  Item {
-                    width: Style.space(24)
-                    height: width
-                    x: Math.round((parent.width - width) / 2)
-                    y: timelineView.railY - height / 2
-
-                    HoverHandler {
-                      id: timelinePointHover
-                      onHoveredChanged: root.updateTimelineHover(
-                        timelinePoint.hoverOwner,
-                        timelinePoint.modelData.relative_minutes, hovered)
-                    }
-                  }
-
-                  Column {
+                  Text {
+                    textFormat: Text.PlainText
                     id: timelineLabel
+                    visible: !(timelinePoint.sourcePoint && scrubValueBubble.visible)
                     width: parent.width
-                    spacing: Style.space(2)
                     y: timelinePoint.upperLane
-                      ? markerStem.y - height - Style.space(4)
-                      : markerStem.y + markerStem.height + Style.space(4)
+                      ? timelineView.railY - height - Style.space(14)
+                      : timelineView.railY + Style.space(13)
+                    horizontalAlignment: Text.AlignHCenter
+                    elide: Text.ElideRight
+                    text: String(timelinePoint.modelData.label || "").toUpperCase()
+                    color: timelinePoint.sourcePoint || timelinePoint.linkedHovered
+                      ? Style.selectedStateColor(root.contentForeground, Color.accent)
+                      : Qt.darker(root.contentForeground, 1.45)
+                    font.family: root.contentFontFamily
+                    font.pixelSize: Style.font.caption
+                    font.bold: timelinePoint.sourcePoint || timelinePoint.linkedHovered
+                    font.letterSpacing: 0.8
 
-                    Text {
-                      textFormat: Text.PlainText
-                      width: parent.width
-                      horizontalAlignment: Text.AlignHCenter
-                      text: timelinePoint.modelData.time
-                      color: timelinePoint.localPoint || timelinePoint.linkedHovered
-                        ? Style.selectedStateColor(root.contentForeground, Color.accent)
-                        : root.contentForeground
-                      font.family: root.contentFontFamily
-                      font.pixelSize: Style.font.bodySmall
-                      font.bold: timelinePoint.localPoint || timelinePoint.linkedHovered
-
-                      Behavior on color { ColorAnimation { duration: 150 } }
-                    }
-
-                    Text {
-                      textFormat: Text.PlainText
-                      width: parent.width
-                      horizontalAlignment: Text.AlignHCenter
-                      elide: Text.ElideRight
-                      text: String(timelinePoint.modelData.label || "").toUpperCase()
-                      color: Qt.darker(root.contentForeground, 1.5)
-                      font.family: root.contentFontFamily
-                      font.pixelSize: Style.font.caption
-                      font.bold: true
-                      font.letterSpacing: 0.8
-                    }
+                    Behavior on color { ColorAnimation { duration: 150 } }
                   }
+                }
+              }
+
+              Rectangle {
+                id: scrubPlayhead
+                visible: root.scrubReady
+                x: Math.round(timelineView.selectedX - width / 2)
+                y: Style.space(34)
+                width: Style.spacing.hairline
+                height: Style.space(68)
+                color: Style.selectedStateColor(root.contentForeground, Color.accent)
+                opacity: root.scrubPreviewActive || railMouse.activeFocus ? 0.9 : 0.38
+
+                Behavior on x {
+                  enabled: !root.scrubPreviewActive
+                  NumberAnimation { duration: 85; easing.type: Easing.OutQuart }
+                }
+
+                Rectangle {
+                  anchors.centerIn: parent
+                  width: Style.space(9)
+                  height: width
+                  radius: width / 2
+                  color: Style.selectedStateColor(root.contentForeground, Color.accent)
+                }
+              }
+
+              Rectangle {
+                id: scrubValueBubble
+                visible: root.scrubReady
+                  && (root.scrubPreviewActive || railMouse.activeFocus)
+                x: Math.max(0, Math.min(timelineView.width - width,
+                  timelineView.selectedX - width / 2))
+                y: Style.space(17)
+                width: Math.max(Style.space(70), scrubValueText.implicitWidth + Style.space(16))
+                height: Style.space(24)
+                radius: Style.cornerRadius
+                color: Style.selectedFillFor(root.contentForeground, Color.accent)
+                border.width: Style.spacing.hairline
+                border.color: Style.selectedStateColor(root.contentForeground, Color.accent)
+
+                Text {
+                  textFormat: Text.PlainText
+                  id: scrubValueText
+                  anchors.centerIn: parent
+                  text: timelineView.selectedUnavailable
+                    ? "CLOCK CHANGE"
+                    : String(root.scrubSelectedFrame && root.scrubSelectedFrame.label || "")
+                      + (root.scrubSelectedFrame
+                          && root.scrubSelectedFrame.ambiguous === true ? "  ·  FIRST" : "")
+                  color: root.contentForeground
+                  font.family: root.contentFontFamily
+                  font.pixelSize: Style.font.bodySmall
+                  font.bold: true
+                  font.letterSpacing: 0.5
+                }
+              }
+
+              MouseArea {
+                id: railMouse
+                z: 10
+                x: timelineView.railInset
+                y: Style.space(16)
+                width: timelineView.railWidth
+                height: Style.space(91)
+                enabled: root.scrubReady && root.mode === "read"
+                hoverEnabled: true
+                activeFocusOnTab: true
+                cursorShape: Qt.SizeHorCursor
+                Accessible.role: Accessible.Slider
+                Accessible.name: "Compare times across the day"
+                Accessible.description:
+                  "Move the pointer or use Left and Right. Press Enter or click to set the time."
+                function previewAtPosition(position) {
+                  root.applyScrubSlot(TimeRail.centeredSlotIndexAt(
+                    position, width, root.scrubPayload, root.scrubAnchorMinute))
+                }
+                onEntered: previewAtPosition(mouseX)
+                onPositionChanged: function(mouse) { previewAtPosition(mouse.x) }
+                onExited: root.cancelScrubPreview()
+                onPressed: function(mouse) {
+                  forceActiveFocus(Qt.MouseFocusReason)
+                  previewAtPosition(mouse.x)
+                }
+                onClicked: root.lockScrubSelection()
+                onActiveFocusChanged: {
+                  if (activeFocus && !root.scrubPreviewActive)
+                    root.applyScrubSlot(root.scrubSelectedSlotIndex)
+                  else if (!activeFocus && !containsMouse)
+                    root.cancelScrubPreview()
+                }
+                Keys.onLeftPressed: function(event) {
+                  root.moveScrubSelection(
+                    event.modifiers & Qt.ShiftModifier ? -4 : -1)
+                  event.accepted = true
+                }
+                Keys.onRightPressed: function(event) {
+                  root.moveScrubSelection(
+                    event.modifiers & Qt.ShiftModifier ? 4 : 1)
+                  event.accepted = true
+                }
+                Keys.onReturnPressed: function(event) {
+                  root.lockScrubSelection()
+                  event.accepted = true
+                }
+                Keys.onEnterPressed: function(event) {
+                  root.lockScrubSelection()
+                  event.accepted = true
+                }
+                Keys.onPressed: function(event) {
+                  if (event.key !== Qt.Key_Home) return
+                  root.returnToLive()
+                  event.accepted = true
+                }
+                Keys.onEscapePressed: function(event) {
+                  root.cancelScrubPreview()
+                  keyCatcher.forceActiveFocus(Qt.ShortcutFocusReason)
+                  event.accepted = true
                 }
               }
             }
@@ -1911,7 +2285,7 @@ Panel {
                         root.keyboardCursorActive
                           && root.keyboardClockIndex === clockIndex
                       readonly property bool linkedHovered:
-                        root.timelineHoverMatches(clockData.relative_minutes)
+                        root.timelineHoverMatches(clockData.local_minutes)
                       property bool labelEditing: false
                       function focusTimeEditor() {
                         cardTimeInput.forceActiveFocus(Qt.ShortcutFocusReason)
@@ -1945,7 +2319,7 @@ Panel {
                         if (!cardLabelInput.activeFocus) cardLabelInput.resetText()
                         if (cardHoverHandler.hovered)
                           root.updateTimelineHover(hoverOwner,
-                            clockData.relative_minutes, true)
+                            clockData.local_minutes, true)
                       }
                       Component.onDestruction:
                         root.updateTimelineHover(hoverOwner, 0, false)
@@ -1957,7 +2331,7 @@ Panel {
                         id: cardHoverHandler
                         onHoveredChanged: root.updateTimelineHover(
                           clockCell.hoverOwner,
-                          clockCell.clockData.relative_minutes, hovered)
+                          clockCell.clockData.local_minutes, hovered)
                       }
 
                       Rectangle {
@@ -2137,6 +2511,8 @@ Panel {
                           onActiveFocusChanged: {
                             root.editorActive = activeFocus
                             root.timeEditorActive = activeFocus
+                            if (activeFocus)
+                              root.selectScrubSource(clockCell.clockData)
                             if (!activeFocus && !conversionInvalid
                                 && text !== clockCell.clockData.time)
                               text = clockCell.clockData.time

@@ -1,7 +1,7 @@
 use std::fs;
 use std::process::Command;
 
-const BACKEND_PROTOCOL_VERSION: u64 = 2;
+const BACKEND_PROTOCOL_VERSION: u64 = 3;
 
 #[test]
 fn package_exposes_only_the_quattro_backend_binary() {
@@ -123,6 +123,41 @@ fn bundled_backend_supports_the_complete_quattro_command_protocol() {
         .unwrap()
         .iter()
         .any(|city| city["timezone"] == "Asia/Tokyo" && city["title"] != "Tokyo"));
+
+    let scrub = Command::new(backend)
+        .args(["scrub", "--timezone", "UTC", "--at", "2026-08-11T11:05:00Z"])
+        .env("HOME", &home)
+        .env("OMARCHY_WORLD_CLOCK_CONFIG", &config_path)
+        .output()
+        .expect("render scrub day");
+    assert!(scrub.status.success());
+    let scrub: serde_json::Value = serde_json::from_slice(&scrub.stdout).expect("parse scrub day");
+    assert_eq!(scrub["schema_version"], 1);
+    assert_eq!(scrub["source_timezone"], "UTC");
+    assert_eq!(scrub["date"], "2026-08-11");
+    assert_eq!(scrub["time_format"], "24h");
+    let scrub_locations = scrub["locations"].as_array().expect("scrub locations");
+    let snapshot_locations = std::iter::once(&snapshot["summary"])
+        .chain(snapshot["clocks"].as_array().expect("snapshot clocks"));
+    assert_eq!(
+        scrub_locations.len(),
+        snapshot["clocks"].as_array().unwrap().len() + 1
+    );
+    for (scrub_location, snapshot_location) in scrub_locations.iter().zip(snapshot_locations) {
+        assert_eq!(scrub_location["timezone"], snapshot_location["timezone"]);
+        assert_eq!(scrub_location["label"], snapshot_location["label"]);
+    }
+    assert_eq!(scrub["step_minutes"], 15);
+    assert_eq!(scrub["first_day_offset"], -1);
+    assert_eq!(scrub["day_count"], 3);
+    assert_eq!(scrub["slots"].as_array().map(Vec::len), Some(288));
+    assert_eq!(scrub["slots"][140]["day_offset"], 0);
+    assert_eq!(scrub["slots"][140]["minute"], 660);
+    assert_eq!(scrub["slots"][140]["label"], "11:00");
+    assert_eq!(
+        scrub["slots"][140]["reference_utc"],
+        "2026-08-11T11:00:00+00:00"
+    );
 
     let conversion = Command::new(backend)
         .args([

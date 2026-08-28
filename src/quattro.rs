@@ -155,6 +155,7 @@ pub struct QuattroScrubPayload {
     pub source_timezone: String,
     pub date: String,
     pub date_label: String,
+    pub time_format: String,
     pub step_minutes: u32,
     pub first_day_offset: i64,
     pub day_count: u32,
@@ -390,6 +391,7 @@ pub fn build_scrub_payload(
         source_timezone: source_timezone.to_string(),
         date: source_date.format("%Y-%m-%d").to_string(),
         date_label: source_date.format("%a, %b %-d").to_string(),
+        time_format: time_format.to_string(),
         step_minutes: SCRUB_STEP_MINUTES,
         first_day_offset,
         day_count,
@@ -747,6 +749,7 @@ mod tests {
         let eleven = &payload.slots[96 + 44];
 
         assert_eq!(payload.date, "2026-08-11");
+        assert_eq!(payload.time_format, "24h");
         assert_eq!(payload.step_minutes, 15);
         assert_eq!(payload.first_day_offset, -1);
         assert_eq!(payload.day_count, 3);

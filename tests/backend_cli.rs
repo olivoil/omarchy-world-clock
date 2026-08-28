@@ -135,6 +135,7 @@ fn bundled_backend_supports_the_complete_quattro_command_protocol() {
     assert_eq!(scrub["schema_version"], 1);
     assert_eq!(scrub["source_timezone"], "UTC");
     assert_eq!(scrub["date"], "2026-08-11");
+    assert_eq!(scrub["time_format"], "24h");
     assert_eq!(scrub["step_minutes"], 15);
     assert_eq!(scrub["first_day_offset"], -1);
     assert_eq!(scrub["day_count"], 3);

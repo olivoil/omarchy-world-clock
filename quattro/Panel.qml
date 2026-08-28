@@ -211,6 +211,8 @@ Panel {
     if (!sourceClock) return false
     return String(scrubPayload.date || "") === String(sourceClock.date || "")
       && scrubPayloadLocationSignature === root.scrubLocationSignature()
+      && String(scrubPayload.time_format || "")
+        === String(snapshot.time_format || "24h")
   }
   readonly property var scrubAxisTicks:
     TimeRail.axisTicks(scrubAnchorMinute, String(snapshot.time_format || "24h"))
@@ -571,9 +573,11 @@ Panel {
     scrubSourceTitle = String(clock.title || clock.label || timezone)
     scrubSourceKey = conversionSource(clock)
     var date = String(clock.date || "")
+    var timeFormat = String(snapshot.time_format || "24h")
     var locationSignature = scrubLocationSignature()
     if (scrubPayload && scrubPayload.source_timezone === timezone
         && String(scrubPayload.date || "") === date
+        && String(scrubPayload.time_format || "") === timeFormat
         && scrubPayloadLocationSignature === locationSignature) {
       if (scrubSelectedSlotIndex < 0)
         scrubSelectedSlotIndex = nearestScrubSlot(clock)
@@ -1344,6 +1348,7 @@ Panel {
           var payload = JSON.parse(String(scrubOutput.text || ""))
           if (!payload || Number(payload.schema_version) !== 1
               || payload.source_timezone !== root.scrubActiveTimezone
+              || (payload.time_format !== "24h" && payload.time_format !== "ampm")
               || Number(payload.first_day_offset) > -1
               || Number(payload.day_count) < 3
               || !Array.isArray(payload.slots) || payload.slots.length === 0)

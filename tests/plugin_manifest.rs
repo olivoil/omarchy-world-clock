@@ -275,6 +275,15 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(scrub_ready
         .contains("String(scrubPayload.date || \"\") === String(sourceClock.date || \"\")"));
     assert!(scrub_ready.contains("scrubPayloadLocationSignature === root.scrubLocationSignature()"));
+    assert!(scrub_ready.contains(
+        "String(scrubPayload.time_format || \"\")\n        === String(snapshot.time_format || \"24h\")"
+    ));
+    let request_scrub = panel
+        .split("function requestScrubFor(clock) {")
+        .nth(1)
+        .and_then(|source| source.split("function startScrubRequest() {").next())
+        .expect("requestScrubFor function body");
+    assert!(request_scrub.contains("String(scrubPayload.time_format || \"\") === timeFormat"));
     assert!(panel.contains("visible: root.scrubLoading || !root.scrubSourceIsSummary"));
     assert!(panel.contains("TimeRail.centeredSlotIndexAt("));
     assert!(panel.contains("TimeRail.framePosition("));

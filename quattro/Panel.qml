@@ -96,6 +96,7 @@ Panel {
   property int scrubSelectedSlotIndex: -1
   property bool scrubPreviewActive: false
   property real scrubAnchorMinute: 0
+  property string locationView: "clocks"
 
   readonly property var barIdentity: hostWidget || root
   readonly property color contentForeground: bar ? bar.foreground : Color.foreground
@@ -143,13 +144,48 @@ Panel {
   }
   readonly property bool scrubSourceIsSummary: !scrubSourceKey
     || scrubSourceKey === root.conversionSource(root.summary)
-  readonly property int maxClocks: 9
   readonly property bool canRemove: Number(snapshot.configured_count || 0) > 1
   readonly property bool localTimezoneConfigured: snapshot.local_configured === true
-  readonly property int nonLocalLocationCount: Math.max(0,
-    Number(snapshot.configured_count || 0) - (localTimezoneConfigured ? 1 : 0))
-  readonly property bool canAdd: nonLocalLocationCount < maxClocks
-    || nonLocalLocationCount === maxClocks && !localTimezoneConfigured
+  readonly property var scheduleEntries: snapshotLoaded
+    ? [summary].concat(clocks) : []
+  readonly property int compactClockColumns: panelScroll.width >= Style.space(780)
+    ? 5 : (panelScroll.width >= Style.space(620) ? 4 : 3)
+  readonly property int scheduleColumnCount: panelScroll.width >= Style.space(700) ? 2 : 1
+  readonly property real comfortableClockGridHeight: {
+    var rows = Math.ceil(clocks.length / 3)
+    return rows <= 0 ? 0
+      : rows * Style.space(100) + (rows - 1) * Style.space(14)
+  }
+  readonly property real comfortableRequiredHeight: panelHeader.height
+    + panelColumn.spacing + Style.space(92)
+    + (timelineView.visible ? Style.space(18) + Style.space(128) : 0)
+    + (clocks.length > 0 ? Style.space(18) + comfortableClockGridHeight : 0)
+  readonly property real readHeightLimit: {
+    var available = Number(panel.availableCardHeight || 0)
+    var cap = Style.space(680)
+    var outer = available > 0 ? Math.min(available, cap) : cap
+    return Math.max(0, outer - panel.verticalContentInset)
+  }
+  readonly property bool autoCompactDensity: clocks.length > 0
+    && comfortableRequiredHeight > readHeightLimit + Style.space(1)
+  readonly property bool compactDensity: mode === "read" && autoCompactDensity
+  readonly property int clockColumnCount: compactDensity ? compactClockColumns : 3
+  readonly property real clockGridHeight: {
+    var rows = Math.ceil(clocks.length / clockColumnCount)
+    if (rows <= 0) return 0
+    var rowHeight = Style.space(compactDensity
+      ? 76 : (mode === "edit" ? 110 : 100))
+    var rowSpacing = Style.space(compactDensity ? 8 : 14)
+    return rows * rowHeight + (rows - 1) * rowSpacing
+  }
+  readonly property real scheduleGridHeight: {
+    var rows = Math.ceil(scheduleEntries.length / scheduleColumnCount)
+    return rows <= 0 ? 0
+      : rows * Style.space(38) + (rows - 1) * Style.space(4)
+  }
+  readonly property real stableLocationViewHeight: clocks.length === 0
+    ? 0 : (mode === "read"
+      ? Math.max(clockGridHeight, scheduleGridHeight) : clockGridHeight)
   readonly property bool showOpenMeteoAttribution: {
     if (!searchVisible || !Array.isArray(searchResults)) return false
     for (var resultIndex = 0; resultIndex < searchResults.length; resultIndex++)
@@ -203,15 +239,8 @@ Panel {
   readonly property bool scrubLoading: scrubProcess.running
     && scrubActiveTimezone === scrubSourceTimezone
   readonly property bool scrubReady: {
-    if (scrubPayload === null
-        || scrubPayload.source_timezone !== scrubSourceTimezone
-        || scrubSlots.length === 0) return false
-    var sourceClock = root.clockForScrubSource()
-    if (!sourceClock) return false
-    return String(scrubPayload.date || "") === String(sourceClock.date || "")
-      && TimeRail.payloadMatchesSnapshot(scrubPayload, snapshot)
-      && String(scrubPayload.time_format || "")
-        === String(snapshot.time_format || "24h")
+    return TimeRail.scrubPayloadReady(scrubPayload, snapshot,
+      scrubBaseSnapshot, scrubSourceTimezone, scrubSourceKey)
   }
   readonly property var scrubAxisTicks:
     TimeRail.axisTicks(scrubAnchorMinute, String(snapshot.time_format || "24h"))
@@ -287,7 +316,7 @@ Panel {
 
   function focusAddField(selectExisting) {
     Qt.callLater(function() {
-      if (!opened || mode !== "add" || !searchVisible || !canAdd) return
+      if (!opened || mode !== "add" || !searchVisible) return
       addField.forceActiveFocus(Qt.ShortcutFocusReason)
       if (selectExisting === false)
         addField.cursorPosition = addField.text.length
@@ -297,7 +326,7 @@ Panel {
   }
 
   function openSearch(initialText) {
-    if (mode !== "add" || !canAdd) return
+    if (mode !== "add") return
     var seed = String(initialText || "")
     searchVisible = true
     clearStatus()
@@ -412,12 +441,13 @@ Panel {
     var normalizedIndex = Number(clockIndex)
     if (!isFinite(normalizedIndex) || normalizedIndex < 0
         || normalizedIndex >= clocks.length) return null
-    var row = clockRowRepeater.itemAt(Math.floor(normalizedIndex / 3))
-    return row ? row.cellAt(normalizedIndex % 3) : null
+    var row = clockRowRepeater.itemAt(
+      Math.floor(normalizedIndex / root.clockColumnCount))
+    return row ? row.cellAt(normalizedIndex % root.clockColumnCount) : null
   }
 
   function ensureKeyboardCursorVisible() {
-    if (!keyboardCursorActive || mode === "add") return
+    if (!keyboardCursorActive || mode === "add" || locationView !== "clocks") return
     var target = keyboardClockIndex < 0
       ? summaryInput : clockCellAt(keyboardClockIndex)
     if (!target) return
@@ -441,6 +471,13 @@ Panel {
       return
     }
 
+    if (locationView === "schedule") {
+      keyboardCursorActive = false
+      keyboardClockIndex = -1
+      focusTimeRail()
+      return
+    }
+
     var count = clocks.length
     if (!keyboardCursorActive) {
       keyboardCursorActive = true
@@ -455,9 +492,11 @@ Panel {
 
     var nextIndex = keyboardClockIndex
     if (Number(dy) > 0)
-      nextIndex = nextIndex < 0 ? 0 : Math.min(count - 1, nextIndex + 3)
+      nextIndex = nextIndex < 0 ? 0
+        : Math.min(count - 1, nextIndex + clockColumnCount)
     else if (Number(dy) < 0)
-      nextIndex = nextIndex < 3 ? -1 : nextIndex - 3
+      nextIndex = nextIndex < clockColumnCount
+        ? -1 : nextIndex - clockColumnCount
     else if (Number(dx) > 0)
       nextIndex = nextIndex < 0 ? 0 : Math.min(count - 1, nextIndex + 1)
     else if (Number(dx) < 0)
@@ -484,6 +523,10 @@ Panel {
   function activateKeyboardCursor() {
     if (mode === "add") {
       openSearch()
+      return
+    }
+    if (locationView === "schedule") {
+      focusTimeRail()
       return
     }
     if (!keyboardCursorActive) {
@@ -717,6 +760,14 @@ Panel {
     applyScrubSlot(next)
   }
 
+  function applyAvailabilityScrubPosition(locationIndex, position, width) {
+    if (!scrubReady) return
+    var current = scrubSelectedSlotIndex >= 0
+      ? scrubSelectedSlotIndex : nearestScrubSlot(clockForScrubSource())
+    applyScrubSlot(TimeRail.availabilitySlotIndexAt(
+      position, width, scrubPayload, scrubAnchorMinute, locationIndex, current))
+  }
+
   function focusTimeRail() {
     if (mode !== "read" || !scrubReady) return
     railMouse.forceActiveFocus(Qt.ShortcutFocusReason)
@@ -786,6 +837,74 @@ Panel {
         || code === 85 || code === 86) return ""
     if (code === 95 || code === 96 || code === 99) return ""
     return ""
+  }
+
+  function weatherGlyphColor(item) {
+    var muted = Qt.darker(root.contentForeground, 1.45)
+    if (!item) return muted
+    var code = Number(item.weather_code)
+    if (item.is_day === false)
+      return mixColor(muted, Qt.rgba(0.50, 0.60, 0.90, 1), 0.66)
+    if (code === 0 || code === 1 || code === 2)
+      return mixColor(muted, Qt.rgba(0.96, 0.72, 0.27, 1), 0.68)
+    if (code === 45 || code === 48 || code === 3)
+      return mixColor(muted, Qt.rgba(0.58, 0.68, 0.73, 1), 0.52)
+    if (code === 51 || code === 53 || code === 55 || code === 56
+        || code === 57 || code === 61 || code === 63 || code === 65
+        || code === 66 || code === 67 || code === 80 || code === 81
+        || code === 82)
+      return mixColor(muted, Qt.rgba(0.35, 0.66, 0.84, 1), 0.64)
+    if (code === 71 || code === 73 || code === 75 || code === 77
+        || code === 85 || code === 86)
+      return mixColor(muted, Qt.rgba(0.72, 0.86, 0.92, 1), 0.58)
+    if (code === 95 || code === 96 || code === 99)
+      return mixColor(muted, Qt.rgba(0.66, 0.48, 0.84, 1), 0.64)
+    return muted
+  }
+
+  function locationViewTooltip() {
+    return locationView === "schedule"
+      ? "Show clock cards (S)" : "Show availability bars (S)"
+  }
+
+  function toggleLocationView() {
+    if (mode !== "read" || clocks.length === 0 || scrubPreviewActive) return
+    keyboardCursorActive = false
+    keyboardClockIndex = -1
+    locationView = locationView === "schedule" ? "clocks" : "schedule"
+  }
+
+  function scheduleWeekday(clock) {
+    var parts = String(clock && clock.date || "").split("-")
+    if (parts.length !== 3) return ""
+    var value = new Date(Date.UTC(Number(parts[0]), Number(parts[1]) - 1,
+      Number(parts[2]))).getUTCDay()
+    return ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"][value] || ""
+  }
+
+  function scheduleState(clock) {
+    var weekday = scheduleWeekday(clock)
+    if (weekday === "SAT" || weekday === "SUN") return "off"
+    var minute = Number(clock && clock.local_minutes)
+    if (!isFinite(minute)) return "off"
+    if (minute >= 9 * 60 && minute < 17 * 60) return "work"
+    if (minute >= 8 * 60 && minute < 9 * 60
+        || minute >= 17 * 60 && minute < 19 * 60) return "edge"
+    return "off"
+  }
+
+  function scheduleStateLabel(clock) {
+    var state = scheduleState(clock)
+    return state === "work" ? "WORK" : (state === "edge" ? "EDGE" : "OFF")
+  }
+
+  function scheduleStateColor(clock) {
+    var state = scheduleState(clock)
+    if (state === "work")
+      return Style.selectedStateColor(root.contentForeground, Color.accent)
+    if (state === "edge")
+      return mixColor(Qt.darker(root.contentForeground, 1.4), Color.accent, 0.42)
+    return Qt.darker(root.contentForeground, 1.65)
   }
 
   function weatherText(item) {
@@ -980,11 +1099,6 @@ Panel {
 
   function runAction(name, timezone, result, value) {
     if (actionProcess.running) return false
-    if (name === "add" && !canAddLocation(timezone)) {
-      setStatus("Only " + currentLocationTitle
-        + " can be added at the nine-location limit.", true)
-      return false
-    }
     if (name === "add" && result && hasMapCoordinate(result))
       mapCanvas.focusOnLocations([result])
     actionName = name
@@ -1022,14 +1136,6 @@ Panel {
 
   function removeClock(clock) {
     if (canRemove) runAction("remove", clock.timezone, clock)
-  }
-
-  function canAddLocation(timezone) {
-    if (nonLocalLocationCount < maxClocks) return true
-    if (nonLocalLocationCount > maxClocks) return false
-    var candidate = String(timezone || "").trim()
-    var localTimezone = String(snapshot.local_timezone || "").trim()
-    return !localTimezoneConfigured && candidate !== "" && candidate === localTimezone
   }
 
   function scheduleSearch() {
@@ -1071,7 +1177,7 @@ Panel {
 
   function selectFirstResult() {
     var query = String(addField.text || "").trim()
-    if (mode !== "add" || !searchVisible || !query || !canAdd
+    if (mode !== "add" || !searchVisible || !query
         || actionProcess.running) return
     if (searchResultsQuery === query) {
       if (searchResults.length > 0)
@@ -1122,7 +1228,7 @@ Panel {
   }
 
   function selectMapLocation(location) {
-    if (!location || !canAddLocation(location.timezone)) return
+    if (!location) return
     if (hasMapCoordinate(location)) {
       var projection = mapCanvas.project(location.latitude, location.longitude)
       mapSelectionCardOnRight = projection.x < mapCanvas.width / 2
@@ -1228,7 +1334,6 @@ Panel {
   }
 
   function requestMapLocation(latitude, longitude, x, y) {
-    if (!canAdd) return
     mapCursorX = x
     mapCursorY = y
     mapSelectionCardOnRight = x < mapCanvas.width / 2
@@ -1298,6 +1403,7 @@ Panel {
   }
   onModeChanged: {
     clearStatus()
+    if (mode === "edit") locationView = "clocks"
     if (mode === "add") {
       cancelScrubPreview()
       clearTimelineHover()
@@ -1315,8 +1421,6 @@ Panel {
       mapClickPending = false
     }
   }
-  onCanAddChanged: if (!canAdd && searchVisible) closeSearch()
-
   Process {
     id: snapshotProcess
     stdout: StdioCollector { id: snapshotOutput; waitForEnd: true }
@@ -1499,7 +1603,7 @@ Panel {
           root.clearStatus()
           mapCanvas.focusOnLocations(root.searchResults)
           if (root.mode === "add"
-              && root.searchSubmitQuery === root.searchResultsQuery && root.canAdd) {
+              && root.searchSubmitQuery === root.searchResultsQuery) {
             root.searchSubmitQuery = ""
             root.selectMapLocation(root.searchResults[0])
           }
@@ -1605,7 +1709,7 @@ Panel {
         if (text === "a" || text === "A") root.mode = "add"
         else if (text === "e" || text === "E") root.mode = root.mode === "edit" ? "read" : "edit"
         else if (text === "r" || text === "R") root.returnToLive()
-        else if (text === "s" || text === "S") root.focusTimeRail()
+        else if (text === "s" || text === "S") root.toggleLocationView()
       }
 
       // Observe pointer taps without covering the controls below. Empty
@@ -1635,6 +1739,7 @@ Panel {
           spacing: Style.space(root.mode === "add" ? 14 : 8)
 
           Item {
+            id: panelHeader
             visible: root.mode !== "add"
             width: parent.width
             height: visible
@@ -1794,11 +1899,27 @@ Panel {
 
               Button {
                 iconText: "󰐕"
-                enabled: root.canAdd && !actionProcess.running
-                tooltipText: root.canAdd ? "Add a location" : "Nine locations already shown"
+                enabled: !actionProcess.running
+                tooltipText: "Add a location"
                 horizontalPadding: Style.space(8)
                 verticalPadding: Style.space(5)
                 onClicked: root.mode = "add"
+              }
+
+              Button {
+                id: locationViewButton
+                visible: root.mode === "read" && root.clocks.length > 0
+                enabled: !root.scrubPreviewActive
+                iconText: root.locationView === "schedule" ? "󰕺" : "󰕰"
+                active: root.locationView === "schedule"
+                focusable: true
+                tooltipText: root.locationViewTooltip()
+                horizontalPadding: Style.space(8)
+                verticalPadding: Style.space(5)
+                Accessible.name: root.locationView === "schedule"
+                  ? "Show clock cards" : "Show availability bars"
+                Accessible.description: tooltipText
+                onClicked: root.toggleLocationView()
               }
 
               Button {
@@ -1812,6 +1933,7 @@ Panel {
                 verticalPadding: Style.space(5)
                 onClicked: {
                   keyCatcher.forceActiveFocus(Qt.ShortcutFocusReason)
+                  root.locationView = "clocks"
                   root.mode = root.mode === "edit" ? "read" : "edit"
                 }
               }
@@ -1903,22 +2025,36 @@ Panel {
                 Item {
                   id: summaryWeatherLine
                   visible: root.weatherPresentationActive
-                  width: Math.max(summaryWeatherText.implicitWidth,
+                  width: Math.max(summaryWeatherContent.implicitWidth,
                     summaryWeatherSkeleton.implicitWidth)
                   height: Style.space(16)
 
-                  Text {
-                    textFormat: Text.PlainText
-                    id: summaryWeatherText
+                  Row {
+                    id: summaryWeatherContent
                     visible: summaryClock.weatherData || !root.weatherLoading
                     anchors.centerIn: parent
-                    text: root.weatherGlyph(summaryClock.weatherData)
-                      + (summaryClock.weatherData ? "  " : "")
-                      + root.weatherText(summaryClock.weatherData)
-                    color: Qt.darker(root.contentForeground, 1.45)
-                    font.family: root.contentFontFamily
-                    font.pixelSize: Style.font.bodySmall
-                    font.letterSpacing: 0.3
+                    spacing: summaryClock.weatherData ? Style.space(6) : 0
+
+                    Text {
+                      textFormat: Text.PlainText
+                      id: summaryWeatherGlyph
+                      anchors.verticalCenter: parent.verticalCenter
+                      text: root.weatherGlyph(summaryClock.weatherData)
+                      color: root.weatherGlyphColor(summaryClock.weatherData)
+                      font.family: root.contentFontFamily
+                      font.pixelSize: Style.font.title
+                    }
+
+                    Text {
+                      textFormat: Text.PlainText
+                      id: summaryWeatherTemperature
+                      anchors.verticalCenter: parent.verticalCenter
+                      text: root.weatherText(summaryClock.weatherData)
+                      color: Qt.darker(root.contentForeground, 1.45)
+                      font.family: root.contentFontFamily
+                      font.pixelSize: Style.font.bodySmall
+                      font.letterSpacing: 0.3
+                    }
                   }
 
                   Row {
@@ -1969,13 +2105,17 @@ Panel {
 
               Text {
                 textFormat: Text.PlainText
-                visible: root.scrubLoading || !root.scrubSourceIsSummary
+                visible: root.locationView === "schedule"
+                  || root.scrubLoading || !root.scrubSourceIsSummary
                 anchors.left: parent.left
                 anchors.leftMargin: timelineView.railInset
+                anchors.right: parent.right
+                anchors.rightMargin: timelineView.railInset
                 anchors.top: parent.top
-                width: parent.width * 0.54
                 elide: Text.ElideRight
-                text: root.scrubLoading
+                text: root.locationView === "schedule"
+                  ? "WORK HOURS 09:00–17:00  ·  LOCAL TIME"
+                  : root.scrubLoading
                   ? "PREPARING " + String(root.scrubSourceTitle || "TIME RAIL").toUpperCase()
                   : "FROM " + String(root.scrubSourceTitle || root.currentLocationTitle).toUpperCase()
                 color: Qt.darker(root.contentForeground, 1.55)
@@ -2183,9 +2323,9 @@ Panel {
                 id: railMouse
                 z: 10
                 x: timelineView.railInset
-                y: Style.space(16)
+                y: timelineView.railY - Style.space(24)
                 width: timelineView.railWidth
-                height: Style.space(91)
+                height: Style.space(48)
                 enabled: root.scrubReady && root.mode === "read"
                 hoverEnabled: true
                 activeFocusOnTab: true
@@ -2193,23 +2333,28 @@ Panel {
                 Accessible.role: Accessible.Slider
                 Accessible.name: "Compare times across the day"
                 Accessible.description:
-                  "Move the pointer or use Left and Right. Press Enter or click to set the time."
+                  "Drag, or use Left and Right. Release or press Enter to set the time."
                 function previewAtPosition(position) {
                   root.applyScrubSlot(TimeRail.centeredSlotIndexAt(
                     position, width, root.scrubPayload, root.scrubAnchorMinute))
                 }
-                onEntered: previewAtPosition(mouseX)
-                onPositionChanged: function(mouse) { previewAtPosition(mouse.x) }
-                onExited: root.cancelScrubPreview()
+                preventStealing: true
+                onPositionChanged: function(mouse) {
+                  if (pressed) previewAtPosition(mouse.x)
+                }
                 onPressed: function(mouse) {
                   forceActiveFocus(Qt.MouseFocusReason)
                   previewAtPosition(mouse.x)
                 }
-                onClicked: root.lockScrubSelection()
+                onReleased: function(mouse) {
+                  previewAtPosition(mouse.x)
+                  root.lockScrubSelection()
+                }
+                onCanceled: root.cancelScrubPreview()
                 onActiveFocusChanged: {
                   if (activeFocus && !root.scrubPreviewActive)
                     root.applyScrubSlot(root.scrubSelectedSlotIndex)
-                  else if (!activeFocus && !containsMouse)
+                  else if (!activeFocus && !pressed)
                     root.cancelScrubPreview()
                 }
                 Keys.onLeftPressed: function(event) {
@@ -2245,30 +2390,36 @@ Panel {
 
             Column {
               id: clockRows
+              visible: root.locationView === "clocks"
               anchors.horizontalCenter: parent.horizontalCenter
               width: parent.width - Style.space(36)
-              spacing: Style.space(14)
+              height: visible ? root.stableLocationViewHeight : 0
+              spacing: Style.space(root.compactDensity ? 8 : 14)
 
               Repeater {
                 id: clockRowRepeater
-                model: Math.ceil(root.clocks.length / 3)
+                model: Math.ceil(root.clocks.length / root.clockColumnCount)
 
                 Row {
                   id: clockRow
                   required property int index
-                  readonly property int startIndex: index * 3
+                  readonly property int startIndex: index * root.clockColumnCount
                   readonly property int itemCount:
-                    Math.min(3, root.clocks.length - startIndex)
+                    Math.min(root.clockColumnCount, root.clocks.length - startIndex)
+                  readonly property real cellSpacing:
+                    Style.space(root.compactDensity ? 8 : 16)
                   readonly property real cellWidth:
-                    (clockRows.width - Style.space(32)) / 3
+                    (clockRows.width - cellSpacing * (root.clockColumnCount - 1))
+                      / root.clockColumnCount
                   function cellAt(cellIndex) {
                     return clockCellRepeater.itemAt(cellIndex)
                   }
                   anchors.horizontalCenter: parent.horizontalCenter
                   width: itemCount * cellWidth
-                    + Math.max(0, itemCount - 1) * spacing
-                  height: Style.space(root.mode === "edit" ? 110 : 100)
-                  spacing: Style.space(16)
+                    + Math.max(0, itemCount - 1) * cellSpacing
+                  height: Style.space(root.compactDensity
+                    ? 76 : (root.mode === "edit" ? 110 : 100))
+                  spacing: cellSpacing
 
                   Repeater {
                     id: clockCellRepeater
@@ -2356,11 +2507,11 @@ Panel {
                       Column {
                         id: cardContent
                         anchors.fill: parent
-                        anchors.leftMargin: Style.space(10)
-                        anchors.rightMargin: Style.space(10)
-                        anchors.topMargin: Style.space(7)
-                        anchors.bottomMargin: Style.space(7)
-                        spacing: Style.space(4)
+                        anchors.leftMargin: Style.space(root.compactDensity ? 8 : 10)
+                        anchors.rightMargin: Style.space(root.compactDensity ? 8 : 10)
+                        anchors.topMargin: Style.space(root.compactDensity ? 5 : 7)
+                        anchors.bottomMargin: Style.space(root.compactDensity ? 5 : 7)
+                        spacing: Style.space(root.compactDensity ? 1 : 4)
 
                         Item {
                           width: parent.width
@@ -2379,7 +2530,8 @@ Panel {
                             text: String(clockCell.clockData.title || "").toUpperCase()
                             color: root.contentForeground
                             font.family: root.contentFontFamily
-                            font.pixelSize: Style.font.bodySmall
+                            font.pixelSize: root.compactDensity
+                              ? Style.font.caption : Style.font.bodySmall
                             font.bold: true
                             font.letterSpacing: 1
                             elide: Text.ElideRight
@@ -2503,7 +2655,8 @@ Panel {
                           selectionColor: Style.selectionFill
                           selectedTextColor: root.contentForeground
                           font.family: root.contentFontFamily
-                          font.pixelSize: Style.font.displayLarge
+                          font.pixelSize: root.compactDensity
+                            ? Style.font.display : Style.font.displayLarge
                           font.bold: true
                           selectByMouse: true
                           enabled: root.mode === "read" && root.snapshotLoaded
@@ -2545,9 +2698,11 @@ Panel {
                             anchors.rightMargin: cardWeatherBlock.visible
                               ? Style.space(8) : 0
                             anchors.verticalCenter: parent.verticalCenter
-                            text: root.clockDayLabel(clockCell.clockData).toUpperCase()
-                              + "  ·  "
-                              + String(clockCell.clockData.relative_label || "").toUpperCase()
+                            text: root.compactDensity
+                              ? root.clockDayLabel(clockCell.clockData).toUpperCase()
+                              : root.clockDayLabel(clockCell.clockData).toUpperCase()
+                                + "  ·  "
+                                + String(clockCell.clockData.relative_label || "").toUpperCase()
                             color: Qt.darker(root.contentForeground, 1.5)
                             font.family: root.contentFontFamily
                             font.pixelSize: Style.font.caption
@@ -2589,7 +2744,7 @@ Panel {
                               anchors.baseline: cardWeatherTemperature.baseline
                               text: clockCell.weatherData === null ? ""
                                 : root.weatherGlyph(clockCell.weatherData)
-                              color: Qt.darker(root.contentForeground, 1.5)
+                              color: root.weatherGlyphColor(clockCell.weatherData)
                               font.family: root.contentFontFamily
                               font.pixelSize: Style.font.bodySmall
                             }
@@ -2614,8 +2769,226 @@ Panel {
               }
             }
 
+            Column {
+              id: scheduleRows
+              visible: root.locationView === "schedule"
+              anchors.horizontalCenter: parent.horizontalCenter
+              width: parent.width - Style.space(36)
+              height: visible ? root.stableLocationViewHeight : 0
+              spacing: Style.space(4)
+
+              Repeater {
+                model: Math.ceil(root.scheduleEntries.length
+                  / root.scheduleColumnCount)
+
+                Row {
+                  id: scheduleRow
+                  required property int index
+                  readonly property int startIndex:
+                    index * root.scheduleColumnCount
+                  readonly property int itemCount: Math.min(
+                    root.scheduleColumnCount,
+                    root.scheduleEntries.length - startIndex)
+                  readonly property real cellSpacing: Style.space(8)
+                  readonly property real cellWidth:
+                    (scheduleRows.width
+                      - cellSpacing * (root.scheduleColumnCount - 1))
+                      / root.scheduleColumnCount
+                  anchors.horizontalCenter: parent.horizontalCenter
+                  width: itemCount * cellWidth
+                    + Math.max(0, itemCount - 1) * cellSpacing
+                  height: Style.space(38)
+                  spacing: cellSpacing
+
+                  Repeater {
+                    model: scheduleRow.itemCount
+
+                    Rectangle {
+                      id: scheduleCell
+                      required property int index
+                      readonly property int locationIndex:
+                        scheduleRow.startIndex + index
+                      readonly property var clockData:
+                        root.scheduleEntries[locationIndex]
+                      readonly property string availabilityState:
+                        root.scheduleState(clockData)
+                      readonly property color availabilityColor:
+                        root.scheduleStateColor(clockData)
+                      readonly property bool sourceLocation:
+                        root.conversionSource(clockData) === root.scrubSourceKey
+                      width: scheduleRow.cellWidth
+                      height: scheduleRow.height
+                      radius: Style.cornerRadius
+                      color: sourceLocation
+                        ? Style.hoverFillFor(root.contentForeground, Color.accent)
+                        : Style.normalFillFor(root.contentForeground, Color.accent)
+                      border.width: sourceLocation ? Style.spacing.hairline : 0
+                      border.color: Style.hoverBorderFor(
+                        root.contentForeground, Color.accent)
+                      Accessible.role: Accessible.StaticText
+                      Accessible.name: String(clockData.title || "location")
+                        + ", " + String(clockData.time || "")
+                        + ", " + root.scheduleStateLabel(clockData)
+
+                      Text {
+                        textFormat: Text.PlainText
+                        id: scheduleTitle
+                        anchors.left: parent.left
+                        anchors.leftMargin: Style.space(8)
+                        anchors.top: parent.top
+                        anchors.topMargin: Style.space(3)
+                        width: Style.space(102)
+                        text: String(scheduleCell.clockData.title || "").toUpperCase()
+                        color: root.contentForeground
+                        font.family: root.contentFontFamily
+                        font.pixelSize: Style.font.caption
+                        font.bold: true
+                        font.letterSpacing: 0.6
+                        elide: Text.ElideRight
+                      }
+
+                      Row {
+                        id: scheduleLocalTimeRow
+                        anchors.left: scheduleTitle.left
+                        anchors.top: scheduleTitle.bottom
+                        width: scheduleTitle.width
+                        spacing: Style.space(4)
+
+                        Text {
+                          textFormat: Text.PlainText
+                          id: scheduleWeekdayText
+                          text: root.scheduleWeekday(scheduleCell.clockData)
+                          color: Qt.darker(root.contentForeground, 1.55)
+                          font.family: root.contentFontFamily
+                          font.pixelSize: Style.font.caption
+                        }
+
+                        Text {
+                          textFormat: Text.PlainText
+                          id: scheduleLocalTime
+                          text: String(scheduleCell.clockData.time || "")
+                          color: Style.selectedStateColor(
+                            root.contentForeground, Color.accent)
+                          font.family: root.contentFontFamily
+                          font.pixelSize: Style.font.bodySmall
+                          font.bold: true
+                          font.letterSpacing: 0.25
+                        }
+                      }
+
+                      Text {
+                        textFormat: Text.PlainText
+                        id: scheduleStateText
+                        anchors.right: parent.right
+                        anchors.rightMargin: Style.space(8)
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: Style.space(38)
+                        horizontalAlignment: Text.AlignRight
+                        text: root.scheduleStateLabel(scheduleCell.clockData)
+                        color: scheduleCell.availabilityColor
+                        font.family: root.contentFontFamily
+                        font.pixelSize: Style.font.caption
+                        font.bold: scheduleCell.availabilityState === "work"
+                        font.letterSpacing: 0.5
+                      }
+
+                      Item {
+                        id: availabilityTrack
+                        anchors.left: scheduleTitle.right
+                        anchors.leftMargin: Style.space(10)
+                        anchors.right: scheduleStateText.left
+                        anchors.rightMargin: Style.space(8)
+                        anchors.verticalCenter: parent.verticalCenter
+                        height: Style.space(10)
+
+                        Rectangle {
+                          anchors.left: parent.left
+                          anchors.right: parent.right
+                          anchors.verticalCenter: parent.verticalCenter
+                          height: Style.spacing.hairline
+                          color: root.contentForeground
+                          opacity: 0.16
+                        }
+
+                        Rectangle {
+                          x: parent.width * 9 / 24
+                          anchors.verticalCenter: parent.verticalCenter
+                          width: parent.width * 8 / 24
+                          height: Style.space(6)
+                          radius: height / 2
+                          color: Style.selectedStateColor(
+                            root.contentForeground, Color.accent)
+                          opacity: 0.22
+                        }
+
+                        Rectangle {
+                          id: availabilityMarker
+                          readonly property real minute:
+                            Math.max(0, Math.min(1439,
+                              Number(scheduleCell.clockData.local_minutes || 0)))
+                          z: 2
+                          x: Math.round(minute / 1439 * Math.max(0,
+                            parent.width - width))
+                          anchors.verticalCenter: parent.verticalCenter
+                          width: Style.space(scheduleCell.availabilityState === "edge" ? 7 : 8)
+                          height: width
+                          radius: scheduleCell.availabilityState === "edge" ? 1 : width / 2
+                          rotation: scheduleCell.availabilityState === "edge" ? 45 : 0
+                          color: scheduleCell.availabilityState === "off"
+                            ? "transparent" : scheduleCell.availabilityColor
+                          border.width: scheduleCell.availabilityState === "off"
+                            ? Style.spacing.hairline : 0
+                          border.color: scheduleCell.availabilityColor
+                          scale: availabilityDragArea.pressed
+                            ? 1.35 : (availabilityDragArea.containsMouse ? 1.18 : 1)
+
+                          Behavior on scale {
+                            NumberAnimation { duration: 140; easing.type: Easing.OutQuart }
+                          }
+                        }
+
+                        MouseArea {
+                          id: availabilityDragArea
+                          z: 3
+                          x: 0
+                          y: -(scheduleCell.height - availabilityTrack.height) / 2
+                          width: parent.width
+                          height: scheduleCell.height
+                          enabled: root.scrubReady && root.mode === "read"
+                          hoverEnabled: true
+                          preventStealing: true
+                          cursorShape: Qt.SizeHorCursor
+                          Accessible.role: Accessible.Slider
+                          Accessible.name: "Adjust "
+                            + String(scheduleCell.clockData.title || "location")
+                            + " local time"
+                          Accessible.description:
+                            "Drag horizontally and release to set this instant"
+                          function previewAtPosition(position) {
+                            root.applyAvailabilityScrubPosition(
+                              scheduleCell.locationIndex, position, width)
+                          }
+                          onPositionChanged: function(mouse) {
+                            if (pressed) previewAtPosition(mouse.x)
+                          }
+                          onPressed: function(mouse) {
+                            previewAtPosition(mouse.x)
+                          }
+                          onReleased: function(mouse) {
+                            previewAtPosition(mouse.x)
+                            root.lockScrubSelection()
+                          }
+                          onCanceled: root.cancelScrubPreview()
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+
             Button {
-              visible: root.clocks.length === 0
+              visible: root.clocks.length === 0 && root.locationView === "clocks"
               anchors.horizontalCenter: parent.horizontalCenter
               text: "Add a location"
               iconText: "󰐕"
@@ -2663,7 +3036,7 @@ Panel {
                 rightPadding: addSearchCloseButton.width + Style.spacing.controlPaddingX
                 placeholderText: "Search for a city or timezone"
                 foreground: root.contentForeground
-                enabled: root.searchVisible && root.canAdd && !actionProcess.running
+                enabled: root.searchVisible && !actionProcess.running
                 onTextChanged: root.searchTextChanged()
                 onAccepted: root.selectFirstResult()
                 onActiveFocusChanged: root.editorActive = activeFocus
@@ -2777,33 +3150,11 @@ Panel {
               onClicked: root.openSearch()
             }
 
-            Rectangle {
-              visible: !root.canAdd
-              anchors.centerIn: parent
-              width: capacityLabel.implicitWidth + Style.space(28)
-              height: capacityLabel.implicitHeight + Style.space(16)
-              z: 25
-              radius: height / 2
-              color: root.mixColor(Color.background, root.contentForeground, 0.035)
-              border.width: Style.spacing.hairline
-              border.color: root.mixColor(Color.background, root.contentForeground, 0.24)
-
-              Text {
-                textFormat: Text.PlainText
-                id: capacityLabel
-                anchors.centerIn: parent
-                text: "Remove a location before adding another."
-                color: root.contentForeground
-                font.family: root.contentFontFamily
-                font.pixelSize: Style.font.body
-              }
-            }
-
             Globe {
               id: mapCanvas
               anchors.fill: parent
               clip: true
-              interactive: root.canAdd && !actionProcess.running
+              interactive: !actionProcess.running
               highResolutionEnabled: root.opened && root.globeDetailRequested
               property var markerLayouts: root.globeLabelLayouts(width, height)
               diameterRatio: 0.63
@@ -2847,8 +3198,7 @@ Panel {
                     required property var modelData
                     width: searchResultList.width
                     height: Style.space(48)
-                    enabled: root.canAddLocation(resultButton.modelData.timezone)
-                      && !actionProcess.running
+                    enabled: !actionProcess.running
                     leftAlign: true
                     text: ""
                     onClicked: root.selectMapLocation(resultButton.modelData)
@@ -2917,7 +3267,6 @@ Panel {
                   readonly property bool configured: modelData.configured === true
                   readonly property bool searchResult: modelData.searchResult === true
                   readonly property bool selectable: !configured
-                    && root.canAddLocation(location.timezone)
                     && !actionProcess.running
                   readonly property bool selected:
                     root.mapLocationSelected(mapMarker.location)
@@ -3213,7 +3562,6 @@ Panel {
                     text: actionProcess.running && root.actionName === "add"
                       ? "Adding…" : "Add"
                     enabled: root.mapSelection !== null && !actionProcess.running
-                      && root.canAddLocation(root.mapSelection.timezone)
                     active: true
                     bordered: true
                     focusable: true

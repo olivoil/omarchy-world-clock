@@ -1,6 +1,6 @@
 use crate::config::{
     canonical_timezone_name, is_valid_timezone, place_coordinate, AppConfig, TimezoneEntry,
-    TimezoneSearchResult, CLOCK_CARD_LIMIT,
+    TimezoneSearchResult,
 };
 use crate::time::{
     format_display_time, format_timezone_notation, friendly_timezone_name, parse_timezone,
@@ -14,7 +14,6 @@ use std::{collections::BTreeMap, sync::OnceLock};
 pub const SNAPSHOT_SCHEMA_VERSION: u64 = 1;
 pub const BACKEND_PROTOCOL_VERSION: u64 = 4;
 pub const SCRUB_STEP_MINUTES: u32 = 15;
-const QUATTRO_CLOCK_LIMIT: usize = CLOCK_CARD_LIMIT;
 
 #[derive(Debug, Deserialize)]
 struct FeaturedCity {
@@ -173,6 +172,7 @@ pub struct QuattroClock {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct QuattroScrubClock {
     pub time: String,
+    pub date: String,
     pub day: String,
     pub notation: String,
     pub local_minutes: u32,
@@ -351,6 +351,7 @@ fn scrub_clock(
     let local_date = zoned_datetime(reference_utc, &clock.timezone).date_naive();
     QuattroScrubClock {
         time: clock.time,
+        date: local_date.format("%Y-%m-%d").to_string(),
         day: clock.day,
         notation: clock.notation,
         local_minutes: clock.local_minutes,
@@ -497,28 +498,6 @@ pub(crate) fn visible_location_entries(
             ))
             .then_with(|| left.display_label().cmp(&right.display_label()))
     });
-    if entries.len() > QUATTRO_CLOCK_LIMIT {
-        let mut selected = entries
-            .iter()
-            .map(|entry| config.is_pinned(entry))
-            .collect::<Vec<_>>();
-        let mut selected_count = selected.iter().filter(|selected| **selected).count();
-        for is_selected in &mut selected {
-            if selected_count >= QUATTRO_CLOCK_LIMIT {
-                break;
-            }
-            if !*is_selected {
-                *is_selected = true;
-                selected_count += 1;
-            }
-        }
-        entries = entries
-            .into_iter()
-            .zip(selected)
-            .filter_map(|(entry, selected)| selected.then_some(entry))
-            .collect();
-    }
-
     let mut visible = Vec::with_capacity(entries.len() + 1);
     visible.push(summary_entry);
     visible.extend(entries);
@@ -868,7 +847,9 @@ mod tests {
             Some("2026-08-11T16:00:00+00:00")
         );
         assert_eq!(eleven.summary.as_ref().unwrap().time, "11:00");
+        assert_eq!(eleven.summary.as_ref().unwrap().date, "2026-08-11");
         assert_eq!(eleven.clocks[0].time, "01:00");
+        assert_eq!(eleven.clocks[0].date, "2026-08-12");
         assert_eq!(eleven.clocks[0].source_day_offset, 1);
     }
 
@@ -1044,7 +1025,7 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_caps_saved_clocks_when_the_current_timezone_is_not_configured() {
+    fn snapshot_keeps_every_saved_clock_when_the_current_timezone_is_not_configured() {
         let config = AppConfig {
             timezones: vec![
                 entry("America/Vancouver", "Vancouver"),
@@ -1067,49 +1048,8 @@ mod tests {
 
         assert_eq!(snapshot.configured_count, 10);
         assert!(!snapshot.local_configured);
-        assert_eq!(snapshot.clocks.len(), 9);
-    }
-
-    #[test]
-    fn snapshot_keeps_all_pinned_clocks_inside_the_travel_cap() {
-        let config = AppConfig {
-            timezones: vec![
-                entry("America/Vancouver", "Vancouver"),
-                entry("America/Los_Angeles", "Los Angeles"),
-                entry("America/Denver", "Denver"),
-                entry("America/Chicago", "Chicago"),
-                entry("America/New_York", "New York"),
-                entry("America/Halifax", "Halifax"),
-                entry("Europe/London", "London"),
-                entry("Europe/Paris", "Paris"),
-                entry("Asia/Kolkata", "Delhi"),
-                entry("Asia/Tokyo", "Tokyo"),
-            ],
-            pinned_locations: vec![
-                LocationKey {
-                    timezone: "Asia/Kolkata".to_string(),
-                    label: "Delhi".to_string(),
-                },
-                LocationKey {
-                    timezone: "Asia/Tokyo".to_string(),
-                    label: "Tokyo".to_string(),
-                },
-            ],
-            disable_open_meteo_geolocation: false,
-        };
-        let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
-
-        let snapshot = build_snapshot(&config, now, "America/Cancun", "24h");
-
-        assert_eq!(snapshot.clocks.len(), 9);
-        assert!(snapshot
-            .clocks
-            .iter()
-            .any(|clock| clock.title == "Tokyo" && clock.pinned));
-        assert!(snapshot
-            .clocks
-            .iter()
-            .any(|clock| clock.title == "Delhi" && clock.pinned));
+        assert_eq!(snapshot.clocks.len(), 10);
+        assert!(snapshot.clocks.iter().any(|clock| clock.title == "Tokyo"));
     }
 
     #[test]

@@ -57,8 +57,15 @@ AUR package, `PATH` lookup, user-configured backend command, or install hook.
 - Opening the panel is an in-process state change; only bounded backend
   commands start an external process.
 - The panel has read, edit, and add modes.
-- Read mode shows the summary clock, proportional relative timeline, and up to
-  nine non-local location clocks in a borderless three-column layout.
+- Read mode shows the summary clock, proportional relative timeline, and every
+  non-local location clock. Comfortable density uses a borderless three-column
+  layout; automatic density switches to a denser grid when those cards would
+  exceed the panel's available height. Card density is entirely responsive,
+  not a user preference. One icon control switches between clock cards and
+  availability bars.
+- The panel height is bounded by the shell's available-card height and its
+  normal 680-pixel cap. Lists that still exceed compact density scroll inside
+  that bounded surface.
 - The current place uses an 18-pixel title at the default scale and sits close
   to its summary time, keeping place and time as the primary read-mode
   hierarchy.
@@ -134,14 +141,12 @@ Persistence rules:
 On first load, the detected local timezone is added unless already present. If
 the user later removes it, it is not automatically re-added.
 
-## Ordering and limits
+## Ordering and scale
 
 - Visible locations are ordered by wall-clock time at the reference instant.
 - Equal-time locations fall back to display-label ordering.
-- Up to nine non-local locations may be configured.
-- If travel makes more than nine configured locations non-local, every pinned
-  location remains visible so it can still be unpinned; unpinned locations fill
-  the remaining slots up to the normal nine-clock limit.
+- Any number of non-local locations may be configured and every configured
+  place remains present in snapshots, time conversion, weather, and the panel.
 - The UI never permits removing the final configured location.
 - If there are no non-local locations, opening the panel goes directly to add
   mode.
@@ -151,7 +156,23 @@ the user later removes it, it is not automatically re-added.
 The default reference instant is `now`; display clocks refresh on minute
 boundaries.
 
-The user may focus the summary time or a location time and enter:
+The user may drag the time rail and release to commit a selected instant
+without changing the active layout. A compact two-column availability-bar
+layout shows each place's emphasized local time against a 09:00–17:00
+working-hours lane. The single header control toggles cards and availability
+bars, or the user presses `S`, at either live or selected time. Large versus
+compact cards is resolved automatically from the available panel height.
+Returning to live time also preserves the chosen layout. The control lives in
+the shared header, so changing layouts keeps the summary typography, timeline
+position, and panel footprint stable and never overlaps the rail's drag band.
+Each availability lane is also a horizontal scrub target. Dragging any
+location's marker previews the corresponding local time across every location,
+and release commits the same instant through the main timeline selection
+model. The visible marker remains compact while its full lane-height hit target
+supports reliable grabbing. Merely hovering either control does not change the
+selected instant.
+
+The user may also focus the summary time or a location time and enter:
 
 - `HH:MM`
 - compact `830` or `0830`
@@ -196,7 +217,8 @@ No separate World Clock 12/24-hour preference is stored.
   row, while Open-Meteo place search remains available.
 - The header identifies the provider from the first frame while data loads, so
   an asynchronous response never changes its geometry.
-- All visible coordinates are fetched in one request when the panel opens.
+- Visible coordinates are fetched in bounded batches when the panel opens, so
+  long location lists do not create an unbounded request URL or response.
 - A successful response is reused for 15 minutes. While the panel remains
   open, a lightweight freshness check runs every 30 seconds so reopening the
   panel cannot restart the full cache interval.
@@ -268,7 +290,7 @@ Rules:
   type-to-search handler
 - a successful addition returns to the main clock view, where the new clock is
   visible as confirmation
-- a duplicate or capacity violation produces an inline error
+- a duplicate place produces an inline error
 - remote failure leaves local search usable
 
 ## Globe and map lookup
@@ -309,8 +331,8 @@ Rules:
 - The backend resolves land coordinates through the embedded compact timezone
   grid; ocean or invalid coordinates return no location.
 - Map lookup itself never calls a remote service.
-- A resolved location is persisted only from the detail card and only when the
-  capacity rule allows it.
+- A resolved location is persisted only from the detail card's explicit Add
+  action.
 
 ## Rename, pin, and remove
 
@@ -351,8 +373,17 @@ Rules:
 - Renaming persists, including for a pinned location and places that share a
   timezone.
 - Time conversion works from the summary and every visible location.
+- More than nine saved places remain visible; automatic compact density keeps
+  typical long lists together and the panel scrolls when compact rows still do
+  not fit.
+- One header icon switches clock cards and availability bars; large versus
+  compact card density is always resolved automatically.
+- Dragging and committing the time rail preserves the active layout;
+  hovering alone does not change the clocks.
+- Every availability bar can scrub and commit the shared instant, including
+  bars for non-source locations.
 - Local search and map lookup work offline.
-- Current conditions load independently, refresh as one batched request, and
+- Current conditions load independently, refresh in bounded batches, and
   never block clock rendering or conversion.
 - Remote search is attributed and can be disabled.
 - Multiple names in one timezone remain distinct.

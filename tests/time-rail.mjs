@@ -40,8 +40,32 @@ assert.equal(ampmTicks.filter(tick => tick.major).map(tick => tick.label).join("
 assert.deepEqual(ampmTicks.map(tick => tick.position), ticks.map(tick => tick.position),
   "changing the display format does not move the ticks")
 
+const availabilityPayload = {
+  step_minutes: 15,
+  slots: Array.from({ length: 96 }, (_, index) => ({
+    day_offset: 0,
+    minute: index * 15,
+    reference_utc: `slot-${index}`,
+    summary: { local_minutes: index * 15 },
+    clocks: [{ local_minutes: (index * 15 + 9 * 60) % (24 * 60) }],
+  })),
+}
+assert.equal(context.availabilitySlotIndexAt(
+  600 / 1425 * 1000, 1000, availabilityPayload, 720, 1, 0), 4,
+"dragging Tokyo's bar to 10:00 selects the same instant as 01:00 at the source")
+assert.equal(context.availabilitySlotIndexAt(
+  1000, 1000, availabilityPayload, 720, 1, 48), 59,
+"the right edge of an availability bar selects its final quarter hour")
+assert.equal(context.availabilitySlotIndexAt(
+  300 / 1425 * 1000, 1000, availabilityPayload, 720, 0, 48), 20,
+"the summary availability bar maps through the frame summary")
+assert.equal(context.availabilitySlotIndexAt(
+  500, 1000, availabilityPayload, 720, 9, 42), 42,
+"a missing location keeps the current selection")
+
 const base = {
   reference_utc: "live",
+  time_format: "24h",
   summary: {
     timezone: "America/Cancun", title: "Cancun", time: "10:00", date: "2026-08-28",
   },
@@ -64,6 +88,27 @@ assert.equal(context.payloadMatchesSnapshot({
 assert.equal(context.payloadMatchesSnapshot({
   locations: [matchingLocations.locations[0], { timezone: "Asia/Tokyo", label: "Osaka" }],
 }, base), false, "a backend clock with a different identity is rejected")
+const nextDayFrame = {
+  day_offset: 1,
+  reference_utc: "2026-08-29T05:00:00Z",
+  summary: {
+    time: "00:00", date: "2026-08-29", notation: "EST", local_minutes: 0,
+  },
+  clocks: [{
+    time: "14:00", date: "2026-08-29", notation: "JST", local_minutes: 840,
+  }],
+}
+const nextDayPreview = context.mergeSnapshot(base, nextDayFrame)
+const scrubPayload = {
+  ...matchingLocations,
+  source_timezone: "America/Cancun",
+  date: "2026-08-28",
+  time_format: "24h",
+  slots: [{}],
+}
+assert.equal(context.scrubPayloadReady(scrubPayload, nextDayPreview, base,
+  "America/Cancun", "America/Cancun\u001fCancun"), true,
+"the rail stays ready against its stable drag-start snapshot across midnight")
 const frame = {
   day_offset: 0,
   reference_utc: "2026-08-28T16:00:00Z",

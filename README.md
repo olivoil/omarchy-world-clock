@@ -63,8 +63,13 @@ the AUR package is no longer required.
   empty name to restore the location's default place name.
 - Pin any combination of places to keep compact location codes and their
   current times visible beside the bar icon.
-- Hover across the time rail to compare every place at that moment, then click
-  to keep the selected time.
+- Drag across the time rail to compare every place at that moment, then release
+  to keep the selected time in the current view.
+- Use the view icon, or press **S**, to switch between clock cards and
+  availability bars. Cards automatically become compact only when the large
+  layout would not fit.
+- Drag the marker on any availability bar to adjust that location's local time;
+  every other location follows the same instant and release commits it.
 - Select a displayed time and enter another time to convert the same instant
   across every visible place.
 - Use **plus** to open the full-panel globe. Start typing or select **search**
@@ -73,7 +78,9 @@ the AUR package is no longer required.
 
 ## Features
 
-- Up to nine non-local places in a compact three-column view.
+- Any number of saved places, with automatic large or compact cards plus a
+  bounded, scrollable panel for unusually long lists.
+- A focused availability-bar view for comparing local times and working hours.
 - An interactive, DST-aware time scrubber with day and offset context.
 - Optional current temperature and conditions for every place with a known
   coordinate.
@@ -172,7 +179,7 @@ leaving optional Open-Meteo city search available.
 
 Local timezone searches and map clicks do not call a remote service. In live
 read mode, World Clock sends the saved coordinates for visible places directly
-from the user's machine to Open-Meteo in one batched request. Results are cached
+from the user's machine to Open-Meteo in bounded batches. Results are cached
 for 15 minutes while the panel stays loaded and are attributed beside the
 weather display. When a typed place query has no local result, World Clock may
 also send that query to Open-Meteo's Geocoding API.

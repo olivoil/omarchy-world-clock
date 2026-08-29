@@ -53,6 +53,50 @@ function centeredSlotIndexAt(position, width, payload, anchorMinute) {
   return slotIndexFor(payload, dayOffset, unwrapped - dayOffset * DAY_MINUTES)
 }
 
+function frameLocationAt(frame, locationIndex) {
+  var index = Math.max(0, Math.floor(Number(locationIndex || 0)))
+  if (!frame) return null
+  if (index === 0) return frame.summary || null
+  if (!Array.isArray(frame.clocks) || index > frame.clocks.length) return null
+  return frame.clocks[index - 1] || null
+}
+
+function availabilitySlotIndexAt(position, width, payload, anchorMinute,
+                                 locationIndex, currentIndex) {
+  if (!payload || !Array.isArray(payload.slots) || payload.slots.length === 0)
+    return 0
+  var slots = payload.slots
+  var current = Math.max(0, Math.min(slots.length - 1,
+    Math.round(Number(currentIndex || 0))))
+  var step = Math.max(1, Number(payload.step_minutes || 15))
+  var maximumMinute = DAY_MINUTES - step
+  var ratio = clamp(Number(position || 0) / Math.max(1, Number(width || 0)), 0, 1)
+  var targetMinute = clamp(Math.round(ratio * maximumMinute / step) * step,
+    0, maximumMinute)
+  var bestIndex = current
+  var bestWallDelta = Number.POSITIVE_INFINITY
+  var bestIndexDelta = Number.POSITIVE_INFINITY
+
+  for (var index = 0; index < slots.length; index++) {
+    var frame = slots[index]
+    var railPosition = framePosition(frame, anchorMinute, 1)
+    if (!frame || !frame.reference_utc || railPosition < 0 || railPosition > 1)
+      continue
+    var location = frameLocationAt(frame, locationIndex)
+    var minute = Number(location && location.local_minutes)
+    if (!isFinite(minute)) continue
+    var wallDelta = Math.abs(signedMinuteDelta(minute, targetMinute))
+    var indexDelta = Math.abs(index - current)
+    if (wallDelta < bestWallDelta
+        || wallDelta === bestWallDelta && indexDelta < bestIndexDelta) {
+      bestIndex = index
+      bestWallDelta = wallDelta
+      bestIndexDelta = indexDelta
+    }
+  }
+  return bestIndex
+}
+
 function axisHourLabel(hour, timeFormat) {
   if (String(timeFormat || "").toLowerCase() === "ampm") {
     var twelveHour = hour % 12 || 12
@@ -105,6 +149,38 @@ function payloadMatchesSnapshot(payload, snapshot) {
     if (locationIdentity(payload.locations[index]) !== locationIdentity(snapshotLocations[index]))
       return false
   return true
+}
+
+function scrubPayloadReady(payload, snapshot, baseSnapshot, sourceTimezone, sourceKey) {
+  if (!payload || payload.source_timezone !== sourceTimezone
+      || !Array.isArray(payload.slots) || payload.slots.length === 0) return false
+
+  // During a drag, rendered frames replace the displayed dates. Authenticate
+  // the payload against the stable snapshot captured when the drag began.
+  var validationSnapshot = baseSnapshot || snapshot
+  if (!validationSnapshot || !validationSnapshot.summary
+      || !Array.isArray(validationSnapshot.clocks)) return false
+  var entries = [validationSnapshot.summary].concat(validationSnapshot.clocks)
+  var sourceClock = null
+  for (var index = 0; index < entries.length; index++) {
+    if (locationIdentity(entries[index]) === sourceKey) {
+      sourceClock = entries[index]
+      break
+    }
+  }
+  if (!sourceClock) {
+    for (var timezoneIndex = 0; timezoneIndex < entries.length; timezoneIndex++) {
+      if (String(entries[timezoneIndex].timezone || "") === sourceTimezone) {
+        sourceClock = entries[timezoneIndex]
+        break
+      }
+    }
+  }
+  if (!sourceClock) return false
+  return String(payload.date || "") === String(sourceClock.date || "")
+    && payloadMatchesSnapshot(payload, validationSnapshot)
+    && String(payload.time_format || "")
+      === String(validationSnapshot.time_format || "24h")
 }
 
 function mergeSnapshot(base, frame) {

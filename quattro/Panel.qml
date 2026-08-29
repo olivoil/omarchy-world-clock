@@ -97,6 +97,7 @@ Panel {
   property bool scrubPreviewActive: false
   property real scrubAnchorMinute: 0
   property string locationView: "clocks"
+  property var mutedScheduleKeys: []
 
   readonly property var barIdentity: hostWidget || root
   readonly property color contentForeground: bar ? bar.foreground : Color.foreground
@@ -874,6 +875,21 @@ Panel {
     locationView = locationView === "schedule" ? "clocks" : "schedule"
   }
 
+  function scheduleLocationMuted(clock) {
+    var key = conversionSource(clock)
+    return key !== "" && mutedScheduleKeys.indexOf(key) !== -1
+  }
+
+  function toggleScheduleLocationMuted(clock) {
+    var key = conversionSource(clock)
+    if (!key) return
+    var updated = mutedScheduleKeys.slice()
+    var index = updated.indexOf(key)
+    if (index === -1) updated.push(key)
+    else updated.splice(index, 1)
+    mutedScheduleKeys = updated
+  }
+
   function scheduleWeekday(clock) {
     var parts = String(clock && clock.date || "").split("-")
     if (parts.length !== 3) return ""
@@ -1378,6 +1394,7 @@ Panel {
   onOpenedChanged: {
     if (!opened) {
       globeDetailRequested = false
+      mutedScheduleKeys = []
       cancelScrubPreview()
       clearTimelineHover()
       return
@@ -2414,7 +2431,7 @@ Panel {
                   function cellAt(cellIndex) {
                     return clockCellRepeater.itemAt(cellIndex)
                   }
-                  anchors.horizontalCenter: parent.horizontalCenter
+                  anchors.left: parent.left
                   width: itemCount * cellWidth
                     + Math.max(0, itemCount - 1) * cellSpacing
                   height: Style.space(root.compactDensity
@@ -2794,7 +2811,7 @@ Panel {
                     (scheduleRows.width
                       - cellSpacing * (root.scheduleColumnCount - 1))
                       / root.scheduleColumnCount
-                  anchors.horizontalCenter: parent.horizontalCenter
+                  anchors.left: parent.left
                   width: itemCount * cellWidth
                     + Math.max(0, itemCount - 1) * cellSpacing
                   height: Style.space(38)
@@ -2816,9 +2833,15 @@ Panel {
                         root.scheduleStateColor(clockData)
                       readonly property bool sourceLocation:
                         root.conversionSource(clockData) === root.scrubSourceKey
+                      readonly property bool muted:
+                        root.scheduleLocationMuted(clockData)
                       width: scheduleRow.cellWidth
                       height: scheduleRow.height
                       radius: Style.cornerRadius
+                      opacity: scheduleCell.muted
+                        ? ((scheduleFocusButton.hot || scheduleFocusButton.activeFocus)
+                          ? 0.62 : 0.32)
+                        : 1
                       color: sourceLocation
                         ? Style.hoverFillFor(root.contentForeground, Color.accent)
                         : Style.normalFillFor(root.contentForeground, Color.accent)
@@ -2829,6 +2852,35 @@ Panel {
                       Accessible.name: String(clockData.title || "location")
                         + ", " + String(clockData.time || "")
                         + ", " + root.scheduleStateLabel(clockData)
+
+                      Behavior on opacity {
+                        NumberAnimation { duration: 140; easing.type: Easing.OutQuart }
+                      }
+
+                      Button {
+                        id: scheduleFocusButton
+                        anchors.left: parent.left
+                        anchors.right: scheduleTitle.right
+                        anchors.top: parent.top
+                        anchors.bottom: parent.bottom
+                        background: "transparent"
+                        foreground: root.contentForeground
+                        accent: Color.accent
+                        focusable: true
+                        tooltipText: (scheduleCell.muted ? "Include " : "Mute ")
+                          + String(scheduleCell.clockData.title || "location")
+                          + " in this comparison"
+                        Accessible.role: Accessible.CheckBox
+                        Accessible.checked: !scheduleCell.muted
+                        Accessible.name:
+                          String(scheduleCell.clockData.title || "Location")
+                          + " included in availability comparison"
+                        Accessible.description: "Toggle whether this location is emphasized. "
+                          + "Current local time "
+                          + String(scheduleCell.clockData.time || "") + ", "
+                          + root.scheduleStateLabel(scheduleCell.clockData)
+                        onClicked: root.toggleScheduleLocationMuted(scheduleCell.clockData)
+                      }
 
                       Text {
                         textFormat: Text.PlainText

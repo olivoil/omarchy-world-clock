@@ -382,6 +382,13 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
         .and_then(|source| source.split("Repeater {").next())
         .expect("clock rows geometry");
     assert!(clock_rows.contains("height: visible ? root.stableLocationViewHeight : 0"));
+    let clock_row = panel
+        .split("id: clockRow\n")
+        .nth(1)
+        .and_then(|source| source.split("Repeater {").next())
+        .expect("clock row geometry");
+    assert!(clock_row.contains("anchors.left: parent.left"));
+    assert!(!clock_row.contains("anchors.horizontalCenter: parent.horizontalCenter"));
     let schedule_rows = panel
         .split("id: scheduleRows")
         .nth(1)
@@ -390,6 +397,28 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(schedule_rows.contains("visible: root.locationView === \"schedule\""));
     assert!(schedule_rows.contains("height: visible ? root.stableLocationViewHeight : 0"));
     assert!(!schedule_rows.contains("!root.live"));
+    assert!(panel.contains("property var mutedScheduleKeys: []"));
+    let toggle_schedule_location = panel
+        .split("function toggleScheduleLocationMuted(clock) {")
+        .nth(1)
+        .and_then(|source| source.split("function scheduleWeekday(clock) {").next())
+        .expect("schedule location focus functions");
+    assert!(toggle_schedule_location.contains("mutedScheduleKeys.slice()"));
+    assert!(toggle_schedule_location.contains("updated.indexOf(key)"));
+    assert!(toggle_schedule_location.contains("mutedScheduleKeys = updated"));
+    let opened_changed = panel
+        .split("onOpenedChanged: {")
+        .nth(1)
+        .and_then(|source| source.split("onWeatherEnabledChanged:").next())
+        .expect("panel open state handler");
+    assert!(opened_changed.contains("mutedScheduleKeys = []"));
+    let schedule_row = panel
+        .split("id: scheduleRow\n")
+        .nth(1)
+        .and_then(|source| source.split("Repeater {").next())
+        .expect("schedule row geometry");
+    assert!(schedule_row.contains("anchors.left: parent.left"));
+    assert!(!schedule_row.contains("anchors.horizontalCenter: parent.horizontalCenter"));
     assert!(panel.contains("height: Style.space(38)"));
     assert!(panel.contains("id: scheduleLocalTimeRow"));
     let schedule_local_time = panel
@@ -400,6 +429,20 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(schedule_local_time.contains("Style.selectedStateColor("));
     assert!(schedule_local_time.contains("font.pixelSize: Style.font.bodySmall"));
     assert!(schedule_local_time.contains("font.bold: true"));
+    let schedule_focus_button = panel
+        .split("id: scheduleFocusButton\n")
+        .nth(1)
+        .and_then(|source| source.split("id: scheduleTitle").next())
+        .expect("schedule focus button");
+    assert!(schedule_focus_button.contains("anchors.right: scheduleTitle.right"));
+    assert!(schedule_focus_button.contains("focusable: true"));
+    assert!(schedule_focus_button.contains("Accessible.role: Accessible.CheckBox"));
+    assert!(schedule_focus_button.contains("Accessible.checked: !scheduleCell.muted"));
+    assert!(schedule_focus_button.contains(
+        "onClicked: root.toggleScheduleLocationMuted(scheduleCell.clockData)"
+    ));
+    assert!(panel.contains("opacity: scheduleCell.muted"));
+    assert!(panel.contains("Behavior on opacity"));
     assert!(panel.contains("function applyAvailabilityScrubPosition("));
     assert!(panel.contains("TimeRail.availabilitySlotIndexAt("));
     assert!(panel.contains("readonly property int locationIndex:"));

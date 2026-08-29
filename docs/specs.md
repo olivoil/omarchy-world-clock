@@ -162,6 +162,7 @@ layout shows each place's emphasized local time against a 09:00–17:00
 working-hours lane. The single header control toggles cards and availability
 bars, or the user presses `S`, at either live or selected time. Large versus
 compact cards is resolved automatically from the available panel height.
+Incomplete final rows stay aligned with the first grid column in both layouts.
 Returning to live time also preserves the chosen layout. The control lives in
 the shared header, so changing layouts keeps the summary typography, timeline
 position, and panel footprint stable and never overlaps the rail's drag band.
@@ -170,7 +171,10 @@ location's marker previews the corresponding local time across every location,
 and release commits the same instant through the main timeline selection
 model. The visible marker remains compact while its full lane-height hit target
 supports reliable grabbing. Merely hovering either control does not change the
-selected instant.
+selected instant. Clicking a location's name and local time, or focusing it and
+pressing `Enter` or `Space`, toggles that row between emphasized and muted
+without changing the selected instant. This comparison focus is temporary and
+resets when the panel closes.
 
 The user may also focus the summary time or a location time and enter:
 

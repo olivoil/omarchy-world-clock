@@ -17,18 +17,26 @@ const payload = {
     minute: index % 96 * 15,
   })),
 }
-assert.equal(context.centeredSlotIndexAt(480, 960, payload, 589), 135,
-  "the rail center snaps the 09:49 anchor to 09:45 on the current day")
-assert.equal(context.centeredSlotIndexAt(0, 960, payload, 589), 87,
-  "the left edge resolves to the previous source date")
-assert.equal(context.centeredSlotIndexAt(960, 960, payload, 589), 183,
-  "the right edge resolves to the current source date")
-assert.equal(context.centeredMinutePosition(589, 589, 960), 480,
-  "the current source minute is centered")
-assert.equal(context.centeredMinutePosition(469, 589, 960), 400,
-  "other wall times rotate around the centered source minute")
-assert.ok(context.framePosition({ day_offset: -1, minute: 1305 }, 589, 960) < 0,
-  "the previous-day snapped frame sits just outside the exact left boundary")
+assert.equal(context.draggedSlotIndexAt(0, 960, payload, 135), 135,
+  "pressing the fixed-center ruler does not jump the selected instant")
+assert.equal(context.draggedSlotIndexAt(480, 960, payload, 135), 87,
+  "pulling the ruler right brings twelve-hours-earlier instants to center")
+assert.equal(context.draggedSlotIndexAt(-480, 960, payload, 135), 183,
+  "pulling the ruler left brings twelve-hours-later instants to center")
+assert.equal(context.draggedSlotIndexAt(960, 960, payload, 5), 0,
+  "fixed-center dragging remains bounded by the earliest precomputed frame")
+assert.equal(context.draggedSlotIndexAt(-960, 960, payload, 280), 287,
+  "fixed-center dragging remains bounded by the latest precomputed frame")
+assert.equal(context.wheelSlotMotion(480, 0, 0, 0, 960, payload), -48,
+  "a horizontal touchpad gesture follows the ruler's direct-manipulation direction")
+assert.equal(context.wheelSlotMotion(-480, 0, 0, 0, 960, payload), 48,
+  "a leftward touchpad gesture advances the selected time")
+assert.equal(context.wheelSlotMotion(0, 20, 0, 0, 960, payload), -2,
+  "vertical high-resolution scrolling up moves to earlier times")
+assert.equal(context.wheelSlotMotion(0, 0, 0, 120, 960, payload), -4,
+  "one mouse-wheel notch up moves one hour earlier")
+assert.equal(context.wheelSlotMotion(0, 0, 0, -120, 960, payload), 4,
+  "one mouse-wheel notch down moves one hour later")
 const ticks = context.axisTicks(589, "24h")
 assert.equal(ticks.filter(tick => tick.major).map(tick => tick.label).join(","),
   "00,03,06,09,12,15,18,21")
@@ -39,29 +47,6 @@ assert.equal(ampmTicks.filter(tick => tick.major).map(tick => tick.label).join("
   "12 AM,3 AM,6 AM,9 AM,12 PM,3 PM,6 PM,9 PM")
 assert.deepEqual(ampmTicks.map(tick => tick.position), ticks.map(tick => tick.position),
   "changing the display format does not move the ticks")
-
-const availabilityPayload = {
-  step_minutes: 15,
-  slots: Array.from({ length: 96 }, (_, index) => ({
-    day_offset: 0,
-    minute: index * 15,
-    reference_utc: `slot-${index}`,
-    summary: { local_minutes: index * 15 },
-    clocks: [{ local_minutes: (index * 15 + 9 * 60) % (24 * 60) }],
-  })),
-}
-assert.equal(context.availabilitySlotIndexAt(
-  600 / 1425 * 1000, 1000, availabilityPayload, 720, 1, 0), 4,
-"dragging Tokyo's bar to 10:00 selects the same instant as 01:00 at the source")
-assert.equal(context.availabilitySlotIndexAt(
-  1000, 1000, availabilityPayload, 720, 1, 48), 59,
-"the right edge of an availability bar selects its final quarter hour")
-assert.equal(context.availabilitySlotIndexAt(
-  300 / 1425 * 1000, 1000, availabilityPayload, 720, 0, 48), 20,
-"the summary availability bar maps through the frame summary")
-assert.equal(context.availabilitySlotIndexAt(
-  500, 1000, availabilityPayload, 720, 9, 42), 42,
-"a missing location keeps the current selection")
 
 const base = {
   reference_utc: "live",
@@ -149,10 +134,52 @@ assert.equal(context.selectionLabel({ date: "2026-11-01" }, {
 
 const markers = context.buildMarkers(merged, "America/Cancun", 660)
 assert.equal(markers.length, 2)
-assert.equal(markers[0].minute, 60)
-assert.equal(markers[0].label, "JST +1")
-assert.equal(markers[1].source, true)
-assert.equal(markers[1].label, "EST")
+assert.equal(markers[0].source, true)
+assert.equal(markers[0].position, 0.5,
+  "the selected source timezone remains under the fixed playhead")
+assert.equal(markers[1].minute, 60)
+assert.equal(markers[1].label, "JST +1")
+assert.equal(markers[1].overflow, "next")
+assert.ok(markers[1].position > 1,
+  "a next-day timezone stays after the ruler instead of wrapping left")
+
+const overflowMarkers = context.buildMarkers({
+  summary: {
+    timezone: "America/Cancun", time: "11:00", date: "2026-08-28",
+    notation: "EST", local_minutes: 660,
+  },
+  clocks: [
+    {
+      timezone: "Asia/Tokyo", time: "01:00", date: "2026-08-29",
+      notation: "JST", local_minutes: 60,
+    },
+    {
+      timezone: "Australia/Sydney", time: "03:00", date: "2026-08-29",
+      notation: "AEST", local_minutes: 180,
+    },
+  ],
+}, "America/Cancun", 660)
+assert.equal(overflowMarkers.length, 2,
+  "multiple next-day zones share one readable overflow marker")
+assert.equal(overflowMarkers[1].overflow, "next")
+assert.equal(overflowMarkers[1].count, 2)
+assert.equal(overflowMarkers[1].label, "AEST +1 / JST +1")
+assert.deepEqual(Array.from(overflowMarkers[1].minutes), [60, 180])
+
+const previousDayMarkers = context.buildMarkers({
+  summary: {
+    timezone: "Pacific/Auckland", time: "09:00", date: "2026-08-29",
+    notation: "NZST", local_minutes: 540,
+  },
+  clocks: [{
+    timezone: "America/Los_Angeles", time: "14:00", date: "2026-08-28",
+    notation: "PDT", local_minutes: 840,
+  }],
+}, "Pacific/Auckland", 540)
+assert.equal(previousDayMarkers[0].overflow, "previous")
+assert.ok(previousDayMarkers[0].position < 0,
+  "a previous-day timezone stays before the ruler")
+assert.equal(previousDayMarkers[0].label, "PDT -1")
 
 const grouped = context.buildMarkers({
   summary: { timezone: "UTC", time: "12:00", notation: "UTC", local_minutes: 720 },

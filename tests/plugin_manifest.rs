@@ -123,17 +123,20 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
         })
         .expect("compact density binding");
     assert!(
-        !compact_density.contains("locationView"),
-        "the resolved clock density must remain stable while viewing the schedule"
+        compact_density.contains("(mode === \"read\" || mode === \"edit\") && autoCompactDensity")
     );
-    assert!(compact_density.contains("mode === \"read\" && autoCompactDensity"));
     assert!(!panel.contains("densityPreference"));
     assert!(panel.contains("readonly property int clockColumnCount"));
-    assert!(panel.contains("id: locationViewButton"));
+    assert!(panel
+        .contains("readonly property real clockRowHeight: Style.space(compactDensity ? 76 : 100)"));
+    assert!(panel
+        .contains("readonly property real clockRowSpacing: Style.space(compactDensity ? 8 : 14)"));
+    assert!(!panel.contains("root.mode === \"edit\" ? 110 : 100"));
+    assert!(!panel.contains("locationView"));
     assert!(!panel.contains("id: densityButton"));
     assert!(!panel.contains("id: scheduleViewButton"));
-    assert!(panel.contains("id: scheduleRows"));
-    assert!(panel.contains("property string locationView: \"clocks\""));
+    assert!(!panel.contains("id: scheduleRows"));
+    assert!(!panel.contains("availabilitySlotIndexAt"));
     assert!(panel.contains("readonly property bool localTimezoneConfigured"));
     assert!(panel.contains("Globe {"));
     assert!(panel.contains("snapshot.featured_cities"));
@@ -309,24 +312,56 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(request_scrub.contains("TimeRail.payloadMatchesSnapshot(scrubPayload, snapshot)"));
     assert!(panel.contains("|| !TimeRail.payloadMatchesSnapshot(payload, root.snapshot)"));
     assert!(!panel.contains("scrubPayloadLocationSignature = root.scrubActiveLocationSignature"));
-    assert!(panel.contains("visible: root.locationView === \"schedule\""));
-    assert!(panel.contains("|| root.scrubLoading || !root.scrubSourceIsSummary"));
-    assert!(panel.contains("TimeRail.centeredSlotIndexAt("));
-    assert!(panel.contains("TimeRail.framePosition("));
+    assert!(!panel.contains("WORK HOURS 09:00–17:00"));
+    assert!(!panel.contains("TimeRail.centeredSlotIndexAt("));
+    assert!(!panel.contains("TimeRail.framePosition("));
+    assert!(panel.contains("readonly property real scrubViewportMinute:"));
+    assert!(
+        panel.contains("TimeRail.buildMarkers(snapshot, scrubSourceTimezone, scrubViewportMinute)")
+    );
     assert!(panel.contains(
-        "TimeRail.axisTicks(scrubAnchorMinute, String(snapshot.time_format || \"24h\"))"
+        "TimeRail.axisTicks(scrubViewportMinute, String(snapshot.time_format || \"24h\"))"
     ));
     assert!(!panel.contains("HOVER TO COMPARE"));
     assert!(!panel.contains("CLICK TO SET"));
     assert!(panel.contains("id: scrubPlayhead"));
-    assert!(panel.contains("Behavior on x {\n                  enabled: !root.scrubPreviewActive"));
+    assert!(panel.contains("readonly property real selectedX: railInset + railWidth / 2"));
+    assert_eq!(
+        panel
+            .matches("visible: !(timelinePoint.sourcePoint && scrubPlayhead.visible)")
+            .count(),
+        2,
+        "the fixed playhead must replace the overlapping source dot and stem"
+    );
+    let scrub_playhead = panel
+        .split("id: scrubPlayhead")
+        .nth(1)
+        .and_then(|source| source.split("id: scrubValueBubble").next())
+        .expect("fixed scrub playhead body");
+    assert!(scrub_playhead.contains("x: Math.round(timelineView.selectedX - width / 2)"));
+    assert!(scrub_playhead.contains(
+        "y: scrubValueBubble.visible\n                  ? Style.space(34) : timelineView.railY - Style.space(5)"
+    ));
+    assert!(scrub_playhead.contains("y: timelineView.railY - scrubPlayhead.y - height / 2"));
+    assert!(!scrub_playhead.contains("Behavior on x"));
     assert!(panel.contains("id: scrubValueBubble"));
     assert!(panel.contains("root.scrubPreviewActive || railMouse.activeFocus || !root.live"));
     assert!(panel.contains("TimeRail.selectionLabel(root.scrubPayload,"));
     assert!(panel.contains("Accessible.name: \"Compare times across the day\""));
-    assert!(!panel.contains("onEntered: previewAtPosition"));
-    assert!(panel.contains("if (pressed) previewAtPosition(mouse.x)"));
+    assert!(panel.contains("property real pressX: 0"));
+    assert!(panel.contains("property int pressSlotIndex: -1"));
+    assert!(panel.contains("TimeRail.draggedSlotIndexAt("));
+    assert!(panel.contains("previewAtDelta(mouse.x - pressX)"));
     assert!(panel.contains("onReleased: function(mouse)"));
+    assert!(panel.contains("TimeRail.wheelSlotMotion("));
+    assert!(panel.contains("parent: timelineView"));
+    assert!(panel.contains("acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad"));
+    assert!(panel.contains("id: verticalScrubWheel"));
+    assert!(panel.contains("id: horizontalScrubWheel"));
+    assert!(panel.contains("orientation: Qt.Vertical"));
+    assert!(panel.contains("orientation: Qt.Horizontal"));
+    assert_eq!(panel.matches("railMouse.handleWheel(event)").count(), 2);
+    assert!(panel.contains("id: scrubWheelCommitTimer"));
     let lock_scrub_selection = panel
         .split("function lockScrubSelection() {")
         .nth(1)
@@ -334,33 +369,13 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
         .expect("lock scrub selection body");
     assert!(lock_scrub_selection.contains("live = false"));
     assert!(lock_scrub_selection.contains("requestSnapshot("));
-    assert!(
-        !lock_scrub_selection.contains("locationView"),
-        "committing a scrub selection must preserve the chosen task view"
-    );
-    assert!(panel.contains("function toggleLocationView()"));
-    assert!(panel.contains("else if (text === \"s\" || text === \"S\") root.toggleLocationView()"));
+    assert!(!panel.contains("function toggleLocationView()"));
     assert!(!panel.contains("function cycleLocationLayout()"));
-    let view_button = panel
-        .split("id: locationViewButton")
-        .nth(1)
-        .and_then(|source| source.split("id: editModeButton").next())
-        .expect("location view button body");
-    assert!(view_button.contains("root.mode === \"read\" && root.clocks.length > 0"));
-    assert!(view_button.contains("enabled: !root.scrubPreviewActive"));
-    assert!(view_button.contains("root.locationView === \"schedule\""));
-    assert!(view_button.contains("active: root.locationView === \"schedule\""));
-    assert!(view_button.contains("onClicked: root.toggleLocationView()"));
-    assert!(!view_button.contains("onRightClicked"));
     let shared_read_chrome = panel
         .split("id: readPage")
         .nth(1)
         .and_then(|source| source.split("id: timelineView").next())
         .expect("shared read-mode chrome");
-    assert!(
-        !shared_read_chrome.contains("root.locationView"),
-        "switching task views must not resize or re-typeset shared chrome"
-    );
     assert!(shared_read_chrome.contains("spacing: Style.space(18)"));
     assert!(shared_read_chrome.contains("height: Style.space(92)"));
     assert!(shared_read_chrome.contains("font.pixelSize: Style.space(52)"));
@@ -374,106 +389,36 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(rail_mouse.contains("y: timelineView.railY - Style.space(24)"));
     assert!(rail_mouse.contains("width: timelineView.railWidth"));
     assert!(rail_mouse.contains("height: Style.space(48)"));
-    assert!(panel.contains("readonly property real stableLocationViewHeight:"));
-    assert!(panel.contains("Math.max(clockGridHeight, scheduleGridHeight)"));
+    assert!(!panel.contains("stableLocationViewHeight"));
     let clock_rows = panel
         .split("id: clockRows")
         .nth(1)
         .and_then(|source| source.split("Repeater {").next())
         .expect("clock rows geometry");
-    assert!(clock_rows.contains("height: visible ? root.stableLocationViewHeight : 0"));
+    assert!(clock_rows.contains("height: root.clockGridHeight"));
+    assert!(clock_rows.contains("spacing: root.clockRowSpacing"));
     let clock_row = panel
         .split("id: clockRow\n")
         .nth(1)
         .and_then(|source| source.split("Repeater {").next())
         .expect("clock row geometry");
     assert!(clock_row.contains("anchors.left: parent.left"));
+    assert!(clock_row.contains("height: root.clockRowHeight"));
     assert!(!clock_row.contains("anchors.horizontalCenter: parent.horizontalCenter"));
-    let schedule_rows = panel
-        .split("id: scheduleRows")
-        .nth(1)
-        .and_then(|source| source.split("Repeater {").next())
-        .expect("schedule rows body");
-    assert!(schedule_rows.contains("visible: root.locationView === \"schedule\""));
-    assert!(schedule_rows.contains("height: visible ? root.stableLocationViewHeight : 0"));
-    assert!(!schedule_rows.contains("!root.live"));
-    assert!(panel.contains("property var mutedScheduleKeys: []"));
-    let toggle_schedule_location = panel
-        .split("function toggleScheduleLocationMuted(clock) {")
-        .nth(1)
-        .and_then(|source| source.split("function scheduleWeekday(clock) {").next())
-        .expect("schedule location focus functions");
-    assert!(toggle_schedule_location.contains("mutedScheduleKeys.slice()"));
-    assert!(toggle_schedule_location.contains("updated.indexOf(key)"));
-    assert!(toggle_schedule_location.contains("mutedScheduleKeys = updated"));
-    let opened_changed = panel
-        .split("onOpenedChanged: {")
-        .nth(1)
-        .and_then(|source| source.split("onWeatherEnabledChanged:").next())
-        .expect("panel open state handler");
-    assert!(opened_changed.contains("mutedScheduleKeys = []"));
-    let schedule_row = panel
-        .split("id: scheduleRow\n")
-        .nth(1)
-        .and_then(|source| source.split("Repeater {").next())
-        .expect("schedule row geometry");
-    assert!(schedule_row.contains("anchors.left: parent.left"));
-    assert!(!schedule_row.contains("anchors.horizontalCenter: parent.horizontalCenter"));
-    assert!(panel.contains("height: Style.space(38)"));
-    assert!(panel.contains("id: scheduleLocalTimeRow"));
-    let schedule_local_time = panel
-        .split("id: scheduleLocalTime\n")
-        .nth(1)
-        .and_then(|source| source.split("}").next())
-        .expect("schedule local time body");
-    assert!(schedule_local_time.contains("Style.selectedStateColor("));
-    assert!(schedule_local_time.contains("font.pixelSize: Style.font.bodySmall"));
-    assert!(schedule_local_time.contains("font.bold: true"));
-    let schedule_focus_button = panel
-        .split("id: scheduleFocusButton\n")
-        .nth(1)
-        .and_then(|source| source.split("id: scheduleTitle").next())
-        .expect("schedule focus button");
-    assert!(schedule_focus_button.contains("anchors.right: scheduleTitle.right"));
-    assert!(schedule_focus_button.contains("focusable: true"));
-    assert!(schedule_focus_button.contains("Accessible.role: Accessible.CheckBox"));
-    assert!(schedule_focus_button.contains("Accessible.checked: !scheduleCell.muted"));
-    assert!(schedule_focus_button.contains(
-        "onClicked: root.toggleScheduleLocationMuted(scheduleCell.clockData)"
-    ));
-    assert!(panel.contains("opacity: scheduleCell.muted"));
-    assert!(panel.contains("Behavior on opacity"));
-    assert!(panel.contains("function applyAvailabilityScrubPosition("));
-    assert!(panel.contains("TimeRail.availabilitySlotIndexAt("));
-    assert!(panel.contains("readonly property int locationIndex:"));
-    assert!(panel.contains("root.scheduleEntries[locationIndex]"));
-    assert!(panel.contains("id: availabilityMarker"));
-    assert!(panel.contains("id: availabilityDragArea"));
-    let availability_drag = panel
-        .split("id: availabilityDragArea")
-        .nth(1)
-        .and_then(|source| source.split("onCanceled: root.cancelScrubPreview()").next())
-        .expect("availability drag area body");
-    assert!(availability_drag.contains("y: -(scheduleCell.height - availabilityTrack.height) / 2"));
-    assert!(availability_drag.contains("height: scheduleCell.height"));
-    assert!(availability_drag.contains("preventStealing: true"));
-    assert!(availability_drag.contains("Accessible.role: Accessible.Slider"));
-    assert!(availability_drag.contains("if (pressed) previewAtPosition(mouse.x)"));
-    assert!(availability_drag.contains("root.lockScrubSelection()"));
+    assert!(panel.contains("readonly property string overflowDirection:"));
+    assert!(panel.contains("root.timelineMarkerHovered(modelData)"));
+    assert!(panel.contains("overflowDirection === \"previous\" ? 0"));
+    assert!(panel.contains("overflowDirection === \"next\" ? timelineView.width - width"));
+    assert!(panel.contains("\"← \""));
+    assert!(panel.contains("\"→ \""));
     let convert_process = panel
         .split("id: convertProcess")
         .nth(1)
         .and_then(|source| source.split("id: actionProcess").next())
         .expect("convert process body");
     assert!(convert_process.contains("root.live = false"));
-    assert!(
-        !convert_process.contains("root.locationView"),
-        "manual conversion must preserve the chosen task view"
-    );
     assert!(panel.contains("Keys.onLeftPressed"));
     assert!(panel.contains("Keys.onRightPressed"));
-    assert!(panel.contains("function focusTimeRail()"));
-    assert!(panel.matches("focusTimeRail()").count() >= 3);
     assert!(panel.contains("root.lockScrubSelection()"));
     assert!(panel.contains("if (activeFocus) root.selectScrubSource(root.summary)"));
     assert!(panel.contains("root.selectScrubSource(clockCell.clockData)"));
@@ -616,7 +561,6 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("text: root.currentTimezoneMetadata"));
     assert!(panel.contains("id: clockRows"));
     assert!(panel.contains("anchors.horizontalCenter: parent.horizontalCenter"));
-    assert!(panel.contains("anchors.leftMargin: Style.space(10)"));
     assert!(panel.contains("id: clockSurface"));
     assert!(panel.contains("? Style.hoverFillFor(root.contentForeground, Color.accent)"));
     assert!(panel.contains(": Style.normalFillFor(root.contentForeground, Color.accent)"));
@@ -639,10 +583,7 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
                 .next()
         })
         .expect("weather presentation binding");
-    assert!(
-        !weather_presentation.contains("locationView"),
-        "live summary weather must remain stable across clock and schedule views"
-    );
+    assert!(weather_presentation.contains("root.weatherEnabled && root.live"));
     assert!(panel.contains("root.setting(\"showWeather\", true) !== false"));
     assert!(panel.contains("function clearWeatherState()"));
     assert!(panel.contains("if (!weatherEnabled)"));
@@ -668,7 +609,6 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("color: root.weatherGlyphColor(clockCell.weatherData)"));
     assert!(panel.contains("anchors.baseline: cardWeatherTemperature.baseline"));
     assert!(panel.contains("anchors.verticalCenter: parent.verticalCenter"));
-    assert!(panel.contains("? 76 : (root.mode === \"edit\" ? 110 : 100)"));
     assert!(panel.contains("id: weatherProviderAttribution"));
     assert!(panel.contains(
         "id: weatherProviderAttribution\n                anchors.verticalCenter: parent.verticalCenter"
@@ -893,11 +833,6 @@ fn return_to_live_releases_the_active_editor_before_requesting_now() {
         .nth(1)
         .and_then(|source| source.split("function convertFrom(").next())
         .expect("returnToLive function body");
-    assert!(
-        !return_to_live.contains("locationView"),
-        "returning live must preserve the chosen task view"
-    );
-
     let invalidate = return_to_live
         .find("invalidateSnapshotRequests()")
         .expect("returning live must invalidate converted snapshot work");
@@ -912,4 +847,43 @@ fn return_to_live_releases_the_active_editor_before_requesting_now() {
         invalidate < release_focus && release_focus < request_now,
         "converted work must be invalidated and editor focus released before requesting now"
     );
+}
+
+#[test]
+fn escape_unwinds_preview_and_locked_time_before_closing() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let panel =
+        fs::read_to_string(root.join("quattro/Panel.qml")).expect("read native panel source");
+    let dismiss_time = panel
+        .split("function dismissTransientTime() {")
+        .nth(1)
+        .and_then(|source| source.split("function ").next())
+        .expect("dismissTransientTime function body");
+    let cancel_preview = dismiss_time
+        .find("if (scrubPreviewActive)")
+        .expect("Escape must cancel an in-progress scrub preview");
+    let return_live = dismiss_time
+        .find("if (!live)")
+        .expect("Escape must return a locked selection to live time");
+    assert!(cancel_preview < return_live);
+    assert!(dismiss_time.contains("cancelScrubPreview()"));
+    assert!(dismiss_time.contains("returnToLive()"));
+
+    let close_request = panel
+        .split("onCloseRequested: {")
+        .nth(1)
+        .and_then(|source| source.split("onTabRequested:").next())
+        .expect("panel Escape handler");
+    assert!(close_request.contains("!root.dismissTransientTime()"));
+    assert!(close_request.contains("root.close()"));
+
+    let rail_escape = panel
+        .split("id: railMouse")
+        .nth(1)
+        .and_then(|source| source.split("id: scrubWheelCommitTimer").next())
+        .expect("time-rail keyboard handlers");
+    assert!(rail_escape.contains("scrubWheelCommitTimer.stop()"));
+    assert!(rail_escape.contains("wheelSlotRemainder = 0"));
+    assert!(rail_escape.contains("wheelMovedSelection = false"));
+    assert!(rail_escape.contains("root.dismissTransientTime()"));
 }

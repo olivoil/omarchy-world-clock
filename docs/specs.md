@@ -61,8 +61,7 @@ AUR package, `PATH` lookup, user-configured backend command, or install hook.
   non-local location clock. Comfortable density uses a borderless three-column
   layout; automatic density switches to a denser grid when those cards would
   exceed the panel's available height. Card density is entirely responsive,
-  not a user preference. One icon control switches between clock cards and
-  availability bars.
+  not a user preference.
 - The panel height is bounded by the shell's available-card height and its
   normal 680-pixel cap. Lists that still exceed compact density scroll inside
   that bounded surface.
@@ -156,25 +155,26 @@ the user later removes it, it is not automatically re-added.
 The default reference instant is `now`; display clocks refresh on minute
 boundaries.
 
-The user may drag the time rail and release to commit a selected instant
-without changing the active layout. A compact two-column availability-bar
-layout shows each place's emphasized local time against a 09:00–17:00
-working-hours lane. The single header control toggles cards and availability
-bars, or the user presses `S`, at either live or selected time. Large versus
-compact cards is resolved automatically from the available panel height.
-Incomplete final rows stay aligned with the first grid column in both layouts.
-Returning to live time also preserves the chosen layout. The control lives in
-the shared header, so changing layouts keeps the summary typography, timeline
-position, and panel footprint stable and never overlaps the rail's drag band.
-Each availability lane is also a horizontal scrub target. Dragging any
-location's marker previews the corresponding local time across every location,
-and release commits the same instant through the main timeline selection
-model. The visible marker remains compact while its full lane-height hit target
-supports reliable grabbing. Merely hovering either control does not change the
-selected instant. Clicking a location's name and local time, or focusing it and
-pressing `Enter` or `Space`, toggles that row between emphasized and muted
-without changing the selected instant. This comparison focus is temporary and
-resets when the panel closes.
+The user may drag the time ruler and release to commit a selected instant. The
+selection playhead and value bubble remain fixed at the center while hour ticks
+move beneath them, so releasing never appears to move the chosen value back to
+the center. The ruler follows direct manipulation: dragging it right brings
+earlier time under the playhead, while dragging it left brings later time under
+the playhead. Horizontal or vertical two-finger trackpad scrolling follows the
+same earlier/later direction, and a mouse-wheel notch moves by one hour. Wheel
+and trackpad selections commit after the gesture pauses. Merely hovering or
+pressing without dragging does not change the selected instant.
+`Escape` unwinds time selection before dismissing the panel: it first cancels
+an in-progress preview, then returns an already locked selection to live time;
+another `Escape` closes the live panel.
+Large versus compact cards is resolved automatically from the available panel
+height, and incomplete final rows stay aligned with the first grid column.
+
+Timezone markers use calendar-aware positions instead of cyclic wrapping.
+Locations on the following day that fall beyond the visible 24-hour ruler are
+grouped just past its right edge and keep their `+1` label; previous-day
+locations are grouped just before the left edge with `-1`. This prevents a
+later calendar day from appearing before the selected source time.
 
 The user may also focus the summary time or a location time and enter:
 
@@ -380,12 +380,13 @@ Rules:
 - More than nine saved places remain visible; automatic compact density keeps
   typical long lists together and the panel scrolls when compact rows still do
   not fit.
-- One header icon switches clock cards and availability bars; large versus
-  compact card density is always resolved automatically.
-- Dragging and committing the time rail preserves the active layout;
-  hovering alone does not change the clocks.
-- Every availability bar can scrub and commit the shared instant, including
-  bars for non-source locations.
+- Large versus compact card density is always resolved automatically.
+- The time-rail playhead stays centered while dragging moves the hour ruler in
+  the grabbed direction; trackpad and mouse-wheel scrubbing use the same
+  earlier/later model, and hovering or pressing without dragging does not
+  change the clocks.
+- Next-day markers never wrap to the left of the selected source; out-of-range
+  day markers appear beyond the appropriate ruler edge with `+1` or `-1`.
 - Local search and map lookup work offline.
 - Current conditions load independently, refresh in bounded batches, and
   never block clock rendering or conversion.

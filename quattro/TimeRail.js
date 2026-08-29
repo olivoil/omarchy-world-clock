@@ -1,30 +1,7 @@
-function clamp(value, minimum, maximum) {
-  return Math.max(minimum, Math.min(maximum, Number(value)))
-}
-
 var DAY_MINUTES = 24 * 60
 
 function wrapMinute(value) {
   return ((Number(value || 0) % DAY_MINUTES) + DAY_MINUTES) % DAY_MINUTES
-}
-
-function signedMinuteDelta(minute, anchorMinute) {
-  return wrapMinute(Number(minute || 0) - Number(anchorMinute || 0) + DAY_MINUTES / 2)
-    - DAY_MINUTES / 2
-}
-
-function centeredMinutePosition(minute, anchorMinute, width) {
-  var normalized = (signedMinuteDelta(minute, anchorMinute) + DAY_MINUTES / 2)
-    / DAY_MINUTES
-  return normalized * Math.max(0, Number(width || 0))
-}
-
-function framePosition(frame, anchorMinute, width) {
-  if (!frame) return 0
-  var start = Number(anchorMinute || 0) - DAY_MINUTES / 2
-  var unwrapped = Number(frame.day_offset || 0) * DAY_MINUTES
-    + Number(frame.minute || 0)
-  return (unwrapped - start) / DAY_MINUTES * Math.max(0, Number(width || 0))
 }
 
 function slotsPerDay(payload) {
@@ -44,57 +21,42 @@ function slotIndexFor(payload, dayOffset, minute) {
   return Math.max(0, Math.min(payload.slots.length - 1, index))
 }
 
-function centeredSlotIndexAt(position, width, payload, anchorMinute) {
-  var extent = Math.max(1, Number(width || 0))
-  var ratio = clamp(Number(position || 0) / extent, 0, 1)
-  var unwrapped = Number(anchorMinute || 0) - DAY_MINUTES / 2
-    + ratio * DAY_MINUTES
-  var dayOffset = Math.floor(unwrapped / DAY_MINUTES)
-  return slotIndexFor(payload, dayOffset, unwrapped - dayOffset * DAY_MINUTES)
-}
-
-function frameLocationAt(frame, locationIndex) {
-  var index = Math.max(0, Math.floor(Number(locationIndex || 0)))
-  if (!frame) return null
-  if (index === 0) return frame.summary || null
-  if (!Array.isArray(frame.clocks) || index > frame.clocks.length) return null
-  return frame.clocks[index - 1] || null
-}
-
-function availabilitySlotIndexAt(position, width, payload, anchorMinute,
-                                 locationIndex, currentIndex) {
+function draggedSlotIndexAt(delta, width, payload, startIndex) {
   if (!payload || !Array.isArray(payload.slots) || payload.slots.length === 0)
     return 0
-  var slots = payload.slots
-  var current = Math.max(0, Math.min(slots.length - 1,
-    Math.round(Number(currentIndex || 0))))
   var step = Math.max(1, Number(payload.step_minutes || 15))
-  var maximumMinute = DAY_MINUTES - step
-  var ratio = clamp(Number(position || 0) / Math.max(1, Number(width || 0)), 0, 1)
-  var targetMinute = clamp(Math.round(ratio * maximumMinute / step) * step,
-    0, maximumMinute)
-  var bestIndex = current
-  var bestWallDelta = Number.POSITIVE_INFINITY
-  var bestIndexDelta = Number.POSITIVE_INFINITY
+  var extent = Math.max(1, Number(width || 0))
+  var start = Math.max(0, Math.min(payload.slots.length - 1,
+    Math.round(Number(startIndex || 0))))
+  // The playhead stays fixed, so dragging manipulates the ruler itself:
+  // pulling it right brings earlier instants under the center, and vice versa.
+  var slotDelta = -Math.round(Number(delta || 0) / extent * DAY_MINUTES / step)
+  return Math.max(0, Math.min(payload.slots.length - 1, start + slotDelta))
+}
 
-  for (var index = 0; index < slots.length; index++) {
-    var frame = slots[index]
-    var railPosition = framePosition(frame, anchorMinute, 1)
-    if (!frame || !frame.reference_utc || railPosition < 0 || railPosition > 1)
-      continue
-    var location = frameLocationAt(frame, locationIndex)
-    var minute = Number(location && location.local_minutes)
-    if (!isFinite(minute)) continue
-    var wallDelta = Math.abs(signedMinuteDelta(minute, targetMinute))
-    var indexDelta = Math.abs(index - current)
-    if (wallDelta < bestWallDelta
-        || wallDelta === bestWallDelta && indexDelta < bestIndexDelta) {
-      bestIndex = index
-      bestWallDelta = wallDelta
-      bestIndexDelta = indexDelta
-    }
+function wheelSlotMotion(pixelX, pixelY, angleX, angleY, width, payload) {
+  var perDay = slotsPerDay(payload)
+  var extent = Math.max(1, Number(width || 0))
+  var horizontalPixels = Number(pixelX || 0)
+  var verticalPixels = Number(pixelY || 0)
+  if (!isFinite(horizontalPixels)) horizontalPixels = 0
+  if (!isFinite(verticalPixels)) verticalPixels = 0
+  if (horizontalPixels !== 0 || verticalPixels !== 0) {
+    var pixels = Math.abs(horizontalPixels) >= Math.abs(verticalPixels)
+      ? horizontalPixels : verticalPixels
+    return -pixels / extent * perDay
   }
-  return bestIndex
+
+  var horizontalAngle = Number(angleX || 0)
+  var verticalAngle = Number(angleY || 0)
+  if (!isFinite(horizontalAngle)) horizontalAngle = 0
+  if (!isFinite(verticalAngle)) verticalAngle = 0
+  var angle = Math.abs(horizontalAngle) >= Math.abs(verticalAngle)
+    ? horizontalAngle : verticalAngle
+  // A conventional wheel notch covers one hour. Pixel deltas from touchpads
+  // remain proportional to the visible ruler for direct manipulation.
+  return -angle / 120 * Math.max(1, Math.round(60
+    / Math.max(1, Number(payload && payload.step_minutes || 15))))
 }
 
 function axisHourLabel(hour, timeFormat) {
@@ -248,10 +210,23 @@ function selectionLabel(payload, frame, unavailable) {
   return date || time
 }
 
-function markerLabel(clock, sourceDate) {
+function relativeDayOffset(clock, sourceClock) {
+  if (!clock) return 0
+  var clockHasOffset = clock.source_day_offset !== undefined
+    && isFinite(Number(clock.source_day_offset))
+  var sourceHasOffset = sourceClock && sourceClock.source_day_offset !== undefined
+    && isFinite(Number(sourceClock.source_day_offset))
+  if (clockHasOffset && sourceHasOffset)
+    return Math.round(Number(clock.source_day_offset)
+      - Number(sourceClock.source_day_offset))
+  if (clockHasOffset) return Math.round(Number(clock.source_day_offset))
+  if (sourceClock) return dateDayOffset(clock.date, sourceClock.date)
+  return 0
+}
+
+function markerLabel(clock, sourceClock) {
   var notation = String(clock && clock.notation || "").toUpperCase()
-  var offset = clock && clock.source_day_offset !== undefined
-    ? clock.source_day_offset : dateDayOffset(clock && clock.date, sourceDate)
+  var offset = relativeDayOffset(clock, sourceClock)
   var suffix = daySuffix(offset)
   return notation + (suffix ? " " + suffix : "")
 }
@@ -261,24 +236,33 @@ function buildMarkers(snapshot, sourceTimezone, anchorMinute) {
   var clocks = [snapshot.summary]
   if (Array.isArray(snapshot.clocks)) clocks = clocks.concat(snapshot.clocks)
   var groups = ({})
-  var sourceDate = ""
+  var sourceClock = null
   for (var sourceIndex = 0; sourceIndex < clocks.length; sourceIndex++) {
     if (String(clocks[sourceIndex].timezone || "") === String(sourceTimezone || "")) {
-      sourceDate = String(clocks[sourceIndex].date || "")
+      sourceClock = clocks[sourceIndex]
       break
     }
   }
+  if (!sourceClock) sourceClock = snapshot.summary
+  var sourceMinute = Number(anchorMinute)
+  if (!isFinite(sourceMinute)) sourceMinute = Number(sourceClock.local_minutes || 0)
 
   for (var index = 0; index < clocks.length; index++) {
     var clock = clocks[index] || ({})
     var minute = Math.round(Number(clock.local_minutes))
     if (!isFinite(minute) || minute < 0 || minute >= 24 * 60) continue
-    var key = String(minute)
+    var dayOffset = relativeDayOffset(clock, sourceClock)
+    var relativeMinute = dayOffset * DAY_MINUTES + minute - sourceMinute
+    var position = (relativeMinute + DAY_MINUTES / 2) / DAY_MINUTES
+    var overflow = position < 0 ? "previous" : (position > 1 ? "next" : "")
+    var key = overflow || String(relativeMinute)
     var group = groups[key]
     if (!group) {
       group = {
         minute: minute,
-        position: centeredMinutePosition(minute, anchorMinute, 1),
+        minutes: [],
+        position: position,
+        overflow: overflow,
         time: String(clock.time || ""),
         labels: [],
         source: false,
@@ -287,10 +271,13 @@ function buildMarkers(snapshot, sourceTimezone, anchorMinute) {
       }
       groups[key] = group
     }
-    var label = markerLabel(clock, sourceDate)
+    var label = markerLabel(clock, sourceClock)
     if (label && group.labels.indexOf(label) === -1) group.labels.push(label)
+    if (group.minutes.indexOf(minute) === -1) group.minutes.push(minute)
     if (String(clock.timezone || "") === String(sourceTimezone || "")) group.source = true
     group.count += 1
+    if (overflow === "previous") group.position = Math.min(group.position, position)
+    else if (overflow === "next") group.position = Math.max(group.position, position)
   }
 
   var markers = []
@@ -298,6 +285,7 @@ function buildMarkers(snapshot, sourceTimezone, anchorMinute) {
     if (!Object.prototype.hasOwnProperty.call(groups, minuteKey)) continue
     var marker = groups[minuteKey]
     marker.labels.sort()
+    marker.minutes.sort(function(left, right) { return left - right })
     marker.label = marker.labels.join(" / ")
     delete marker.labels
     markers.push(marker)

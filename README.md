@@ -63,13 +63,10 @@ the AUR package is no longer required.
   empty name to restore the location's default place name.
 - Pin any combination of places to keep compact location codes and their
   current times visible beside the bar icon.
-- Drag across the time rail to compare every place at that moment, then release
-  to keep the selected time in the current view.
-- Use the view icon, or press **S**, to switch between clock cards and
-  availability bars. Cards automatically become compact only when the large
-  layout would not fit.
-- Drag the marker on any availability bar to adjust that location's local time;
-  every other location follows the same instant and release commits it.
+- Drag the time ruler beneath its fixed center marker to compare every place at
+  that moment: pull right for earlier or left for later, then release to keep
+  the selection. Two-finger trackpad scrolling and the mouse wheel work too.
+- Cards automatically become compact only when the large layout would not fit.
 - Select a displayed time and enter another time to convert the same instant
   across every visible place.
 - Use **plus** to open the full-panel globe. Start typing or select **search**
@@ -80,8 +77,9 @@ the AUR package is no longer required.
 
 - Any number of saved places, with automatic large or compact cards plus a
   bounded, scrollable panel for unusually long lists.
-- A focused availability-bar view for comparing local times and working hours.
-- An interactive, DST-aware time scrubber with day and offset context.
+- An interactive, DST-aware time scrubber with a fixed playhead, direct ruler
+  dragging, trackpad and wheel input, plus explicit previous- and next-day
+  overflow context.
 - Optional current temperature and conditions for every place with a known
   coordinate.
 - Multiple named places in the same timezone, such as Boston and New York.

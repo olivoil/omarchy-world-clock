@@ -208,6 +208,14 @@ instead use `Previous day`, `Same day`, or `Next day` relative to the selected
 timeline source. The timeline selection includes that source's compact date and
 remains visible after the selected time is locked.
 
+While previewing or viewing a selected time, every location card also shows a
+passive local-day ruler seated on its bottom edge. The common left-to-right
+scale runs from 00:00 to 24:00. A neutral tonal cycle stays dim through the
+night, brightens toward noon, and fades back toward midnight; a single marker
+rises into the card at that card's `local_minutes`. The rulers disappear in live
+and edit modes, never replace the printed time, and do not label or imply
+availability. They are not an additional time-scrubbing target.
+
 Pressing `Enter` in read mode focuses and selects the summary time for direct
 replacement.
 

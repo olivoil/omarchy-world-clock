@@ -4,6 +4,12 @@ function wrapMinute(value) {
   return ((Number(value || 0) % DAY_MINUTES) + DAY_MINUTES) % DAY_MINUTES
 }
 
+function localDayPosition(localMinutes) {
+  var minute = Number(localMinutes)
+  if (!isFinite(minute)) return 0
+  return Math.max(0, Math.min(DAY_MINUTES, minute)) / DAY_MINUTES
+}
+
 function slotsPerDay(payload) {
   var step = Math.max(1, Number(payload && payload.step_minutes || 15))
   return Math.round(DAY_MINUTES / step)

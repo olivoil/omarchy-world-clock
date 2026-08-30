@@ -17,6 +17,22 @@ const payload = {
     minute: index % 96 * 15,
   })),
 }
+assert.equal(context.localDayPosition(0), 0,
+  "midnight starts the local-day ruler")
+assert.equal(context.localDayPosition(6 * 60), 0.25,
+  "06:00 sits at the first quarter of the local-day ruler")
+assert.equal(context.localDayPosition(12 * 60), 0.5,
+  "noon sits at the center of the local-day ruler")
+assert.equal(context.localDayPosition(18 * 60), 0.75,
+  "18:00 sits at the third quarter of the local-day ruler")
+assert.equal(context.localDayPosition(24 * 60), 1,
+  "the helper permits the conceptual 24:00 endpoint")
+assert.equal(context.localDayPosition(-30), 0,
+  "local-day positions stay inside the left edge")
+assert.equal(context.localDayPosition(25 * 60), 1,
+  "local-day positions stay inside the right edge")
+assert.equal(context.localDayPosition("unknown"), 0,
+  "invalid local minutes fail safely at the start of the ruler")
 assert.equal(context.draggedSlotIndexAt(0, 960, payload, 135), 135,
   "pressing the fixed-center ruler does not jump the selected instant")
 assert.equal(context.draggedSlotIndexAt(1, 960, payload, 135), 135,

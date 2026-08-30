@@ -320,6 +320,27 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("|| !TimeRail.payloadMatchesSnapshot(payload, root.snapshot)"));
     assert!(!panel.contains("scrubPayloadLocationSignature = root.scrubActiveLocationSignature"));
     assert!(!panel.contains("WORK HOURS 09:00–17:00"));
+    assert!(panel.contains("readonly property bool localDayRulersVisible:"));
+    assert!(panel.contains("mode === \"read\" && (scrubPreviewActive || !live)"));
+    assert!(panel.contains("id: cardLocalDayRuler"));
+    assert!(panel.contains("id: localDayTrack"));
+    assert!(panel.contains("orientation: Gradient.Horizontal"));
+    assert!(panel.contains("position: 0.2"));
+    assert!(panel.contains("position: 0.5"));
+    assert!(panel.contains("position: 0.8"));
+    assert!(panel.contains("TimeRail.localDayPosition(clockCell.clockData.local_minutes)"));
+    let local_day_ruler = panel
+        .split("id: cardLocalDayRuler")
+        .nth(1)
+        .and_then(|source| source.split("id: localDayMarker").next())
+        .expect("passive local-day ruler body");
+    assert!(!local_day_ruler.contains("MouseArea"));
+    let local_day_marker = panel
+        .split("id: localDayMarker")
+        .nth(1)
+        .and_then(|source| source.split("Button {").next())
+        .expect("local-day ruler marker body");
+    assert!(!local_day_marker.contains("Behavior on x"));
     assert!(!panel.contains("TimeRail.centeredSlotIndexAt("));
     assert!(!panel.contains("TimeRail.framePosition("));
     assert!(panel.contains("readonly property real scrubViewportMinute:"));

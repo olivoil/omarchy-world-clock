@@ -130,6 +130,8 @@ Panel {
     && !root.scrubPreviewActive
     && weather.disabled !== true
     && (root.weatherLoading || root.weatherLocations.length > 0)
+  readonly property bool localDayRulersVisible:
+    mode === "read" && (scrubPreviewActive || !live)
   readonly property int weatherRefreshMilliseconds: 15 * 60 * 1000
   readonly property int weatherFreshnessCheckMilliseconds: 30 * 1000
   readonly property string currentLocationTitle: {
@@ -2878,6 +2880,86 @@ Panel {
                               color: root.contentForeground
                               opacity: 0.09
                             }
+                          }
+                        }
+                      }
+
+                      Item {
+                        id: cardLocalDayRuler
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        anchors.leftMargin: Style.space(root.compactDensity ? 8 : 10)
+                        anchors.rightMargin: Style.space(root.compactDensity ? 8 : 10)
+                        height: Style.space(root.compactDensity ? 4 : 6)
+                        opacity: root.localDayRulersVisible ? 1 : 0
+
+                        Behavior on opacity {
+                          NumberAnimation { duration: 150; easing.type: Easing.OutQuart }
+                        }
+
+                        Rectangle {
+                          id: localDayTrack
+                          anchors.left: parent.left
+                          anchors.right: parent.right
+                          anchors.bottom: parent.bottom
+                          height: Style.space(2)
+                          gradient: Gradient {
+                            orientation: Gradient.Horizontal
+                            GradientStop {
+                              position: 0
+                              color: Qt.rgba(root.contentForeground.r,
+                                root.contentForeground.g, root.contentForeground.b, 0.03)
+                            }
+                            GradientStop {
+                              position: 0.2
+                              color: Qt.rgba(root.contentForeground.r,
+                                root.contentForeground.g, root.contentForeground.b, 0.035)
+                            }
+                            GradientStop {
+                              position: 0.3
+                              color: Qt.rgba(root.contentForeground.r,
+                                root.contentForeground.g, root.contentForeground.b, 0.1)
+                            }
+                            GradientStop {
+                              position: 0.5
+                              color: Qt.rgba(root.contentForeground.r,
+                                root.contentForeground.g, root.contentForeground.b, 0.16)
+                            }
+                            GradientStop {
+                              position: 0.7
+                              color: Qt.rgba(root.contentForeground.r,
+                                root.contentForeground.g, root.contentForeground.b, 0.1)
+                            }
+                            GradientStop {
+                              position: 0.8
+                              color: Qt.rgba(root.contentForeground.r,
+                                root.contentForeground.g, root.contentForeground.b, 0.035)
+                            }
+                            GradientStop {
+                              position: 1
+                              color: Qt.rgba(root.contentForeground.r,
+                                root.contentForeground.g, root.contentForeground.b, 0.03)
+                            }
+                          }
+                        }
+
+                        Rectangle {
+                          id: localDayMarker
+                          readonly property real dayPosition:
+                            TimeRail.localDayPosition(clockCell.clockData.local_minutes)
+                          x: Math.round(dayPosition * Math.max(0,
+                            parent.width - width))
+                          anchors.bottom: parent.bottom
+                          width: Style.spacing.hairline
+                          height: parent.height
+                          color: Style.selectedStateColor(
+                            root.contentForeground, Color.accent)
+                          opacity: clockCell.hasKeyboardCursor || clockCell.linkedHovered
+                            ? 0.9 : 0.68
+
+                          Behavior on opacity {
+                            NumberAnimation { duration: 150; easing.type: Easing.OutQuart }
                           }
                         }
                       }

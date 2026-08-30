@@ -2508,6 +2508,14 @@ Panel {
                   function cellAt(cellIndex) {
                     return clockCellRepeater.itemAt(cellIndex)
                   }
+                  function resetRecycledState() {
+                    for (var cellIndex = 0; cellIndex < itemCount; cellIndex++) {
+                      var cell = cellAt(cellIndex)
+                      if (cell) cell.resetRecycledState()
+                    }
+                  }
+                  ListView.onPooled: clockRow.resetRecycledState()
+                  ListView.onReused: clockRow.resetRecycledState()
                   anchors.left: parent.left
                   width: itemCount * cellWidth
                     + Math.max(0, itemCount - 1) * cellSpacing
@@ -2534,6 +2542,14 @@ Panel {
                       readonly property bool linkedHovered:
                         root.timelineHoverMatches(clockData)
                       property bool labelEditing: false
+                      function resetRecycledState() {
+                        root.updateTimelineHover(hoverOwner, null, false)
+                        if (cardTimeInput.activeFocus || cardLabelInput.activeFocus)
+                          keyCatcher.forceActiveFocus(Qt.OtherFocusReason)
+                        labelEditing = false
+                        cardLabelInput.resetText()
+                        cardTimeInput.text = String(clockData.time || "")
+                      }
                       function focusTimeEditor() {
                         cardTimeInput.forceActiveFocus(Qt.ShortcutFocusReason)
                         cardTimeInput.selectAll()

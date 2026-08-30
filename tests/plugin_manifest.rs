@@ -254,8 +254,8 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
         panel
             .matches("root.updateTimelineHover(hoverOwner, null, false)")
             .count(),
-        1,
-        "destroyed card delegates must release hover ownership"
+        2,
+        "destroyed and pooled card delegates must release hover ownership"
     );
     assert!(panel.contains("backendCommand,\n      \"scrub\""));
     assert!(panel.contains("function applyScrubSlot(slotIndex)"));
@@ -416,6 +416,10 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(clock_rows.contains("reuseItems: true"));
     assert!(clock_rows.contains("cacheBuffer: root.clockRowHeight + root.clockRowSpacing"));
     assert!(clock_rows.contains("QQC.ScrollBar.vertical: QQC.ScrollBar"));
+    assert!(panel.contains("ListView.onPooled: clockRow.resetRecycledState()"));
+    assert!(panel.contains("ListView.onReused: clockRow.resetRecycledState()"));
+    assert!(panel.contains("keyCatcher.forceActiveFocus(Qt.OtherFocusReason)"));
+    assert!(panel.contains("cardTimeInput.text = String(clockData.time || \"\")"));
     assert!(panel.contains("readonly property real clockViewportHeight:"));
     assert!(panel
         .contains("Math.min(clockGridHeight, Math.max(0, readHeightLimit - readChromeHeight))"));

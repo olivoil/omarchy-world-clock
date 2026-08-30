@@ -400,7 +400,9 @@ Rules:
   card times locally instead of receiving a full clock copy in every slot.
 - Next-day markers never wrap to the left of the selected source; out-of-range
   day markers appear beyond the appropriate ruler edge with their real offset,
-  and multiple markers collapse into a count and distance range.
+  and multiple markers collapse into a count and distance range. Card hover
+  follows the location identities carried by each marker, so equal wall-clock
+  minutes on different dates do not highlight one another.
 - Local search and map lookup work offline.
 - Current conditions load independently, refresh in bounded batches, and
   never block clock rendering or conversion.

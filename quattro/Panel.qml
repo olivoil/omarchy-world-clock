@@ -1305,17 +1305,18 @@ Panel {
     setStatus("Locating timezone…", false)
   }
 
-  function timelineHoverMatches(localMinutes) {
-    return TimelineHoverState.matchesMinutes(timelineHoverOwners, localMinutes)
+  function timelineHoverMatches(clock) {
+    return TimelineHoverState.matchesIdentity(
+      timelineHoverOwners, conversionSource(clock))
   }
 
   function timelineMarkerHovered(marker) {
     return TimelineHoverState.markerHovered(timelineHoverOwners, marker)
   }
 
-  function updateTimelineHover(owner, localMinutes, hovered) {
+  function updateTimelineHover(owner, clock, hovered) {
     timelineHoverOwners = TimelineHoverState.updateOwners(
-      timelineHoverOwners, owner, localMinutes, hovered)
+      timelineHoverOwners, owner, conversionSource(clock), hovered)
   }
 
   function clearTimelineHover() {
@@ -2493,7 +2494,7 @@ Panel {
                         root.keyboardCursorActive
                           && root.keyboardClockIndex === clockIndex
                       readonly property bool linkedHovered:
-                        root.timelineHoverMatches(clockData.local_minutes)
+                        root.timelineHoverMatches(clockData)
                       property bool labelEditing: false
                       function focusTimeEditor() {
                         cardTimeInput.forceActiveFocus(Qt.ShortcutFocusReason)
@@ -2526,11 +2527,10 @@ Panel {
                       onClockDataChanged: {
                         if (!cardLabelInput.activeFocus) cardLabelInput.resetText()
                         if (cardHoverHandler.hovered)
-                          root.updateTimelineHover(hoverOwner,
-                            clockData.local_minutes, true)
+                          root.updateTimelineHover(hoverOwner, clockData, true)
                       }
                       Component.onDestruction:
-                        root.updateTimelineHover(hoverOwner, 0, false)
+                        root.updateTimelineHover(hoverOwner, null, false)
                       width: clockRow.cellWidth
                       height: clockRow.height
                       clip: true
@@ -2538,8 +2538,7 @@ Panel {
                       HoverHandler {
                         id: cardHoverHandler
                         onHoveredChanged: root.updateTimelineHover(
-                          clockCell.hoverOwner,
-                          clockCell.clockData.local_minutes, hovered)
+                          clockCell.hoverOwner, clockCell.clockData, hovered)
                       }
 
                       Rectangle {

@@ -244,13 +244,15 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("id: timelineTickRepeater"));
     assert!(panel.contains("property var timelineHoverOwners: ({})"));
     assert!(panel.contains("import \"TimeRail.js\" as TimeRail"));
-    assert!(panel.contains("function timelineHoverMatches(localMinutes)"));
+    assert!(panel.contains("function timelineHoverMatches(clock)"));
+    assert!(panel.contains("TimelineHoverState.matchesIdentity("));
+    assert!(panel.contains("timelineHoverOwners, conversionSource(clock)"));
     assert!(!panel.contains("id: timelinePointHover"));
     assert!(panel.contains("id: cardHoverHandler"));
-    assert!(panel.contains("root.timelineHoverMatches(clockData.local_minutes)"));
+    assert!(panel.contains("root.timelineHoverMatches(clockData)"));
     assert_eq!(
         panel
-            .matches("root.updateTimelineHover(hoverOwner, 0, false)")
+            .matches("root.updateTimelineHover(hoverOwner, null, false)")
             .count(),
         1,
         "destroyed card delegates must release hover ownership"

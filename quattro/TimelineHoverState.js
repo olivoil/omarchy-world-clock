@@ -6,28 +6,28 @@ function copyOwners(owners) {
   return copy
 }
 
-function updateOwners(owners, owner, relativeMinutes, hovered) {
+function updateOwners(owners, owner, locationIdentity, hovered) {
   var normalizedOwner = String(owner || "")
   var next = copyOwners(owners)
-  if (hovered) next[normalizedOwner] = Number(relativeMinutes || 0)
+  if (hovered) next[normalizedOwner] = String(locationIdentity || "")
   else delete next[normalizedOwner]
   return next
 }
 
-function matchesMinutes(owners, relativeMinutes) {
+function matchesIdentity(owners, locationIdentity) {
   var active = owners || ({})
-  var target = Number(relativeMinutes || 0)
+  var target = String(locationIdentity || "")
   for (var owner in active)
     if (Object.prototype.hasOwnProperty.call(active, owner)
-        && Number(active[owner]) === target) return true
+        && String(active[owner]) === target) return true
   return false
 }
 
 function markerHovered(owners, marker) {
   if (!marker) return false
-  var minutes = Array.isArray(marker.minutes) ? marker.minutes : [marker.minute]
-  for (var index = 0; index < minutes.length; index++)
-    if (matchesMinutes(owners, minutes[index])) return true
+  var identities = Array.isArray(marker.identities) ? marker.identities : []
+  for (var index = 0; index < identities.length; index++)
+    if (matchesIdentity(owners, identities[index])) return true
   return false
 }
 

@@ -344,6 +344,15 @@ function relativeDayOffset(clock, sourceClock) {
   return 0
 }
 
+function relativeMinuteForClock(clock, sourceClock, anchorMinute) {
+  var minute = Math.round(Number(clock && clock.local_minutes))
+  if (!isFinite(minute) || minute < 0 || minute >= DAY_MINUTES) return NaN
+  var sourceMinute = Number(anchorMinute)
+  if (!isFinite(sourceMinute))
+    sourceMinute = Number(sourceClock && sourceClock.local_minutes || 0)
+  return relativeDayOffset(clock, sourceClock) * DAY_MINUTES + minute - sourceMinute
+}
+
 function markerLabel(clock, sourceClock) {
   var notation = String(clock && clock.notation || "").toUpperCase()
   var offset = relativeDayOffset(clock, sourceClock)
@@ -403,8 +412,8 @@ function buildMarkers(snapshot, sourceTimezone, anchorMinute) {
     var clock = clocks[index] || ({})
     var minute = Math.round(Number(clock.local_minutes))
     if (!isFinite(minute) || minute < 0 || minute >= 24 * 60) continue
-    var dayOffset = relativeDayOffset(clock, sourceClock)
-    var relativeMinute = dayOffset * DAY_MINUTES + minute - sourceMinute
+    var relativeMinute = relativeMinuteForClock(clock, sourceClock, sourceMinute)
+    if (!isFinite(relativeMinute)) continue
     var position = (relativeMinute + DAY_MINUTES / 2) / DAY_MINUTES
     var overflow = position < 0 ? "previous" : (position > 1 ? "next" : "")
     var key = overflow || String(relativeMinute)
@@ -417,6 +426,7 @@ function buildMarkers(snapshot, sourceTimezone, anchorMinute) {
         position: position,
         overflow: overflow,
         time: String(clock.time || ""),
+        identities: [],
         labels: [],
         notations: [],
         source: false,
@@ -426,6 +436,9 @@ function buildMarkers(snapshot, sourceTimezone, anchorMinute) {
       groups[key] = group
     }
     var label = markerLabel(clock, sourceClock)
+    var identity = locationIdentity(clock)
+    if (identity && group.identities.indexOf(identity) === -1)
+      group.identities.push(identity)
     if (label && group.labels.indexOf(label) === -1) group.labels.push(label)
     var notation = String(clock.notation || "").toUpperCase()
     if (notation && group.notations.indexOf(notation) === -1)
@@ -444,6 +457,7 @@ function buildMarkers(snapshot, sourceTimezone, anchorMinute) {
     if (!Object.prototype.hasOwnProperty.call(groups, minuteKey)) continue
     var marker = groups[minuteKey]
     marker.labels.sort()
+    marker.identities.sort()
     marker.notations.sort()
     marker.minutes.sort(function(left, right) { return left - right })
     marker.relative_minutes.sort(function(left, right) { return left - right })

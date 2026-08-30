@@ -117,6 +117,12 @@ assert.equal(context.relativeDayLabel(merged.clocks[0], merged.summary), "Next d
   "scrub frames describe dates relative to the selected rail source")
 assert.equal(context.relativeDayLabel({ source_day_offset: -1 }, {}), "Previous day")
 assert.equal(context.relativeDayLabel({ source_day_offset: 0 }, {}), "Same day")
+assert.equal(context.relativeMinuteForClock({
+  local_minutes: 600, source_day_offset: 1,
+}, {
+  local_minutes: 600, source_day_offset: 0,
+}, 600), 1440,
+"equal wall-clock minutes on adjacent days retain distinct rail positions")
 assert.equal(context.relativeDayLabel({
   date: "2026-08-30",
 }, {
@@ -166,9 +172,11 @@ assert.equal(afterDst.clocks[0].relative_minutes, -240)
 const markers = context.buildMarkers(merged, "America/Cancun", 660)
 assert.equal(markers.length, 2)
 assert.equal(markers[0].source, true)
+assert.equal(markers[0].identities.join(), "America/Cancun\u001fCancun")
 assert.equal(markers[0].position, 0.5,
   "the selected source timezone remains under the fixed playhead")
 assert.equal(markers[1].minute, 60)
+assert.equal(markers[1].identities.join(), "Asia/Tokyo\u001fTokyo")
 assert.equal(markers[1].label, "JST · +14H")
 assert.equal(markers[1].overflow, "next")
 assert.ok(markers[1].position > 1,

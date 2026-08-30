@@ -14,6 +14,7 @@ use std::{collections::BTreeMap, sync::OnceLock};
 pub const SNAPSHOT_SCHEMA_VERSION: u64 = 1;
 pub const BACKEND_PROTOCOL_VERSION: u64 = 4;
 pub const SCRUB_STEP_MINUTES: u32 = 15;
+const MODULE_TOOLTIP_LOCATION_LIMIT: usize = 12;
 
 #[derive(Debug, Deserialize)]
 struct FeaturedCity {
@@ -125,22 +126,35 @@ pub fn build_module_payload(
     time_format: &str,
 ) -> QuattroModulePayload {
     let (_, visible_entries) = visible_location_entries(config, now, local_timezone);
+    let additional_location_count = visible_entries.len().saturating_sub(1);
     let tooltip_rows = visible_entries
         .into_iter()
         .skip(1)
+        .take(MODULE_TOOLTIP_LOCATION_LIMIT)
         .map(|entry| {
             let time = format_display_time(&zoned_datetime(now, &entry.timezone), time_format);
             (entry.read_card_title(), time)
         })
         .collect::<Vec<_>>();
+    let hidden_location_count = additional_location_count.saturating_sub(tooltip_rows.len());
+    let tooltip = if tooltip_rows.is_empty() {
+        "No additional timezones yet.".to_string()
+    } else {
+        let mut value = format_tooltip_clock_rows(&tooltip_rows);
+        if hidden_location_count > 0 {
+            let noun = if hidden_location_count == 1 {
+                "location"
+            } else {
+                "locations"
+            };
+            value.push_str(&format!("\n+{hidden_location_count} more {noun}"));
+        }
+        value
+    };
     QuattroModulePayload {
         protocol_version: BACKEND_PROTOCOL_VERSION,
         backend_version: env!("CARGO_PKG_VERSION"),
-        tooltip: if tooltip_rows.is_empty() {
-            "No additional timezones yet.".to_string()
-        } else {
-            format_tooltip_clock_rows(&tooltip_rows)
-        },
+        tooltip,
         pinned_clocks: config
             .pinned_entries()
             .map(|entry| QuattroPinnedClock {
@@ -709,6 +723,30 @@ mod tests {
 
         assert_eq!(payload.tooltip, "No additional timezones yet.");
         assert!(payload.pinned_clocks.is_empty());
+    }
+
+    #[test]
+    fn module_tooltip_summarizes_locations_beyond_its_bounded_rows() {
+        let config = AppConfig {
+            timezones: (0..15)
+                .map(|index| entry("UTC", &format!("Zone {index:02}")))
+                .collect(),
+            pinned_locations: vec![],
+            disable_open_meteo_geolocation: false,
+        };
+        let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
+
+        let payload = build_module_payload(&config, now, "America/Cancun", "24h");
+        let lines = payload.tooltip.lines().collect::<Vec<_>>();
+
+        assert_eq!(
+            lines.len(),
+            13,
+            "twelve clocks plus one summary stay bounded"
+        );
+        assert!(payload.tooltip.contains("Zone 11"));
+        assert!(!payload.tooltip.contains("Zone 12"));
+        assert_eq!(lines.last().copied(), Some("+3 more locations"));
     }
 
     #[test]

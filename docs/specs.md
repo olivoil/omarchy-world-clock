@@ -32,14 +32,16 @@ AUR package, `PATH` lookup, user-configured backend command, or install hook.
 - It uses the normal compact status slot and native open-panel underline
   without recoloring the world icon.
 - With no pin, it displays only the icon.
-- With one or more pins, it displays the icon followed by a `CODE time` group
-  for every pinned place, in the order the places were pinned.
+- With one or more pins, it displays the icon followed by up to three
+  `CODE time` groups in pin order. Additional pins collapse into `+N`, keeping
+  the bar width bounded without changing the saved pin set.
 - A code is derived from the first segment of the display label: multi-word
   names use up to three initials (`New York` becomes `NY`), while single-word
   names use their first three alphanumeric characters (`Tokyo` becomes `TOK`).
 - Pinned times update on minute boundaries. A vertical bar stays icon-only.
-- Its tooltip is a compact, time-sorted table of the visible non-local places;
-  it omits both a title row and the local summary place.
+- Its tooltip is a compact, time-sorted table of up to twelve visible non-local
+  places; it omits both a title row and the local summary place, then appends a
+  `+N more locations` line when more places exist.
 - With no additional places, the tooltip says `No additional timezones yet.`
 - If the bundled backend cannot start, returns invalid output, or has an
   incompatible protocol, the widget is dimmed and its tooltip gives the
@@ -382,7 +384,8 @@ Rules:
 - The QML always resolves the backend from its plugin directory.
 - Plugin and backend versions match and the module protocol handshake passes.
 - The panel toggles and coordinates with built-in Quattro panels.
-- Multiple pins persist, update independently, and all appear in the bar.
+- Multiple pins persist and update independently; the first three appear in
+  the bar and any remainder appears as a `+N` summary.
 - Renaming persists, including for a pinned location and places that share a
   timezone.
 - Time conversion works from the summary and every visible location.

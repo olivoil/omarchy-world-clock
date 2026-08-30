@@ -61,8 +61,9 @@ the AUR package is no longer required.
 - Use the **pencil** to rename, pin, or remove locations. Click a location name
   to edit it, then press **Enter** to save it or **Escape** to cancel. Submit an
   empty name to restore the location's default place name.
-- Pin any combination of places to keep compact location codes and their
-  current times visible beside the bar icon.
+- Pin any combination of places. The first three stay visible as compact
+  location codes and times beside the bar icon; additional pins collapse into
+  a `+N` summary and remain available in the panel.
 - Drag the time ruler beneath its fixed center marker to compare every place at
   that moment: pull right for earlier or left for later, then release to keep
   the selection. Two-finger trackpad scrolling and the mouse wheel work too.
@@ -87,7 +88,9 @@ the AUR package is no longer required.
 - Multiple named places in the same timezone, such as Boston and New York.
 - Personal labels for saved locations, such as a person's name or "Home".
 - Multiple pinned place clocks in the bar, kept in pin order and identified by
-  compact codes such as `TOK` or `NY`.
+  compact codes such as `TOK` or `NY`, with excess pins summarized as `+N`.
+- A compact bar tooltip showing up to twelve time-sorted places and a summary
+  count for any additional locations.
 - Manual time conversion with DST-aware IANA timezone handling.
 - Local timezone and alias search that works offline.
 - Optional Open-Meteo city search for queries not resolved locally.

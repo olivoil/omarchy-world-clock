@@ -1,6 +1,7 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
+import QtQuick.Controls as QQC
 import Quickshell.Io
 import qs.Commons
 import qs.Ui
@@ -174,6 +175,12 @@ Panel {
     if (rows <= 0) return 0
     return rows * clockRowHeight + (rows - 1) * clockRowSpacing
   }
+  readonly property real readChromeHeight: panelHeader.height
+    + panelColumn.spacing + summaryClock.height
+    + (timelineView.visible ? readPage.spacing + timelineView.height : 0)
+    + (clocks.length > 0 ? readPage.spacing : 0)
+  readonly property real clockViewportHeight: clocks.length <= 0 ? 0
+    : Math.min(clockGridHeight, Math.max(0, readHeightLimit - readChromeHeight))
   readonly property bool showOpenMeteoAttribution: {
     if (!searchVisible || !Array.isArray(searchResults)) return false
     for (var resultIndex = 0; resultIndex < searchResults.length; resultIndex++)
@@ -434,15 +441,27 @@ Panel {
     var normalizedIndex = Number(clockIndex)
     if (!isFinite(normalizedIndex) || normalizedIndex < 0
         || normalizedIndex >= clocks.length) return null
-    var row = clockRowRepeater.itemAt(
+    var row = clockRows.itemAtIndex(
       Math.floor(normalizedIndex / root.clockColumnCount))
     return row ? row.cellAt(normalizedIndex % root.clockColumnCount) : null
   }
 
+  function positionClockRow(clockIndex) {
+    var normalizedIndex = Number(clockIndex)
+    if (!isFinite(normalizedIndex) || normalizedIndex < 0
+        || normalizedIndex >= clocks.length) return false
+    clockRows.positionViewAtIndex(
+      Math.floor(normalizedIndex / root.clockColumnCount), ListView.Contain)
+    return true
+  }
+
   function ensureKeyboardCursorVisible() {
     if (!keyboardCursorActive || mode === "add") return
-    var target = keyboardClockIndex < 0
-      ? summaryInput : clockCellAt(keyboardClockIndex)
+    if (keyboardClockIndex >= 0) {
+      positionClockRow(keyboardClockIndex)
+      return
+    }
+    var target = summaryInput
     if (!target) return
     var mapped = target.mapToItem(panelColumn, 0, 0)
     var top = mapped.y - Style.space(12)
@@ -491,11 +510,15 @@ Panel {
     Qt.callLater(root.ensureKeyboardCursorVisible)
   }
 
-  function focusClockEditor(clockIndex) {
+  function focusClockEditor(clockIndex, retryCount) {
+    if (!positionClockRow(clockIndex)) return
     Qt.callLater(function() {
       if (!opened || (mode !== "read" && mode !== "edit")) return
       var cell = root.clockCellAt(clockIndex)
-      if (!cell) return
+      if (!cell) {
+        if (Number(retryCount || 0) < 1) root.focusClockEditor(clockIndex, 1)
+        return
+      }
       if (mode === "read") cell.focusTimeEditor()
       else cell.focusLabelEditor(Qt.ShortcutFocusReason)
     })
@@ -2454,18 +2477,24 @@ Panel {
               }
             }
 
-            Column {
+            ListView {
               id: clockRows
               anchors.horizontalCenter: parent.horizontalCenter
               width: parent.width - Style.space(36)
-              height: root.clockGridHeight
+              height: root.clockViewportHeight
               spacing: root.clockRowSpacing
+              model: Math.ceil(root.clocks.length / root.clockColumnCount)
+              clip: true
+              boundsBehavior: Flickable.StopAtBounds
+              interactive: contentHeight > height
+              reuseItems: true
+              cacheBuffer: root.clockRowHeight + root.clockRowSpacing
 
-              Repeater {
-                id: clockRowRepeater
-                model: Math.ceil(root.clocks.length / root.clockColumnCount)
+              QQC.ScrollBar.vertical: QQC.ScrollBar {
+                policy: QQC.ScrollBar.AsNeeded
+              }
 
-                Row {
+              delegate: Row {
                   id: clockRow
                   required property int index
                   readonly property int startIndex: index * root.clockColumnCount
@@ -2827,7 +2856,6 @@ Panel {
                       }
                     }
                   }
-                }
               }
             }
 

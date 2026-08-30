@@ -402,9 +402,7 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(rail_mouse.contains("y: timelineView.railY - Style.space(24)"));
     assert!(rail_mouse.contains("width: timelineView.railWidth"));
     assert!(rail_mouse.contains("height: Style.space(48)"));
-    assert!(panel.contains(
-        "cursorShape: pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor"
-    ));
+    assert!(panel.contains("cursorShape: pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor"));
     assert!(!panel.contains("cursorShape: Qt.SizeHorCursor"));
     assert!(!panel.contains("stableLocationViewHeight"));
     let clock_rows = panel
@@ -412,8 +410,17 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
         .nth(1)
         .and_then(|source| source.split("Repeater {").next())
         .expect("clock rows geometry");
-    assert!(clock_rows.contains("height: root.clockGridHeight"));
+    assert!(clock_rows.contains("height: root.clockViewportHeight"));
     assert!(clock_rows.contains("spacing: root.clockRowSpacing"));
+    assert!(clock_rows.contains("model: Math.ceil(root.clocks.length / root.clockColumnCount)"));
+    assert!(clock_rows.contains("reuseItems: true"));
+    assert!(clock_rows.contains("cacheBuffer: root.clockRowHeight + root.clockRowSpacing"));
+    assert!(clock_rows.contains("QQC.ScrollBar.vertical: QQC.ScrollBar"));
+    assert!(panel.contains("readonly property real clockViewportHeight:"));
+    assert!(panel
+        .contains("Math.min(clockGridHeight, Math.max(0, readHeightLimit - readChromeHeight))"));
+    assert!(panel.contains("clockRows.itemAtIndex("));
+    assert!(!panel.contains("id: clockRowRepeater"));
     let clock_row = panel
         .split("id: clockRow\n")
         .nth(1)
@@ -671,7 +678,12 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(qml.contains("function edit(): void { root.editCurrentTime() }"));
     assert!(qml.contains("panelLoader.item.opened && panelLoader.item.live"));
     assert!(qml.contains("onDateChanged: root.refresh()"));
-    assert!(qml.contains("model: root.pinnedClocks"));
+    assert!(qml.contains("readonly property int maximumVisiblePinnedClocks: 3"));
+    assert!(qml.contains("pinnedClocks.slice(0, maximumVisiblePinnedClocks)"));
+    assert!(qml.contains("model: root.visiblePinnedClocks"));
+    assert!(qml.contains("visible: root.hiddenPinnedClockCount > 0"));
+    assert!(qml.contains("text: \"+\" + String(root.hiddenPinnedClockCount)"));
+    assert!(!qml.contains("model: root.pinnedClocks"));
     assert!(qml.contains("text: pinnedClock.modelData.code"));
     assert!(qml.contains("text: pinnedClock.modelData.time"));
 

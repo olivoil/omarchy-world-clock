@@ -402,6 +402,10 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(rail_mouse.contains("y: timelineView.railY - Style.space(24)"));
     assert!(rail_mouse.contains("width: timelineView.railWidth"));
     assert!(rail_mouse.contains("height: Style.space(48)"));
+    assert!(panel.contains(
+        "cursorShape: pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor"
+    ));
+    assert!(!panel.contains("cursorShape: Qt.SizeHorCursor"));
     assert!(!panel.contains("stableLocationViewHeight"));
     let clock_rows = panel
         .split("id: clockRows")

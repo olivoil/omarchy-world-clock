@@ -2297,7 +2297,7 @@ Panel {
                 enabled: root.scrubReady && root.mode === "read"
                 hoverEnabled: true
                 activeFocusOnTab: true
-                cursorShape: Qt.SizeHorCursor
+                cursorShape: pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor
                 Accessible.role: Accessible.Slider
                 Accessible.name: "Compare times across the day"
                 Accessible.description:

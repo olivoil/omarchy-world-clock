@@ -1,6 +1,6 @@
 use crate::config::{
-    canonical_timezone_name, is_valid_timezone, place_coordinate, AppConfig, TimezoneEntry,
-    TimezoneSearchResult,
+    canonical_timezone_name, is_valid_timezone, place_coordinate, AppConfig, PinnedLocationIndex,
+    TimezoneEntry, TimezoneSearchResult,
 };
 use crate::time::{
     format_display_time, format_timezone_notation, friendly_timezone_name, parse_timezone,
@@ -125,6 +125,7 @@ pub fn build_module_payload(
     local_timezone: &str,
     time_format: &str,
 ) -> QuattroModulePayload {
+    let pinned_locations = config.pinned_location_index();
     let (_, visible_entries) = visible_location_entries(config, now, local_timezone);
     let additional_location_count = visible_entries.len().saturating_sub(1);
     let tooltip_rows = visible_entries
@@ -155,7 +156,7 @@ pub fn build_module_payload(
         protocol_version: BACKEND_PROTOCOL_VERSION,
         backend_version: env!("CARGO_PKG_VERSION"),
         tooltip,
-        pinned_clocks: config
+        pinned_clocks: pinned_locations
             .pinned_entries()
             .map(|entry| QuattroPinnedClock {
                 code: location_short_code(entry),
@@ -323,7 +324,7 @@ fn day_label(reference_utc: DateTime<Utc>, local_timezone: &str, timezone: &str)
 
 fn clock_from_entry(
     entry: &TimezoneEntry,
-    config: &AppConfig,
+    pinned_locations: &PinnedLocationIndex<'_>,
     reference_utc: DateTime<Utc>,
     local_timezone: &str,
     time_format: &str,
@@ -346,7 +347,7 @@ fn clock_from_entry(
         relative_label: relative_label(relative_minutes),
         latitude,
         longitude,
-        pinned: config.is_pinned(entry),
+        pinned: pinned_locations.contains(entry),
     }
 }
 
@@ -640,6 +641,7 @@ pub fn build_snapshot(
     local_timezone: &str,
     time_format: &str,
 ) -> QuattroSnapshot {
+    let pinned_locations = config.pinned_location_index();
     let (local_configured, visible_entries) =
         visible_location_entries(config, reference_utc, local_timezone);
     let mut visible_entries = visible_entries.into_iter();
@@ -648,13 +650,21 @@ pub fn build_snapshot(
         .expect("visible locations always include the local summary");
     let summary = clock_from_entry(
         &summary_entry,
-        config,
+        &pinned_locations,
         reference_utc,
         local_timezone,
         time_format,
     );
     let clocks = visible_entries
-        .map(|entry| clock_from_entry(&entry, config, reference_utc, local_timezone, time_format))
+        .map(|entry| {
+            clock_from_entry(
+                &entry,
+                &pinned_locations,
+                reference_utc,
+                local_timezone,
+                time_format,
+            )
+        })
         .collect::<Vec<_>>();
     let timeline = timeline_items(&summary, &clocks);
     let featured_cities = build_featured_cities(config, reference_utc, local_timezone, time_format);
@@ -667,7 +677,9 @@ pub fn build_snapshot(
         weather_unit: None,
         configured_count: config.timezones.len(),
         local_configured,
-        pinned_timezone: config.pinned_entry().map(|entry| entry.timezone.clone()),
+        pinned_timezone: pinned_locations
+            .first_pinned_entry()
+            .map(|entry| entry.timezone.clone()),
         summary,
         clocks,
         timeline,
@@ -780,6 +792,36 @@ mod tests {
         assert_eq!(payload.pinned_clocks[1].code, "NY");
         assert_eq!(payload.pinned_clocks[1].label, "New York");
         assert_eq!(payload.pinned_clocks[1].time, "07:05");
+    }
+
+    #[test]
+    fn large_pin_lists_are_resolved_consistently_for_module_and_snapshot_payloads() {
+        const LOCATION_COUNT: usize = 500;
+        let config = AppConfig {
+            timezones: (0..LOCATION_COUNT)
+                .map(|index| entry("UTC", &format!("Zone {index:03}")))
+                .collect(),
+            pinned_locations: (0..LOCATION_COUNT)
+                .rev()
+                .map(|index| LocationKey {
+                    timezone: "UTC".to_string(),
+                    label: format!("Zone {index:03}"),
+                })
+                .collect(),
+            disable_open_meteo_geolocation: false,
+        };
+        let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
+
+        let module = build_module_payload(&config, now, "UTC", "24h");
+        let snapshot = build_snapshot(&config, now, "UTC", "24h");
+
+        assert_eq!(module.pinned_clocks.len(), LOCATION_COUNT);
+        assert_eq!(module.pinned_clocks.first().unwrap().label, "Zone 499");
+        assert_eq!(module.pinned_clocks.last().unwrap().label, "Zone 000");
+        assert!(snapshot.summary.pinned);
+        assert_eq!(snapshot.clocks.len(), LOCATION_COUNT - 1);
+        assert!(snapshot.clocks.iter().all(|clock| clock.pinned));
+        assert_eq!(snapshot.pinned_timezone.as_deref(), Some("UTC"));
     }
 
     #[test]

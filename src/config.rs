@@ -56,6 +56,18 @@ pub struct LocationKey {
     pub label: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct LocationIdentity {
+    timezone: String,
+    label: String,
+}
+
+#[derive(Debug)]
+pub(crate) struct PinnedLocationIndex<'a> {
+    pinned_entries: Vec<&'a TimezoneEntry>,
+    pinned_identities: HashSet<LocationIdentity>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TimezoneEntry {
     pub timezone: String,
@@ -100,11 +112,48 @@ impl LocationKey {
     }
 }
 
+impl<'a> PinnedLocationIndex<'a> {
+    pub(crate) fn pinned_entries(&self) -> impl Iterator<Item = &'a TimezoneEntry> + '_ {
+        self.pinned_entries.iter().copied()
+    }
+
+    pub(crate) fn first_pinned_entry(&self) -> Option<&'a TimezoneEntry> {
+        self.pinned_entries.first().copied()
+    }
+
+    pub(crate) fn contains(&self, entry: &TimezoneEntry) -> bool {
+        self.pinned_identities
+            .contains(&location_identity(&entry.timezone, &entry.label))
+    }
+}
+
 impl AppConfig {
+    pub(crate) fn pinned_location_index(&self) -> PinnedLocationIndex<'_> {
+        let mut entries_by_identity = HashMap::with_capacity(self.timezones.len());
+        for entry in &self.timezones {
+            entries_by_identity
+                .entry(location_identity(&entry.timezone, &entry.label))
+                .or_insert(entry);
+        }
+
+        let mut pinned_entries = Vec::with_capacity(self.pinned_locations.len());
+        let mut pinned_identities = HashSet::with_capacity(self.pinned_locations.len());
+        for pinned in &self.pinned_locations {
+            let identity = location_identity(&pinned.timezone, &pinned.label);
+            if let Some(entry) = entries_by_identity.get(&identity) {
+                pinned_entries.push(*entry);
+            }
+            pinned_identities.insert(identity);
+        }
+
+        PinnedLocationIndex {
+            pinned_entries,
+            pinned_identities,
+        }
+    }
+
     pub fn pinned_entries(&self) -> impl Iterator<Item = &TimezoneEntry> {
-        self.pinned_locations
-            .iter()
-            .filter_map(|location| self.timezones.iter().find(|entry| location.matches(entry)))
+        self.pinned_location_index().pinned_entries.into_iter()
     }
 
     // Preserve the original single-pin accessor for callers that only need
@@ -138,6 +187,13 @@ fn normalized_location_label(timezone: &str, label: &str) -> String {
         label.to_string()
     };
     TimezoneResolver::normalize(&effective_label)
+}
+
+fn location_identity(timezone: &str, label: &str) -> LocationIdentity {
+    LocationIdentity {
+        timezone: canonical_timezone_name(timezone),
+        label: normalized_location_label(timezone, label),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]

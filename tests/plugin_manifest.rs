@@ -433,6 +433,8 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(convert_process.contains("root.live = false"));
     assert!(panel.contains("Keys.onLeftPressed"));
     assert!(panel.contains("Keys.onRightPressed"));
+    assert!(panel.contains("function focusTimeRail()"));
+    assert!(panel.contains("else if (text === \"s\" || text === \"S\") root.focusTimeRail()"));
     assert!(panel.contains("root.lockScrubSelection()"));
     assert!(panel.contains("if (activeFocus) root.selectScrubSource(root.summary)"));
     assert!(panel.contains("root.selectScrubSource(clockCell.clockData)"));

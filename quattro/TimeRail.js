@@ -203,17 +203,17 @@ function timezoneStateAt(location, slotIndex) {
     if (Number(location.states[index].from_slot) > Number(slotIndex)) break
     selected = location.states[index]
   }
-  var offset = Number(selected.utc_offset_minutes)
+  var offset = Number(selected.utc_offset_seconds)
   if (!isFinite(offset)) return null
   return {
-    utc_offset_minutes: Math.round(offset),
+    utc_offset_seconds: Math.round(offset),
     notation: String(selected.notation || "")
   }
 }
 
 function renderedScrubClock(baseClock, state, referenceMilliseconds,
-    timeFormat, sourceDate, summaryDate, summaryOffset) {
-  var local = new Date(referenceMilliseconds + state.utc_offset_minutes * 60 * 1000)
+    timeFormat, sourceDate, summaryDate, summaryOffsetSeconds) {
+  var local = new Date(referenceMilliseconds + state.utc_offset_seconds * 1000)
   if (!isFinite(local.getTime())) return null
   var hour = local.getUTCHours()
   var minute = local.getUTCMinutes()
@@ -224,7 +224,9 @@ function renderedScrubClock(baseClock, state, referenceMilliseconds,
   var day = summaryDayOffset === -1 ? "Yesterday"
     : (summaryDayOffset === 0 ? "Today"
       : (summaryDayOffset === 1 ? "Tomorrow" : formattedCalendarDay(date)))
-  var relativeMinutes = state.utc_offset_minutes - summaryOffset
+  var relativeSeconds = state.utc_offset_seconds - summaryOffsetSeconds
+  var relativeMinutes = relativeSeconds < 0
+    ? Math.ceil(relativeSeconds / 60) : Math.floor(relativeSeconds / 60)
   return mergeRecord(baseClock, {
     time: formattedClockTime(hour, minute, timeFormat),
     date: date,
@@ -257,7 +259,7 @@ function mergeSnapshot(base, payload, slotIndex) {
   }
   var sourceDate = shiftedIsoDate(payload.date, frame.day_offset)
   var summaryLocal = new Date(referenceMilliseconds
-    + states[0].utc_offset_minutes * 60 * 1000)
+    + states[0].utc_offset_seconds * 1000)
   var summaryDate = paddedNumber(summaryLocal.getUTCFullYear(), 4) + "-"
     + paddedNumber(summaryLocal.getUTCMonth() + 1, 2) + "-"
     + paddedNumber(summaryLocal.getUTCDate(), 2)
@@ -266,13 +268,13 @@ function mergeSnapshot(base, payload, slotIndex) {
   var result = mergeRecord(base, ({ reference_utc: frame.reference_utc }))
   result.scrub_day_offset = Number(frame.day_offset || 0)
   result.summary = renderedScrubClock(base.summary, states[0], referenceMilliseconds,
-    payload.time_format, sourceDate, summaryDate, states[0].utc_offset_minutes)
+    payload.time_format, sourceDate, summaryDate, states[0].utc_offset_seconds)
   if (!result.summary) return null
   result.clocks = []
   for (var clockIndex = 0; clockIndex < base.clocks.length; clockIndex++) {
     var rendered = renderedScrubClock(base.clocks[clockIndex], states[clockIndex + 1],
       referenceMilliseconds, payload.time_format, sourceDate, summaryDate,
-      states[0].utc_offset_minutes)
+      states[0].utc_offset_seconds)
     if (!rendered) return null
     result.clocks.push(rendered)
   }

@@ -182,7 +182,7 @@ pub struct QuattroScrubFrame {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct QuattroScrubZoneState {
     pub from_slot: usize,
-    pub utc_offset_minutes: i32,
+    pub utc_offset_seconds: i32,
     pub notation: String,
 }
 
@@ -406,7 +406,7 @@ pub fn build_scrub_payload(
                 };
                 let zoned = reference.with_timezone(&timezone);
                 let state = (
-                    zoned.offset().fix().local_minus_utc() / 60,
+                    zoned.offset().fix().local_minus_utc(),
                     format_timezone_notation(&zoned),
                 );
                 if previous.as_ref() == Some(&state) {
@@ -414,7 +414,7 @@ pub fn build_scrub_payload(
                 }
                 states.push(QuattroScrubZoneState {
                     from_slot: slot_index,
-                    utc_offset_minutes: state.0,
+                    utc_offset_seconds: state.0,
                     notation: state.1.clone(),
                 });
                 previous = Some(state);
@@ -815,10 +815,10 @@ mod tests {
         assert_eq!(payload.locations[1].label, "Tokyo");
         assert_eq!(payload.locations[0].states.len(), 1);
         assert_eq!(payload.locations[0].states[0].from_slot, 0);
-        assert_eq!(payload.locations[0].states[0].utc_offset_minutes, -300);
+        assert_eq!(payload.locations[0].states[0].utc_offset_seconds, -18_000);
         assert_eq!(payload.locations[0].states[0].notation, "EST");
         assert_eq!(payload.locations[1].states.len(), 1);
-        assert_eq!(payload.locations[1].states[0].utc_offset_minutes, 540);
+        assert_eq!(payload.locations[1].states[0].utc_offset_seconds, 32_400);
         assert_eq!(payload.locations[1].states[0].notation, "JST");
         assert_eq!(payload.step_minutes, 15);
         assert_eq!(payload.first_day_offset, -1);
@@ -878,10 +878,10 @@ mod tests {
         assert!(payload.slots[96 + 12].reference_utc.is_some());
         assert_eq!(payload.locations[0].states.len(), 2);
         assert_eq!(payload.locations[0].states[0].notation, "EST");
-        assert_eq!(payload.locations[0].states[0].utc_offset_minutes, -300);
+        assert_eq!(payload.locations[0].states[0].utc_offset_seconds, -18_000);
         assert_eq!(payload.locations[0].states[1].from_slot, 96 + 12);
         assert_eq!(payload.locations[0].states[1].notation, "EDT");
-        assert_eq!(payload.locations[0].states[1].utc_offset_minutes, -240);
+        assert_eq!(payload.locations[0].states[1].utc_offset_seconds, -14_400);
     }
 
     #[test]
@@ -903,6 +903,26 @@ mod tests {
         }
         assert!(!payload.slots[96 + 3].ambiguous);
         assert!(!payload.slots[96 + 8].ambiguous);
+    }
+
+    #[test]
+    fn scrub_payload_preserves_historical_second_level_offsets() {
+        let config = AppConfig {
+            timezones: vec![entry("Asia/Kolkata", "Kolkata")],
+            pinned_locations: vec![],
+            disable_open_meteo_geolocation: false,
+        };
+        let now = Utc.with_ymd_and_hms(1900, 1, 1, 12, 0, 0).unwrap();
+
+        let payload = build_scrub_payload(&config, now, "Asia/Kolkata", "Asia/Kolkata", "24h")
+            .expect("build historical scrub payload");
+        let noon = &payload.slots[96 + 48];
+
+        assert_eq!(
+            noon.reference_utc.as_deref(),
+            Some("1900-01-01T06:38:50+00:00")
+        );
+        assert_eq!(payload.locations[0].states[0].utc_offset_seconds, 19_270);
     }
 
     #[test]

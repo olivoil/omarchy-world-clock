@@ -761,6 +761,14 @@ Panel {
     applyScrubSlot(next)
   }
 
+  function focusTimeRail() {
+    if (mode !== "read" || !scrubReady) return
+    keyboardCursorActive = false
+    keyboardClockIndex = -1
+    panelScroll.contentY = 0
+    railMouse.forceActiveFocus(Qt.ShortcutFocusReason)
+  }
+
   function localeTerritory(localeName) {
     var name = String(localeName || "").split(/[.@]/)[0]
     var parts = name.split(/[-_]/)
@@ -1658,6 +1666,7 @@ Panel {
         if (text === "a" || text === "A") root.mode = "add"
         else if (text === "e" || text === "E") root.mode = root.mode === "edit" ? "read" : "edit"
         else if (text === "r" || text === "R") root.returnToLive()
+        else if (text === "s" || text === "S") root.focusTimeRail()
       }
 
       // Observe pointer taps without covering the controls below. Empty
@@ -2292,7 +2301,7 @@ Panel {
                 Accessible.role: Accessible.Slider
                 Accessible.name: "Compare times across the day"
                 Accessible.description:
-                  "Drag the ruler, scroll, or use Left and Right. Release, pause scrolling, or press Enter to set the time."
+                  "Press S to focus, then use Left and Right. Press Enter to set the time, or drag or scroll the ruler."
                 property real pressX: 0
                 property int pressSlotIndex: -1
                 property bool dragged: false

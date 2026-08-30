@@ -65,11 +65,11 @@ const matchingLocations = {
   locations: [
     {
       timezone: "America/Cancun", label: "Cancun",
-      states: [{ from_slot: 0, utc_offset_minutes: -300, notation: "EST" }],
+      states: [{ from_slot: 0, utc_offset_seconds: -18000, notation: "EST" }],
     },
     {
       timezone: "Asia/Tokyo", label: "Tokyo",
-      states: [{ from_slot: 0, utc_offset_minutes: 540, notation: "JST" }],
+      states: [{ from_slot: 0, utc_offset_seconds: 32400, notation: "JST" }],
     },
   ],
 }
@@ -144,12 +144,12 @@ const dstPayload = {
   time_format: "24h",
   locations: [{
     timezone: "UTC", label: "UTC",
-    states: [{ from_slot: 0, utc_offset_minutes: 0, notation: "UTC" }],
+    states: [{ from_slot: 0, utc_offset_seconds: 0, notation: "UTC" }],
   }, {
     timezone: "America/New_York", label: "New York",
     states: [
-      { from_slot: 0, utc_offset_minutes: -300, notation: "EST" },
-      { from_slot: 1, utc_offset_minutes: -240, notation: "EDT" },
+      { from_slot: 0, utc_offset_seconds: -18000, notation: "EST" },
+      { from_slot: 1, utc_offset_seconds: -14400, notation: "EDT" },
     ],
   }],
   slots: [
@@ -168,6 +168,27 @@ assert.equal(afterDst.clocks[0].time, "03:30",
   "compact timezone states preserve a location's DST jump")
 assert.equal(afterDst.clocks[0].notation, "EDT")
 assert.equal(afterDst.clocks[0].relative_minutes, -240)
+
+const historicalPayload = {
+  source_timezone: "Asia/Kolkata",
+  date: "1900-01-01",
+  time_format: "24h",
+  locations: [{
+    timezone: "Asia/Kolkata", label: "Kolkata",
+    states: [{ from_slot: 0, utc_offset_seconds: 19270, notation: "MMT" }],
+  }],
+  slots: [{
+    day_offset: 0,
+    reference_utc: "1900-01-01T06:38:50+00:00",
+  }],
+}
+const historicalPreview = context.mergeSnapshot({
+  reference_utc: "1900-01-01T06:38:50+00:00",
+  summary: { timezone: "Asia/Kolkata", title: "Kolkata" },
+  clocks: [],
+}, historicalPayload, 0)
+assert.equal(historicalPreview.summary.time, "12:00",
+  "second-level historical UTC offsets do not scrub into the previous minute")
 
 const markers = context.buildMarkers(merged, "America/Cancun", 660)
 assert.equal(markers.length, 2)

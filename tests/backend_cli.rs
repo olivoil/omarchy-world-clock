@@ -157,6 +157,7 @@ fn bundled_backend_supports_the_complete_quattro_command_protocol() {
         assert!(scrub_location["states"]
             .as_array()
             .is_some_and(|states| !states.is_empty()));
+        assert!(scrub_location["states"][0]["utc_offset_seconds"].is_number());
     }
     assert_eq!(scrub["step_minutes"], 15);
     assert_eq!(scrub["first_day_offset"], -1);

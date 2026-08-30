@@ -289,7 +289,7 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(request_snapshot.contains(
         "if (scrubPreviewActive) {\n      snapshotRequestPending = true\n      snapshotRequestReference = reference\n      return"
     ));
-    assert!(panel.contains("TimeRail.mergeSnapshot(scrubBaseSnapshot, frame)"));
+    assert!(panel.contains("TimeRail.mergeSnapshot(scrubBaseSnapshot, scrubPayload, index)"));
     assert!(panel.contains("property real scrubAnchorMinute: 0"));
     assert!(panel.contains("readonly property bool scrubSourceIsSummary"));
     assert!(panel.contains("function clockDayLabel(clock)"));
@@ -376,8 +376,9 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
         .expect("lock scrub selection body");
     assert!(lock_scrub_selection.contains("live = false"));
     assert!(lock_scrub_selection.contains("requestSnapshot("));
+    assert!(lock_scrub_selection.contains("if (!scrubSelectedFrame.reference_utc) {"));
     assert!(lock_scrub_selection
-        .contains("if (!scrubSelectedFrame.reference_utc || !scrubSelectedFrame.summary) {"));
+        .contains("TimeRail.mergeSnapshot(base, scrubPayload, scrubSelectedSlotIndex)"));
     assert!(lock_scrub_selection.contains("cancelScrubPreview()"));
     assert!(!panel.contains("function toggleLocationView()"));
     assert!(!panel.contains("function cycleLocationLayout()"));

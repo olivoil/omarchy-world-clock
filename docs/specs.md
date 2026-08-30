@@ -394,6 +394,10 @@ Rules:
   the grabbed direction; trackpad and mouse-wheel scrubbing use the same
   earlier/later model, and hovering or pressing without dragging does not
   change the clocks.
+- Preparing the time rail keeps its 288 source-time slots independent of the
+  location count. Each location contributes only compact UTC-offset states,
+  including any DST transition in the rail window; the panel derives visible
+  card times locally instead of receiving a full clock copy in every slot.
 - Next-day markers never wrap to the left of the selected source; out-of-range
   day markers appear beyond the appropriate ruler edge with their real offset,
   and multiple markers collapse into a count and distance range.

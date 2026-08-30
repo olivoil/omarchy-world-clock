@@ -63,8 +63,14 @@ const base = {
 }
 const matchingLocations = {
   locations: [
-    { timezone: "America/Cancun", label: "Cancun" },
-    { timezone: "Asia/Tokyo", label: "Tokyo" },
+    {
+      timezone: "America/Cancun", label: "Cancun",
+      states: [{ from_slot: 0, utc_offset_minutes: -300, notation: "EST" }],
+    },
+    {
+      timezone: "Asia/Tokyo", label: "Tokyo",
+      states: [{ from_slot: 0, utc_offset_minutes: 540, notation: "JST" }],
+    },
   ],
 }
 assert.equal(context.payloadMatchesSnapshot(matchingLocations, base), true,
@@ -78,42 +84,34 @@ assert.equal(context.payloadMatchesSnapshot({
 const nextDayFrame = {
   day_offset: 1,
   reference_utc: "2026-08-29T05:00:00Z",
-  summary: {
-    time: "00:00", date: "2026-08-29", notation: "EST", local_minutes: 0,
-  },
-  clocks: [{
-    time: "14:00", date: "2026-08-29", notation: "JST", local_minutes: 840,
-  }],
 }
-const nextDayPreview = context.mergeSnapshot(base, nextDayFrame)
 const scrubPayload = {
   ...matchingLocations,
   source_timezone: "America/Cancun",
   date: "2026-08-28",
   time_format: "24h",
-  slots: [{}],
+  slots: [nextDayFrame],
 }
+const nextDayPreview = context.mergeSnapshot(base, scrubPayload, 0)
 assert.equal(context.scrubPayloadReady(scrubPayload, nextDayPreview, base,
   "America/Cancun", "America/Cancun\u001fCancun"), true,
 "the rail stays ready against its stable drag-start snapshot across midnight")
 const frame = {
   day_offset: 0,
   reference_utc: "2026-08-28T16:00:00Z",
-  summary: {
-    time: "11:00", notation: "EST", local_minutes: 660, source_day_offset: 0,
-  },
-  clocks: [{
-    time: "01:00", notation: "JST", local_minutes: 60, source_day_offset: 1,
-  }],
 }
-const merged = context.mergeSnapshot(base, frame)
+const framePayload = { ...scrubPayload, slots: [frame] }
+const merged = context.mergeSnapshot(base, framePayload, 0)
 assert.equal(merged.summary.title, "Cancun", "static summary identity is preserved")
 assert.equal(merged.summary.time, "11:00", "summary time comes from the selected frame")
 assert.equal(merged.clocks[0].title, "Tokyo", "static card identity is preserved")
 assert.equal(merged.clocks[0].time, "01:00", "card time comes from the selected frame")
 assert.deepEqual(merged.featured_cities, base.featured_cities,
   "large static map data is not duplicated by the scrub payload")
-assert.equal(context.mergeSnapshot(base, { summary: {}, clocks: [] }), null,
+assert.equal(context.mergeSnapshot(base, {
+  ...framePayload,
+  locations: [matchingLocations.locations[0]],
+}, 0), null,
   "a stale payload with different visible clocks is rejected")
 assert.equal(context.relativeDayLabel(merged.clocks[0], merged.summary), "Next day",
   "scrub frames describe dates relative to the selected rail source")
@@ -133,6 +131,37 @@ assert.equal(context.selectionLabel({ date: "2026-08-28" }, {
 assert.equal(context.selectionLabel({ date: "2026-11-01" }, {
   day_offset: 0, label: "01:30", ambiguous: true,
 }, false), "SUN 1  ·  01:30  ·  FIRST")
+
+const dstPayload = {
+  source_timezone: "UTC",
+  date: "2026-03-08",
+  time_format: "24h",
+  locations: [{
+    timezone: "UTC", label: "UTC",
+    states: [{ from_slot: 0, utc_offset_minutes: 0, notation: "UTC" }],
+  }, {
+    timezone: "America/New_York", label: "New York",
+    states: [
+      { from_slot: 0, utc_offset_minutes: -300, notation: "EST" },
+      { from_slot: 1, utc_offset_minutes: -240, notation: "EDT" },
+    ],
+  }],
+  slots: [
+    { day_offset: 0, reference_utc: "2026-03-08T06:30:00Z" },
+    { day_offset: 0, reference_utc: "2026-03-08T07:30:00Z" },
+  ],
+}
+const dstBase = {
+  reference_utc: "2026-03-08T06:30:00Z",
+  summary: { timezone: "UTC", title: "UTC" },
+  clocks: [{ timezone: "America/New_York", title: "New York" }],
+}
+assert.equal(context.mergeSnapshot(dstBase, dstPayload, 0).clocks[0].time, "01:30")
+const afterDst = context.mergeSnapshot(dstBase, dstPayload, 1)
+assert.equal(afterDst.clocks[0].time, "03:30",
+  "compact timezone states preserve a location's DST jump")
+assert.equal(afterDst.clocks[0].notation, "EDT")
+assert.equal(afterDst.clocks[0].relative_minutes, -240)
 
 const markers = context.buildMarkers(merged, "America/Cancun", 660)
 assert.equal(markers.length, 2)

@@ -684,12 +684,12 @@ Panel {
     }
     scrubSelectedSlotIndex = index
     scrubPreviewActive = true
-    if (!frame || !frame.reference_utc || !frame.summary) {
+    if (!frame || !frame.reference_utc) {
       snapshot = scrubBaseSnapshot
       summaryInput.text = String(snapshot.summary.time || "--:--")
       return
     }
-    var merged = TimeRail.mergeSnapshot(scrubBaseSnapshot, frame)
+    var merged = TimeRail.mergeSnapshot(scrubBaseSnapshot, scrubPayload, index)
     if (!merged) {
       cancelScrubPreview()
       scrubPayload = null
@@ -733,12 +733,12 @@ Panel {
       if (scrubPreviewActive) cancelScrubPreview()
       return
     }
-    if (!scrubSelectedFrame.reference_utc || !scrubSelectedFrame.summary) {
+    if (!scrubSelectedFrame.reference_utc) {
       cancelScrubPreview()
       return
     }
     var base = scrubBaseSnapshot || snapshot
-    var merged = TimeRail.mergeSnapshot(base, scrubSelectedFrame)
+    var merged = TimeRail.mergeSnapshot(base, scrubPayload, scrubSelectedSlotIndex)
     if (!merged) {
       cancelScrubPreview()
       return

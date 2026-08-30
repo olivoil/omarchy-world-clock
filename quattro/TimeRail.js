@@ -107,9 +107,12 @@ function payloadMatchesSnapshot(payload, snapshot) {
       || !snapshot || !snapshot.summary || !Array.isArray(snapshot.clocks)) return false
   var snapshotLocations = [snapshot.summary].concat(snapshot.clocks)
   if (payload.locations.length !== snapshotLocations.length) return false
-  for (var index = 0; index < snapshotLocations.length; index++)
+  for (var index = 0; index < snapshotLocations.length; index++) {
     if (locationIdentity(payload.locations[index]) !== locationIdentity(snapshotLocations[index]))
       return false
+    if (!Array.isArray(payload.locations[index].states)
+        || payload.locations[index].states.length === 0) return false
+  }
   return true
 }
 
@@ -145,17 +148,134 @@ function scrubPayloadReady(payload, snapshot, baseSnapshot, sourceTimezone, sour
       === String(validationSnapshot.time_format || "24h")
 }
 
-function mergeSnapshot(base, frame) {
-  if (!base || !frame || !frame.summary || !Array.isArray(frame.clocks)
-      || !Array.isArray(base.clocks) || frame.clocks.length !== base.clocks.length)
+function paddedNumber(value, width) {
+  var result = String(Math.max(0, Math.round(Number(value || 0))))
+  while (result.length < width) result = "0" + result
+  return result
+}
+
+function shiftedIsoDate(date, dayOffset) {
+  var value = Date.parse(String(date || "") + "T00:00:00Z")
+  if (!isFinite(value)) return ""
+  var shifted = new Date(value + Number(dayOffset || 0) * 24 * 60 * 60 * 1000)
+  return paddedNumber(shifted.getUTCFullYear(), 4) + "-"
+    + paddedNumber(shifted.getUTCMonth() + 1, 2) + "-"
+    + paddedNumber(shifted.getUTCDate(), 2)
+}
+
+function formattedClockTime(hour, minute, timeFormat) {
+  if (String(timeFormat || "").toLowerCase() === "ampm") {
+    var twelveHour = hour % 12 || 12
+    return String(twelveHour) + ":" + paddedNumber(minute, 2)
+      + (hour < 12 ? " AM" : " PM")
+  }
+  return paddedNumber(hour, 2) + ":" + paddedNumber(minute, 2)
+}
+
+function formattedCalendarDay(date) {
+  var value = Date.parse(String(date || "") + "T00:00:00Z")
+  if (!isFinite(value)) return ""
+  var rendered = new Date(value)
+  var weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+  var months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+  return weekdays[rendered.getUTCDay()] + ", " + months[rendered.getUTCMonth()]
+    + " " + String(rendered.getUTCDate())
+}
+
+function relativeClockLabel(relativeMinutes) {
+  var value = Math.round(Number(relativeMinutes || 0))
+  if (value === 0) return "Same time"
+  var absolute = Math.abs(value)
+  var hours = Math.floor(absolute / 60)
+  var minutes = absolute % 60
+  var direction = value > 0 ? "ahead" : "behind"
+  if (hours === 0) return String(minutes) + " min " + direction
+  if (minutes === 0) return String(hours) + "h " + direction
+  return String(hours) + "h " + paddedNumber(minutes, 2) + "m " + direction
+}
+
+function timezoneStateAt(location, slotIndex) {
+  if (!location || !Array.isArray(location.states) || location.states.length === 0)
     return null
+  var selected = location.states[0]
+  for (var index = 1; index < location.states.length; index++) {
+    if (Number(location.states[index].from_slot) > Number(slotIndex)) break
+    selected = location.states[index]
+  }
+  var offset = Number(selected.utc_offset_minutes)
+  if (!isFinite(offset)) return null
+  return {
+    utc_offset_minutes: Math.round(offset),
+    notation: String(selected.notation || "")
+  }
+}
+
+function renderedScrubClock(baseClock, state, referenceMilliseconds,
+    timeFormat, sourceDate, summaryDate, summaryOffset) {
+  var local = new Date(referenceMilliseconds + state.utc_offset_minutes * 60 * 1000)
+  if (!isFinite(local.getTime())) return null
+  var hour = local.getUTCHours()
+  var minute = local.getUTCMinutes()
+  var date = paddedNumber(local.getUTCFullYear(), 4) + "-"
+    + paddedNumber(local.getUTCMonth() + 1, 2) + "-"
+    + paddedNumber(local.getUTCDate(), 2)
+  var summaryDayOffset = dateDayOffset(date, summaryDate)
+  var day = summaryDayOffset === -1 ? "Yesterday"
+    : (summaryDayOffset === 0 ? "Today"
+      : (summaryDayOffset === 1 ? "Tomorrow" : formattedCalendarDay(date)))
+  var relativeMinutes = state.utc_offset_minutes - summaryOffset
+  return mergeRecord(baseClock, {
+    time: formattedClockTime(hour, minute, timeFormat),
+    date: date,
+    day: day,
+    notation: state.notation,
+    local_minutes: hour * 60 + minute,
+    source_day_offset: dateDayOffset(date, sourceDate),
+    relative_minutes: relativeMinutes,
+    relative_label: relativeClockLabel(relativeMinutes)
+  })
+}
+
+function mergeSnapshot(base, payload, slotIndex) {
+  if (!base || !base.summary || !Array.isArray(base.clocks)
+      || !payload || !Array.isArray(payload.slots)
+      || !Array.isArray(payload.locations)
+      || payload.locations.length !== base.clocks.length + 1) return null
+  var index = Math.max(0, Math.min(payload.slots.length - 1,
+    Math.round(Number(slotIndex || 0))))
+  var frame = payload.slots[index]
+  if (!frame || !frame.reference_utc) return null
+  var referenceMilliseconds = Date.parse(String(frame.reference_utc))
+  if (!isFinite(referenceMilliseconds)) return null
+
+  var states = []
+  for (var locationIndex = 0; locationIndex < payload.locations.length; locationIndex++) {
+    var state = timezoneStateAt(payload.locations[locationIndex], index)
+    if (!state) return null
+    states.push(state)
+  }
+  var sourceDate = shiftedIsoDate(payload.date, frame.day_offset)
+  var summaryLocal = new Date(referenceMilliseconds
+    + states[0].utc_offset_minutes * 60 * 1000)
+  var summaryDate = paddedNumber(summaryLocal.getUTCFullYear(), 4) + "-"
+    + paddedNumber(summaryLocal.getUTCMonth() + 1, 2) + "-"
+    + paddedNumber(summaryLocal.getUTCDate(), 2)
+  if (!sourceDate || !isFinite(summaryLocal.getTime())) return null
 
   var result = mergeRecord(base, ({ reference_utc: frame.reference_utc }))
   result.scrub_day_offset = Number(frame.day_offset || 0)
-  result.summary = mergeRecord(base.summary, frame.summary)
+  result.summary = renderedScrubClock(base.summary, states[0], referenceMilliseconds,
+    payload.time_format, sourceDate, summaryDate, states[0].utc_offset_minutes)
+  if (!result.summary) return null
   result.clocks = []
-  for (var index = 0; index < base.clocks.length; index++)
-    result.clocks.push(mergeRecord(base.clocks[index], frame.clocks[index]))
+  for (var clockIndex = 0; clockIndex < base.clocks.length; clockIndex++) {
+    var rendered = renderedScrubClock(base.clocks[clockIndex], states[clockIndex + 1],
+      referenceMilliseconds, payload.time_format, sourceDate, summaryDate,
+      states[0].utc_offset_minutes)
+    if (!rendered) return null
+    result.clocks.push(rendered)
+  }
   return result
 }
 

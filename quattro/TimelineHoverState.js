@@ -23,17 +23,22 @@ function matchesIdentity(owners, locationIdentity) {
   return false
 }
 
+function listLength(values) {
+  if (!values || values.length === undefined) return 0
+  var length = Math.floor(Number(values.length))
+  return isFinite(length) && length > 0 ? length : 0
+}
+
 function markerHovered(owners, marker) {
   if (!marker) return false
-  var identities = Array.isArray(marker.identities) ? marker.identities : []
-  for (var index = 0; index < identities.length; index++)
+  var identities = marker.identities
+  for (var index = 0; index < listLength(identities); index++)
     if (matchesIdentity(owners, identities[index])) return true
   return false
 }
 
 function sourceMarkerHovered(owners, markers) {
-  if (!Array.isArray(markers)) return false
-  for (var index = 0; index < markers.length; index++)
+  for (var index = 0; index < listLength(markers); index++)
     if (markers[index] && markers[index].source === true
         && markerHovered(owners, markers[index])) return true
   return false

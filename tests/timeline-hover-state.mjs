@@ -45,6 +45,20 @@ const sharedSourceMarkers = [
 assert.equal(context.sourceMarkerHovered(sharedSourceOwners, sharedSourceMarkers), true,
   "hovering a card grouped with the source reaches the fixed playhead")
 
+const qmlBridgedMarker = {
+  source: false,
+  identities: { 0: "America/Vancouver\u001fSan Francisco", length: 1 },
+  count: 1,
+}
+let qmlBridgedOwners = {}
+qmlBridgedOwners = context.updateOwners(qmlBridgedOwners, "card:san-francisco",
+  "America/Vancouver\u001fSan Francisco", true)
+assert.equal(context.markerHovered(qmlBridgedOwners, qmlBridgedMarker), true,
+  "a QVariantList identity collection still links a card to its marker")
+assert.equal(context.sourceMarkerHovered(sharedSourceOwners, {
+  0: sharedSourceMarkers[0], 1: sharedSourceMarkers[1], length: 2,
+}), true, "a QVariantList marker collection still reaches the fixed playhead")
+
 let nextDayOwners = {}
 nextDayOwners = context.updateOwners(nextDayOwners, "card:kiritimati",
   "Pacific/Kiritimati\u001fKiritimati", true)

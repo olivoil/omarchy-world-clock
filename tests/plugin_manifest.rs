@@ -147,6 +147,11 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("layout.reveal * (searchResult || configured"));
     assert!(panel.contains("function mapLocationKey(location)"));
     assert!(panel.contains("function mapLocationSelected(location)"));
+    assert!(panel.contains("readonly property int maximumSavedGlobeMarkers: 48"));
+    assert!(panel.contains("var preferredSavedMarkers = []"));
+    assert!(panel.contains("saved.pinned === true"));
+    assert!(panel.contains(".slice(0, maximumSavedGlobeMarkers)"));
+    assert!(panel.contains("if (savedKey) seenPlaces[savedKey] = true"));
     assert!(panel.contains("var mayPlaceLabel = !mapLocationSelected(location)"));
     assert!(panel.contains("visible: mapMarker.layout.labelVisible && !mapMarker.selected"));
     assert!(!panel.contains("featuredPlaced < 7"));

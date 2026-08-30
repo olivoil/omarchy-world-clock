@@ -195,15 +195,26 @@ Panel {
       if (root.hasMapCoordinate(clocks[i])) entries.push(clocks[i])
     return entries
   }
+  readonly property int maximumSavedGlobeMarkers: 48
   readonly property var globeLocations: {
     var entries = []
     var seenPlaces = ({})
+    var preferredSavedMarkers = []
+    var remainingSavedMarkers = []
+    var summaryIdentity = root.conversionSource(summary)
     for (var savedIndex = 0; savedIndex < mapClocks.length; savedIndex++) {
       var saved = mapClocks[savedIndex]
       var savedKey = root.mapLocationKey(saved)
-      entries.push({ location: saved, configured: true })
       if (savedKey) seenPlaces[savedKey] = true
+      var wrapper = { location: saved, configured: true }
+      if (root.conversionSource(saved) === summaryIdentity || saved.pinned === true)
+        preferredSavedMarkers.push(wrapper)
+      else
+        remainingSavedMarkers.push(wrapper)
     }
+    var savedMarkers = preferredSavedMarkers.concat(remainingSavedMarkers)
+      .slice(0, maximumSavedGlobeMarkers)
+    entries = entries.concat(savedMarkers)
     for (var cityIndex = 0; cityIndex < featuredCities.length; cityIndex++) {
       var city = featuredCities[cityIndex]
       var cityKey = root.mapLocationKey(city)

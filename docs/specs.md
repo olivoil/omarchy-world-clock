@@ -323,8 +323,10 @@ Rules:
   dominating the initial view.
 - Drag rotates it. Mouse-wheel angle deltas and trackpad pixel deltas both
   zoom it across an extended range; zooming out reveals the complete sphere.
-- Configured places and a ranked catalogue of more than 300 capitals and
-  major cities appear as front-hemisphere markers with live local times.
+- Up to 48 configured places and a ranked catalogue of more than 300 capitals
+  and major cities appear as front-hemisphere markers with live local times.
+  The local summary and pinned places take priority in that saved-marker cap;
+  every saved place remains available as a card and excluded from add targets.
 - Major world cities remain visible at regional scale. More capitals and
   agglomerations fade in as the globe zooms closer, using Natural Earth's
   label priority and zoom guidance.

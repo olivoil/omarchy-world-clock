@@ -1,7 +1,7 @@
 use std::fs;
 use std::process::Command;
 
-const BACKEND_PROTOCOL_VERSION: u64 = 4;
+const BACKEND_PROTOCOL_VERSION: u64 = 5;
 
 #[test]
 fn package_exposes_only_the_quattro_backend_binary() {
@@ -154,6 +154,10 @@ fn bundled_backend_supports_the_complete_quattro_command_protocol() {
     for (scrub_location, snapshot_location) in scrub_locations.iter().zip(snapshot_locations) {
         assert_eq!(scrub_location["timezone"], snapshot_location["timezone"]);
         assert_eq!(scrub_location["label"], snapshot_location["label"]);
+        assert!(scrub_location["states"]
+            .as_array()
+            .is_some_and(|states| !states.is_empty()));
+        assert!(scrub_location["states"][0]["utc_offset_seconds"].is_number());
     }
     assert_eq!(scrub["step_minutes"], 15);
     assert_eq!(scrub["first_day_offset"], -1);
@@ -166,6 +170,8 @@ fn bundled_backend_supports_the_complete_quattro_command_protocol() {
         scrub["slots"][140]["reference_utc"],
         "2026-08-11T11:00:00+00:00"
     );
+    assert!(scrub["slots"][140].get("summary").is_none());
+    assert!(scrub["slots"][140].get("clocks").is_none());
 
     let conversion = Command::new(backend)
         .args([

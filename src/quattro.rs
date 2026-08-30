@@ -1,20 +1,20 @@
 use crate::config::{
-    canonical_timezone_name, is_valid_timezone, place_coordinate, AppConfig, TimezoneEntry,
-    TimezoneSearchResult, CLOCK_CARD_LIMIT,
+    canonical_timezone_name, is_valid_timezone, place_coordinate, AppConfig, PinnedLocationIndex,
+    TimezoneEntry, TimezoneSearchResult,
 };
 use crate::time::{
     format_display_time, format_timezone_notation, friendly_timezone_name, parse_timezone,
     zoned_datetime,
 };
 use crate::timezone_grid::timezone_at;
-use chrono::{DateTime, Duration, LocalResult, TimeZone, Timelike, Utc};
+use chrono::{DateTime, Duration, LocalResult, Offset, TimeZone, Timelike, Utc};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, sync::OnceLock};
 
 pub const SNAPSHOT_SCHEMA_VERSION: u64 = 1;
-pub const BACKEND_PROTOCOL_VERSION: u64 = 4;
+pub const BACKEND_PROTOCOL_VERSION: u64 = 5;
 pub const SCRUB_STEP_MINUTES: u32 = 15;
-const QUATTRO_CLOCK_LIMIT: usize = CLOCK_CARD_LIMIT;
+const MODULE_TOOLTIP_LOCATION_LIMIT: usize = 12;
 
 #[derive(Debug, Deserialize)]
 struct FeaturedCity {
@@ -125,24 +125,38 @@ pub fn build_module_payload(
     local_timezone: &str,
     time_format: &str,
 ) -> QuattroModulePayload {
+    let pinned_locations = config.pinned_location_index();
     let (_, visible_entries) = visible_location_entries(config, now, local_timezone);
+    let additional_location_count = visible_entries.len().saturating_sub(1);
     let tooltip_rows = visible_entries
         .into_iter()
         .skip(1)
+        .take(MODULE_TOOLTIP_LOCATION_LIMIT)
         .map(|entry| {
             let time = format_display_time(&zoned_datetime(now, &entry.timezone), time_format);
             (entry.read_card_title(), time)
         })
         .collect::<Vec<_>>();
+    let hidden_location_count = additional_location_count.saturating_sub(tooltip_rows.len());
+    let tooltip = if tooltip_rows.is_empty() {
+        "No additional timezones yet.".to_string()
+    } else {
+        let mut value = format_tooltip_clock_rows(&tooltip_rows);
+        if hidden_location_count > 0 {
+            let noun = if hidden_location_count == 1 {
+                "location"
+            } else {
+                "locations"
+            };
+            value.push_str(&format!("\n+{hidden_location_count} more {noun}"));
+        }
+        value
+    };
     QuattroModulePayload {
         protocol_version: BACKEND_PROTOCOL_VERSION,
         backend_version: env!("CARGO_PKG_VERSION"),
-        tooltip: if tooltip_rows.is_empty() {
-            "No additional timezones yet.".to_string()
-        } else {
-            format_tooltip_clock_rows(&tooltip_rows)
-        },
-        pinned_clocks: config
+        tooltip,
+        pinned_clocks: pinned_locations
             .pinned_entries()
             .map(|entry| QuattroPinnedClock {
                 code: location_short_code(entry),
@@ -171,17 +185,6 @@ pub struct QuattroClock {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct QuattroScrubClock {
-    pub time: String,
-    pub day: String,
-    pub notation: String,
-    pub local_minutes: u32,
-    pub source_day_offset: i64,
-    pub relative_minutes: i64,
-    pub relative_label: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct QuattroScrubFrame {
     pub day_offset: i64,
     pub minute: u32,
@@ -189,15 +192,20 @@ pub struct QuattroScrubFrame {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reference_utc: Option<String>,
     pub ambiguous: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub summary: Option<QuattroScrubClock>,
-    pub clocks: Vec<QuattroScrubClock>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct QuattroScrubZoneState {
+    pub from_slot: usize,
+    pub utc_offset_seconds: i32,
+    pub notation: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct QuattroScrubLocation {
     pub timezone: String,
     pub label: String,
+    pub states: Vec<QuattroScrubZoneState>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -316,7 +324,7 @@ fn day_label(reference_utc: DateTime<Utc>, local_timezone: &str, timezone: &str)
 
 fn clock_from_entry(
     entry: &TimezoneEntry,
-    config: &AppConfig,
+    pinned_locations: &PinnedLocationIndex<'_>,
     reference_utc: DateTime<Utc>,
     local_timezone: &str,
     time_format: &str,
@@ -339,24 +347,7 @@ fn clock_from_entry(
         relative_label: relative_label(relative_minutes),
         latitude,
         longitude,
-        pinned: config.is_pinned(entry),
-    }
-}
-
-fn scrub_clock(
-    clock: QuattroClock,
-    reference_utc: DateTime<Utc>,
-    source_date: chrono::NaiveDate,
-) -> QuattroScrubClock {
-    let local_date = zoned_datetime(reference_utc, &clock.timezone).date_naive();
-    QuattroScrubClock {
-        time: clock.time,
-        day: clock.day,
-        notation: clock.notation,
-        local_minutes: clock.local_minutes,
-        source_day_offset: local_date.signed_duration_since(source_date).num_days(),
-        relative_minutes: clock.relative_minutes,
-        relative_label: clock.relative_label,
+        pinned: pinned_locations.contains(entry),
     }
 }
 
@@ -370,17 +361,11 @@ pub fn build_scrub_payload(
     let source = parse_timezone(source_timezone).ok_or("source timezone is invalid")?;
     let source_date = reference_utc.with_timezone(&source).date_naive();
     let (_, visible_entries) = visible_location_entries(config, reference_utc, local_timezone);
-    let locations = visible_entries
-        .iter()
-        .map(|entry| QuattroScrubLocation {
-            timezone: entry.timezone.clone(),
-            label: entry.display_label(),
-        })
-        .collect();
     let first_day_offset = -1;
     let day_count = 3;
     let slots_per_day = 24 * 60 / SCRUB_STEP_MINUTES;
     let mut slots = Vec::with_capacity((slots_per_day * day_count) as usize);
+    let mut slot_references = Vec::with_capacity((slots_per_day * day_count) as usize);
 
     for day_offset in first_day_offset..first_day_offset + i64::from(day_count) {
         let slot_date = source_date
@@ -403,47 +388,59 @@ pub fn build_scrub_payload(
                     label: format!("{:02}:{:02}", minute / 60, minute % 60),
                     reference_utc: None,
                     ambiguous,
-                    summary: None,
-                    clocks: Vec::new(),
                 });
+                slot_references.push(None);
                 continue;
             };
 
-            let mut entries = visible_entries.iter();
-            let summary_entry = entries
-                .next()
-                .expect("visible locations always include the local summary");
-            let summary = scrub_clock(
-                clock_from_entry(
-                    summary_entry,
-                    config,
-                    reference,
-                    local_timezone,
-                    time_format,
-                ),
-                reference,
-                slot_date,
-            );
-            let clocks = entries
-                .map(|entry| {
-                    scrub_clock(
-                        clock_from_entry(entry, config, reference, local_timezone, time_format),
-                        reference,
-                        slot_date,
-                    )
-                })
-                .collect();
             slots.push(QuattroScrubFrame {
                 day_offset,
                 minute,
                 label: format_display_time(&reference.with_timezone(&source), time_format),
                 reference_utc: Some(reference.to_rfc3339()),
                 ambiguous,
-                summary: Some(summary),
-                clocks,
             });
+            slot_references.push(Some(reference));
         }
     }
+
+    // Keep the response proportional to the number of locations rather than
+    // repeating every rendered clock in every one of the 288 rail frames.
+    // Most zones have one state in this three-day window; a second state is
+    // only emitted when their UTC offset or notation changes at a DST edge.
+    let locations = visible_entries
+        .iter()
+        .map(|entry| {
+            let timezone = parse_timezone(&entry.timezone)
+                .expect("configured timezone should be validated before rendering");
+            let mut states = Vec::new();
+            let mut previous = None;
+            for (slot_index, reference) in slot_references.iter().enumerate() {
+                let Some(reference) = reference else {
+                    continue;
+                };
+                let zoned = reference.with_timezone(&timezone);
+                let state = (
+                    zoned.offset().fix().local_minus_utc(),
+                    format_timezone_notation(&zoned),
+                );
+                if previous.as_ref() == Some(&state) {
+                    continue;
+                }
+                states.push(QuattroScrubZoneState {
+                    from_slot: slot_index,
+                    utc_offset_seconds: state.0,
+                    notation: state.1.clone(),
+                });
+                previous = Some(state);
+            }
+            QuattroScrubLocation {
+                timezone: entry.timezone.clone(),
+                label: entry.display_label(),
+                states,
+            }
+        })
+        .collect();
 
     Ok(QuattroScrubPayload {
         schema_version: SNAPSHOT_SCHEMA_VERSION,
@@ -497,28 +494,6 @@ pub(crate) fn visible_location_entries(
             ))
             .then_with(|| left.display_label().cmp(&right.display_label()))
     });
-    if entries.len() > QUATTRO_CLOCK_LIMIT {
-        let mut selected = entries
-            .iter()
-            .map(|entry| config.is_pinned(entry))
-            .collect::<Vec<_>>();
-        let mut selected_count = selected.iter().filter(|selected| **selected).count();
-        for is_selected in &mut selected {
-            if selected_count >= QUATTRO_CLOCK_LIMIT {
-                break;
-            }
-            if !*is_selected {
-                *is_selected = true;
-                selected_count += 1;
-            }
-        }
-        entries = entries
-            .into_iter()
-            .zip(selected)
-            .filter_map(|(entry, selected)| selected.then_some(entry))
-            .collect();
-    }
-
     let mut visible = Vec::with_capacity(entries.len() + 1);
     visible.push(summary_entry);
     visible.extend(entries);
@@ -666,6 +641,7 @@ pub fn build_snapshot(
     local_timezone: &str,
     time_format: &str,
 ) -> QuattroSnapshot {
+    let pinned_locations = config.pinned_location_index();
     let (local_configured, visible_entries) =
         visible_location_entries(config, reference_utc, local_timezone);
     let mut visible_entries = visible_entries.into_iter();
@@ -674,13 +650,21 @@ pub fn build_snapshot(
         .expect("visible locations always include the local summary");
     let summary = clock_from_entry(
         &summary_entry,
-        config,
+        &pinned_locations,
         reference_utc,
         local_timezone,
         time_format,
     );
     let clocks = visible_entries
-        .map(|entry| clock_from_entry(&entry, config, reference_utc, local_timezone, time_format))
+        .map(|entry| {
+            clock_from_entry(
+                &entry,
+                &pinned_locations,
+                reference_utc,
+                local_timezone,
+                time_format,
+            )
+        })
         .collect::<Vec<_>>();
     let timeline = timeline_items(&summary, &clocks);
     let featured_cities = build_featured_cities(config, reference_utc, local_timezone, time_format);
@@ -693,7 +677,9 @@ pub fn build_snapshot(
         weather_unit: None,
         configured_count: config.timezones.len(),
         local_configured,
-        pinned_timezone: config.pinned_entry().map(|entry| entry.timezone.clone()),
+        pinned_timezone: pinned_locations
+            .first_pinned_entry()
+            .map(|entry| entry.timezone.clone()),
         summary,
         clocks,
         timeline,
@@ -752,6 +738,30 @@ mod tests {
     }
 
     #[test]
+    fn module_tooltip_summarizes_locations_beyond_its_bounded_rows() {
+        let config = AppConfig {
+            timezones: (0..15)
+                .map(|index| entry("UTC", &format!("Zone {index:02}")))
+                .collect(),
+            pinned_locations: vec![],
+            disable_open_meteo_geolocation: false,
+        };
+        let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
+
+        let payload = build_module_payload(&config, now, "America/Cancun", "24h");
+        let lines = payload.tooltip.lines().collect::<Vec<_>>();
+
+        assert_eq!(
+            lines.len(),
+            13,
+            "twelve clocks plus one summary stay bounded"
+        );
+        assert!(payload.tooltip.contains("Zone 11"));
+        assert!(!payload.tooltip.contains("Zone 12"));
+        assert_eq!(lines.last().copied(), Some("+3 more locations"));
+    }
+
+    #[test]
     fn module_payload_lists_every_pin_with_a_compact_location_code() {
         let config = AppConfig {
             timezones: vec![
@@ -782,6 +792,36 @@ mod tests {
         assert_eq!(payload.pinned_clocks[1].code, "NY");
         assert_eq!(payload.pinned_clocks[1].label, "New York");
         assert_eq!(payload.pinned_clocks[1].time, "07:05");
+    }
+
+    #[test]
+    fn large_pin_lists_are_resolved_consistently_for_module_and_snapshot_payloads() {
+        const LOCATION_COUNT: usize = 500;
+        let config = AppConfig {
+            timezones: (0..LOCATION_COUNT)
+                .map(|index| entry("UTC", &format!("Zone {index:03}")))
+                .collect(),
+            pinned_locations: (0..LOCATION_COUNT)
+                .rev()
+                .map(|index| LocationKey {
+                    timezone: "UTC".to_string(),
+                    label: format!("Zone {index:03}"),
+                })
+                .collect(),
+            disable_open_meteo_geolocation: false,
+        };
+        let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
+
+        let module = build_module_payload(&config, now, "UTC", "24h");
+        let snapshot = build_snapshot(&config, now, "UTC", "24h");
+
+        assert_eq!(module.pinned_clocks.len(), LOCATION_COUNT);
+        assert_eq!(module.pinned_clocks.first().unwrap().label, "Zone 499");
+        assert_eq!(module.pinned_clocks.last().unwrap().label, "Zone 000");
+        assert!(snapshot.summary.pinned);
+        assert_eq!(snapshot.clocks.len(), LOCATION_COUNT - 1);
+        assert!(snapshot.clocks.iter().all(|clock| clock.pinned));
+        assert_eq!(snapshot.pinned_timezone.as_deref(), Some("UTC"));
     }
 
     #[test]
@@ -832,7 +872,7 @@ mod tests {
     }
 
     #[test]
-    fn scrub_payload_precomputes_adjacent_days_of_quarter_hour_frames() {
+    fn scrub_payload_describes_adjacent_days_with_compact_timezone_states() {
         let config = AppConfig {
             timezones: vec![
                 entry("America/Cancun", "Local"),
@@ -853,6 +893,13 @@ mod tests {
         assert_eq!(payload.locations[0].label, "Local");
         assert_eq!(payload.locations[1].timezone, "Asia/Tokyo");
         assert_eq!(payload.locations[1].label, "Tokyo");
+        assert_eq!(payload.locations[0].states.len(), 1);
+        assert_eq!(payload.locations[0].states[0].from_slot, 0);
+        assert_eq!(payload.locations[0].states[0].utc_offset_seconds, -18_000);
+        assert_eq!(payload.locations[0].states[0].notation, "EST");
+        assert_eq!(payload.locations[1].states.len(), 1);
+        assert_eq!(payload.locations[1].states[0].utc_offset_seconds, 32_400);
+        assert_eq!(payload.locations[1].states[0].notation, "JST");
         assert_eq!(payload.step_minutes, 15);
         assert_eq!(payload.first_day_offset, -1);
         assert_eq!(payload.day_count, 3);
@@ -867,9 +914,28 @@ mod tests {
             eleven.reference_utc.as_deref(),
             Some("2026-08-11T16:00:00+00:00")
         );
-        assert_eq!(eleven.summary.as_ref().unwrap().time, "11:00");
-        assert_eq!(eleven.clocks[0].time, "01:00");
-        assert_eq!(eleven.clocks[0].source_day_offset, 1);
+    }
+
+    #[test]
+    fn scrub_payload_stays_compact_for_large_location_lists() {
+        let config = AppConfig {
+            timezones: (0..100)
+                .map(|index| entry("America/Cancun", &format!("Location {index}")))
+                .collect(),
+            pinned_locations: vec![],
+            disable_open_meteo_geolocation: false,
+        };
+        let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
+
+        let payload = build_scrub_payload(&config, now, "America/Cancun", "America/Cancun", "24h")
+            .expect("build scrub payload");
+        let encoded = serde_json::to_vec(&payload).expect("serialize scrub payload");
+
+        assert!(
+            encoded.len() < 128 * 1024,
+            "100 locations should not expand every card into every scrub frame; got {} bytes",
+            encoded.len()
+        );
     }
 
     #[test]
@@ -887,10 +953,15 @@ mod tests {
 
         for index in 96 + 8..96 + 12 {
             assert!(payload.slots[index].reference_utc.is_none());
-            assert!(payload.slots[index].summary.is_none());
         }
         assert!(payload.slots[96 + 7].reference_utc.is_some());
         assert!(payload.slots[96 + 12].reference_utc.is_some());
+        assert_eq!(payload.locations[0].states.len(), 2);
+        assert_eq!(payload.locations[0].states[0].notation, "EST");
+        assert_eq!(payload.locations[0].states[0].utc_offset_seconds, -18_000);
+        assert_eq!(payload.locations[0].states[1].from_slot, 96 + 12);
+        assert_eq!(payload.locations[0].states[1].notation, "EDT");
+        assert_eq!(payload.locations[0].states[1].utc_offset_seconds, -14_400);
     }
 
     #[test]
@@ -912,6 +983,26 @@ mod tests {
         }
         assert!(!payload.slots[96 + 3].ambiguous);
         assert!(!payload.slots[96 + 8].ambiguous);
+    }
+
+    #[test]
+    fn scrub_payload_preserves_historical_second_level_offsets() {
+        let config = AppConfig {
+            timezones: vec![entry("Asia/Kolkata", "Kolkata")],
+            pinned_locations: vec![],
+            disable_open_meteo_geolocation: false,
+        };
+        let now = Utc.with_ymd_and_hms(1900, 1, 1, 12, 0, 0).unwrap();
+
+        let payload = build_scrub_payload(&config, now, "Asia/Kolkata", "Asia/Kolkata", "24h")
+            .expect("build historical scrub payload");
+        let noon = &payload.slots[96 + 48];
+
+        assert_eq!(
+            noon.reference_utc.as_deref(),
+            Some("1900-01-01T06:38:50+00:00")
+        );
+        assert_eq!(payload.locations[0].states[0].utc_offset_seconds, 19_270);
     }
 
     #[test]
@@ -1044,7 +1135,7 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_caps_saved_clocks_when_the_current_timezone_is_not_configured() {
+    fn snapshot_keeps_every_saved_clock_when_the_current_timezone_is_not_configured() {
         let config = AppConfig {
             timezones: vec![
                 entry("America/Vancouver", "Vancouver"),
@@ -1067,49 +1158,8 @@ mod tests {
 
         assert_eq!(snapshot.configured_count, 10);
         assert!(!snapshot.local_configured);
-        assert_eq!(snapshot.clocks.len(), 9);
-    }
-
-    #[test]
-    fn snapshot_keeps_all_pinned_clocks_inside_the_travel_cap() {
-        let config = AppConfig {
-            timezones: vec![
-                entry("America/Vancouver", "Vancouver"),
-                entry("America/Los_Angeles", "Los Angeles"),
-                entry("America/Denver", "Denver"),
-                entry("America/Chicago", "Chicago"),
-                entry("America/New_York", "New York"),
-                entry("America/Halifax", "Halifax"),
-                entry("Europe/London", "London"),
-                entry("Europe/Paris", "Paris"),
-                entry("Asia/Kolkata", "Delhi"),
-                entry("Asia/Tokyo", "Tokyo"),
-            ],
-            pinned_locations: vec![
-                LocationKey {
-                    timezone: "Asia/Kolkata".to_string(),
-                    label: "Delhi".to_string(),
-                },
-                LocationKey {
-                    timezone: "Asia/Tokyo".to_string(),
-                    label: "Tokyo".to_string(),
-                },
-            ],
-            disable_open_meteo_geolocation: false,
-        };
-        let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
-
-        let snapshot = build_snapshot(&config, now, "America/Cancun", "24h");
-
-        assert_eq!(snapshot.clocks.len(), 9);
-        assert!(snapshot
-            .clocks
-            .iter()
-            .any(|clock| clock.title == "Tokyo" && clock.pinned));
-        assert!(snapshot
-            .clocks
-            .iter()
-            .any(|clock| clock.title == "Delhi" && clock.pinned));
+        assert_eq!(snapshot.clocks.len(), 10);
+        assert!(snapshot.clocks.iter().any(|clock| clock.title == "Tokyo"));
     }
 
     #[test]

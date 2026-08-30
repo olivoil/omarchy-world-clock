@@ -11,6 +11,7 @@ use std::time::Duration;
 
 const OPEN_METEO_FORECAST_ENDPOINT: &str = "https://api.open-meteo.com/v1/forecast";
 const OPEN_METEO_ATTRIBUTION_URL: &str = "https://open-meteo.com/";
+const OPEN_METEO_BATCH_SIZE: usize = 50;
 
 #[derive(Debug, Clone, PartialEq)]
 struct WeatherLocation {
@@ -77,26 +78,29 @@ pub fn current_weather(
         return Ok(payload);
     }
 
-    let latitudes = locations
-        .iter()
-        .map(|location| location.latitude.to_string())
-        .collect::<Vec<_>>()
-        .join(",");
-    let longitudes = locations
-        .iter()
-        .map(|location| location.longitude.to_string())
-        .collect::<Vec<_>>()
-        .join(",");
     let client = open_meteo_client(Duration::from_secs(5))
         .context("could not initialize the weather client")?;
-    let response = fetch_weather_response(
-        &client,
-        OPEN_METEO_FORECAST_ENDPOINT,
-        &latitudes,
-        &longitudes,
-    )?;
-
-    payload.locations = weather_from_response(response, &locations)?;
+    for batch in locations.chunks(OPEN_METEO_BATCH_SIZE) {
+        let latitudes = batch
+            .iter()
+            .map(|location| location.latitude.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        let longitudes = batch
+            .iter()
+            .map(|location| location.longitude.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        let response = fetch_weather_response(
+            &client,
+            OPEN_METEO_FORECAST_ENDPOINT,
+            &latitudes,
+            &longitudes,
+        )?;
+        payload
+            .locations
+            .extend(weather_from_response(response, batch)?);
+    }
     Ok(payload)
 }
 
@@ -218,7 +222,7 @@ mod tests {
         fetch_weather_response, parse_weather_response, weather_condition, weather_locations,
         WeatherLocation,
     };
-    use crate::config::{AppConfig, LocationKey, TimezoneEntry, CLOCK_CARD_LIMIT};
+    use crate::config::{AppConfig, LocationKey, TimezoneEntry};
     use crate::quattro::build_snapshot;
     use crate::remote_response::{
         open_meteo_client, serve_http_redirect_to_response, serve_http_response_without_length,
@@ -344,7 +348,7 @@ mod tests {
     }
 
     #[test]
-    fn weather_requests_match_the_bounded_visible_snapshot() {
+    fn weather_requests_match_the_complete_visible_snapshot() {
         let configured = [
             ("America/Cancun", "Cancun"),
             ("America/Vancouver", "Vancouver"),
@@ -389,8 +393,7 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(actual, expected);
-        assert_eq!(requested.len(), CLOCK_CARD_LIMIT + 1);
-        assert!(requested.len() < config.timezones.len());
+        assert_eq!(requested.len(), config.timezones.len());
         assert!(requested.iter().any(|location| location.label == "Tokyo"));
     }
 }

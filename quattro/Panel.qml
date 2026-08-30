@@ -1,6 +1,7 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
+import QtQuick.Controls as QQC
 import Quickshell.Io
 import qs.Commons
 import qs.Ui
@@ -111,7 +112,7 @@ Panel {
   }
   readonly property var clocks: snapshot && Array.isArray(snapshot.clocks) ? snapshot.clocks : []
   readonly property var timeline:
-    TimeRail.buildMarkers(snapshot, scrubSourceTimezone, scrubAnchorMinute)
+    TimeRail.buildMarkers(snapshot, scrubSourceTimezone, scrubViewportMinute)
   readonly property var featuredCities: snapshot && Array.isArray(snapshot.featured_cities)
     ? snapshot.featured_cities : []
   readonly property var summary: snapshot && snapshot.summary ? snapshot.summary : ({ time: "--:--", title: "", timezone: "", day: "", notation: "" })
@@ -143,13 +144,43 @@ Panel {
   }
   readonly property bool scrubSourceIsSummary: !scrubSourceKey
     || scrubSourceKey === root.conversionSource(root.summary)
-  readonly property int maxClocks: 9
   readonly property bool canRemove: Number(snapshot.configured_count || 0) > 1
   readonly property bool localTimezoneConfigured: snapshot.local_configured === true
-  readonly property int nonLocalLocationCount: Math.max(0,
-    Number(snapshot.configured_count || 0) - (localTimezoneConfigured ? 1 : 0))
-  readonly property bool canAdd: nonLocalLocationCount < maxClocks
-    || nonLocalLocationCount === maxClocks && !localTimezoneConfigured
+  readonly property int compactClockColumns: panelScroll.width >= Style.space(780)
+    ? 5 : (panelScroll.width >= Style.space(620) ? 4 : 3)
+  readonly property real comfortableClockGridHeight: {
+    var rows = Math.ceil(clocks.length / 3)
+    return rows <= 0 ? 0
+      : rows * Style.space(100) + (rows - 1) * Style.space(14)
+  }
+  readonly property real comfortableRequiredHeight: panelHeader.height
+    + panelColumn.spacing + Style.space(92)
+    + (timelineView.visible ? Style.space(18) + Style.space(128) : 0)
+    + (clocks.length > 0 ? Style.space(18) + comfortableClockGridHeight : 0)
+  readonly property real readHeightLimit: {
+    var available = Number(panel.availableCardHeight || 0)
+    var cap = Style.space(680)
+    var outer = available > 0 ? Math.min(available, cap) : cap
+    return Math.max(0, outer - panel.verticalContentInset)
+  }
+  readonly property bool autoCompactDensity: clocks.length > 0
+    && comfortableRequiredHeight > readHeightLimit + Style.space(1)
+  readonly property bool compactDensity:
+    (mode === "read" || mode === "edit") && autoCompactDensity
+  readonly property int clockColumnCount: compactDensity ? compactClockColumns : 3
+  readonly property real clockRowHeight: Style.space(compactDensity ? 88 : 100)
+  readonly property real clockRowSpacing: Style.space(compactDensity ? 8 : 14)
+  readonly property real clockGridHeight: {
+    var rows = Math.ceil(clocks.length / clockColumnCount)
+    if (rows <= 0) return 0
+    return rows * clockRowHeight + (rows - 1) * clockRowSpacing
+  }
+  readonly property real readChromeHeight: panelHeader.height
+    + panelColumn.spacing + summaryClock.height
+    + (timelineView.visible ? readPage.spacing + timelineView.height : 0)
+    + (clocks.length > 0 ? readPage.spacing : 0)
+  readonly property real clockViewportHeight: clocks.length <= 0 ? 0
+    : Math.min(clockGridHeight, Math.max(0, readHeightLimit - readChromeHeight))
   readonly property bool showOpenMeteoAttribution: {
     if (!searchVisible || !Array.isArray(searchResults)) return false
     for (var resultIndex = 0; resultIndex < searchResults.length; resultIndex++)
@@ -164,15 +195,26 @@ Panel {
       if (root.hasMapCoordinate(clocks[i])) entries.push(clocks[i])
     return entries
   }
+  readonly property int maximumSavedGlobeMarkers: 48
   readonly property var globeLocations: {
     var entries = []
     var seenPlaces = ({})
+    var preferredSavedMarkers = []
+    var remainingSavedMarkers = []
+    var summaryIdentity = root.conversionSource(summary)
     for (var savedIndex = 0; savedIndex < mapClocks.length; savedIndex++) {
       var saved = mapClocks[savedIndex]
       var savedKey = root.mapLocationKey(saved)
-      entries.push({ location: saved, configured: true })
       if (savedKey) seenPlaces[savedKey] = true
+      var wrapper = { location: saved, configured: true }
+      if (root.conversionSource(saved) === summaryIdentity || saved.pinned === true)
+        preferredSavedMarkers.push(wrapper)
+      else
+        remainingSavedMarkers.push(wrapper)
     }
+    var savedMarkers = preferredSavedMarkers.concat(remainingSavedMarkers)
+      .slice(0, maximumSavedGlobeMarkers)
+    entries = entries.concat(savedMarkers)
     for (var cityIndex = 0; cityIndex < featuredCities.length; cityIndex++) {
       var city = featuredCities[cityIndex]
       var cityKey = root.mapLocationKey(city)
@@ -200,21 +242,19 @@ Panel {
   readonly property var scrubSelectedFrame:
     scrubSelectedSlotIndex >= 0 && scrubSelectedSlotIndex < scrubSlots.length
       ? scrubSlots[scrubSelectedSlotIndex] : null
+  readonly property real scrubViewportMinute: {
+    if (scrubSelectedFrame && (scrubPreviewActive || !live))
+      return Number(scrubSelectedFrame.minute || 0)
+    return scrubAnchorMinute
+  }
   readonly property bool scrubLoading: scrubProcess.running
     && scrubActiveTimezone === scrubSourceTimezone
   readonly property bool scrubReady: {
-    if (scrubPayload === null
-        || scrubPayload.source_timezone !== scrubSourceTimezone
-        || scrubSlots.length === 0) return false
-    var sourceClock = root.clockForScrubSource()
-    if (!sourceClock) return false
-    return String(scrubPayload.date || "") === String(sourceClock.date || "")
-      && TimeRail.payloadMatchesSnapshot(scrubPayload, snapshot)
-      && String(scrubPayload.time_format || "")
-        === String(snapshot.time_format || "24h")
+    return TimeRail.scrubPayloadReady(scrubPayload, snapshot,
+      scrubBaseSnapshot, scrubSourceTimezone, scrubSourceKey)
   }
   readonly property var scrubAxisTicks:
-    TimeRail.axisTicks(scrubAnchorMinute, String(snapshot.time_format || "24h"))
+    TimeRail.axisTicks(scrubViewportMinute, String(snapshot.time_format || "24h"))
 
   onClocksChanged: {
     if (keyboardClockIndex >= clocks.length)
@@ -287,7 +327,7 @@ Panel {
 
   function focusAddField(selectExisting) {
     Qt.callLater(function() {
-      if (!opened || mode !== "add" || !searchVisible || !canAdd) return
+      if (!opened || mode !== "add" || !searchVisible) return
       addField.forceActiveFocus(Qt.ShortcutFocusReason)
       if (selectExisting === false)
         addField.cursorPosition = addField.text.length
@@ -297,7 +337,7 @@ Panel {
   }
 
   function openSearch(initialText) {
-    if (mode !== "add" || !canAdd) return
+    if (mode !== "add") return
     var seed = String(initialText || "")
     searchVisible = true
     clearStatus()
@@ -412,14 +452,27 @@ Panel {
     var normalizedIndex = Number(clockIndex)
     if (!isFinite(normalizedIndex) || normalizedIndex < 0
         || normalizedIndex >= clocks.length) return null
-    var row = clockRowRepeater.itemAt(Math.floor(normalizedIndex / 3))
-    return row ? row.cellAt(normalizedIndex % 3) : null
+    var row = clockRows.itemAtIndex(
+      Math.floor(normalizedIndex / root.clockColumnCount))
+    return row ? row.cellAt(normalizedIndex % root.clockColumnCount) : null
+  }
+
+  function positionClockRow(clockIndex) {
+    var normalizedIndex = Number(clockIndex)
+    if (!isFinite(normalizedIndex) || normalizedIndex < 0
+        || normalizedIndex >= clocks.length) return false
+    clockRows.positionViewAtIndex(
+      Math.floor(normalizedIndex / root.clockColumnCount), ListView.Contain)
+    return true
   }
 
   function ensureKeyboardCursorVisible() {
     if (!keyboardCursorActive || mode === "add") return
-    var target = keyboardClockIndex < 0
-      ? summaryInput : clockCellAt(keyboardClockIndex)
+    if (keyboardClockIndex >= 0) {
+      positionClockRow(keyboardClockIndex)
+      return
+    }
+    var target = summaryInput
     if (!target) return
     var mapped = target.mapToItem(panelColumn, 0, 0)
     var top = mapped.y - Style.space(12)
@@ -455,9 +508,11 @@ Panel {
 
     var nextIndex = keyboardClockIndex
     if (Number(dy) > 0)
-      nextIndex = nextIndex < 0 ? 0 : Math.min(count - 1, nextIndex + 3)
+      nextIndex = nextIndex < 0 ? 0
+        : Math.min(count - 1, nextIndex + clockColumnCount)
     else if (Number(dy) < 0)
-      nextIndex = nextIndex < 3 ? -1 : nextIndex - 3
+      nextIndex = nextIndex < clockColumnCount
+        ? -1 : nextIndex - clockColumnCount
     else if (Number(dx) > 0)
       nextIndex = nextIndex < 0 ? 0 : Math.min(count - 1, nextIndex + 1)
     else if (Number(dx) < 0)
@@ -466,11 +521,15 @@ Panel {
     Qt.callLater(root.ensureKeyboardCursorVisible)
   }
 
-  function focusClockEditor(clockIndex) {
+  function focusClockEditor(clockIndex, retryCount) {
+    if (!positionClockRow(clockIndex)) return
     Qt.callLater(function() {
       if (!opened || (mode !== "read" && mode !== "edit")) return
       var cell = root.clockCellAt(clockIndex)
-      if (!cell) return
+      if (!cell) {
+        if (Number(retryCount || 0) < 1) root.focusClockEditor(clockIndex, 1)
+        return
+      }
       if (mode === "read") cell.focusTimeEditor()
       else cell.focusLabelEditor(Qt.ShortcutFocusReason)
     })
@@ -659,12 +718,12 @@ Panel {
     }
     scrubSelectedSlotIndex = index
     scrubPreviewActive = true
-    if (!frame || !frame.reference_utc || !frame.summary) {
+    if (!frame || !frame.reference_utc) {
       snapshot = scrubBaseSnapshot
       summaryInput.text = String(snapshot.summary.time || "--:--")
       return
     }
-    var merged = TimeRail.mergeSnapshot(scrubBaseSnapshot, frame)
+    var merged = TimeRail.mergeSnapshot(scrubBaseSnapshot, scrubPayload, index)
     if (!merged) {
       cancelScrubPreview()
       scrubPayload = null
@@ -691,12 +750,33 @@ Panel {
     Qt.callLater(root.flushSnapshotRequest)
   }
 
+  function dismissTransientTime() {
+    if (scrubPreviewActive) {
+      cancelScrubPreview()
+      return true
+    }
+    if (!live) {
+      returnToLive()
+      return true
+    }
+    return false
+  }
+
   function lockScrubSelection() {
-    if (!scrubReady || !scrubSelectedFrame
-        || !scrubSelectedFrame.reference_utc || !scrubSelectedFrame.summary) return
+    if (!scrubReady || !scrubSelectedFrame) {
+      if (scrubPreviewActive) cancelScrubPreview()
+      return
+    }
+    if (!scrubSelectedFrame.reference_utc) {
+      cancelScrubPreview()
+      return
+    }
     var base = scrubBaseSnapshot || snapshot
-    var merged = TimeRail.mergeSnapshot(base, scrubSelectedFrame)
-    if (!merged) return
+    var merged = TimeRail.mergeSnapshot(base, scrubPayload, scrubSelectedSlotIndex)
+    if (!merged) {
+      cancelScrubPreview()
+      return
+    }
     snapshot = merged
     summaryInput.text = String(merged.summary.time || "--:--")
     scrubBaseSnapshot = null
@@ -712,13 +792,14 @@ Panel {
       ? scrubSelectedSlotIndex : nearestScrubSlot(clockForScrubSource())
     var next = Math.max(0, Math.min(scrubSlots.length - 1,
       current + Number(delta)))
-    var position = TimeRail.framePosition(scrubSlots[next], scrubAnchorMinute, 1)
-    if (position < 0 || position > 1) return
     applyScrubSlot(next)
   }
 
   function focusTimeRail() {
     if (mode !== "read" || !scrubReady) return
+    keyboardCursorActive = false
+    keyboardClockIndex = -1
+    panelScroll.contentY = 0
     railMouse.forceActiveFocus(Qt.ShortcutFocusReason)
   }
 
@@ -786,6 +867,29 @@ Panel {
         || code === 85 || code === 86) return ""
     if (code === 95 || code === 96 || code === 99) return ""
     return ""
+  }
+
+  function weatherGlyphColor(item) {
+    var muted = Qt.darker(root.contentForeground, 1.45)
+    if (!item) return muted
+    var code = Number(item.weather_code)
+    if (item.is_day === false)
+      return mixColor(muted, Qt.rgba(0.50, 0.60, 0.90, 1), 0.66)
+    if (code === 0 || code === 1 || code === 2)
+      return mixColor(muted, Qt.rgba(0.96, 0.72, 0.27, 1), 0.68)
+    if (code === 45 || code === 48 || code === 3)
+      return mixColor(muted, Qt.rgba(0.58, 0.68, 0.73, 1), 0.52)
+    if (code === 51 || code === 53 || code === 55 || code === 56
+        || code === 57 || code === 61 || code === 63 || code === 65
+        || code === 66 || code === 67 || code === 80 || code === 81
+        || code === 82)
+      return mixColor(muted, Qt.rgba(0.35, 0.66, 0.84, 1), 0.64)
+    if (code === 71 || code === 73 || code === 75 || code === 77
+        || code === 85 || code === 86)
+      return mixColor(muted, Qt.rgba(0.72, 0.86, 0.92, 1), 0.58)
+    if (code === 95 || code === 96 || code === 99)
+      return mixColor(muted, Qt.rgba(0.66, 0.48, 0.84, 1), 0.64)
+    return muted
   }
 
   function weatherText(item) {
@@ -980,11 +1084,6 @@ Panel {
 
   function runAction(name, timezone, result, value) {
     if (actionProcess.running) return false
-    if (name === "add" && !canAddLocation(timezone)) {
-      setStatus("Only " + currentLocationTitle
-        + " can be added at the nine-location limit.", true)
-      return false
-    }
     if (name === "add" && result && hasMapCoordinate(result))
       mapCanvas.focusOnLocations([result])
     actionName = name
@@ -1022,14 +1121,6 @@ Panel {
 
   function removeClock(clock) {
     if (canRemove) runAction("remove", clock.timezone, clock)
-  }
-
-  function canAddLocation(timezone) {
-    if (nonLocalLocationCount < maxClocks) return true
-    if (nonLocalLocationCount > maxClocks) return false
-    var candidate = String(timezone || "").trim()
-    var localTimezone = String(snapshot.local_timezone || "").trim()
-    return !localTimezoneConfigured && candidate !== "" && candidate === localTimezone
   }
 
   function scheduleSearch() {
@@ -1071,7 +1162,7 @@ Panel {
 
   function selectFirstResult() {
     var query = String(addField.text || "").trim()
-    if (mode !== "add" || !searchVisible || !query || !canAdd
+    if (mode !== "add" || !searchVisible || !query
         || actionProcess.running) return
     if (searchResultsQuery === query) {
       if (searchResults.length > 0)
@@ -1122,7 +1213,7 @@ Panel {
   }
 
   function selectMapLocation(location) {
-    if (!location || !canAddLocation(location.timezone)) return
+    if (!location) return
     if (hasMapCoordinate(location)) {
       var projection = mapCanvas.project(location.latitude, location.longitude)
       mapSelectionCardOnRight = projection.x < mapCanvas.width / 2
@@ -1228,7 +1319,6 @@ Panel {
   }
 
   function requestMapLocation(latitude, longitude, x, y) {
-    if (!canAdd) return
     mapCursorX = x
     mapCursorY = y
     mapSelectionCardOnRight = x < mapCanvas.width / 2
@@ -1257,13 +1347,18 @@ Panel {
     setStatus("Locating timezone…", false)
   }
 
-  function timelineHoverMatches(localMinutes) {
-    return TimelineHoverState.matchesMinutes(timelineHoverOwners, localMinutes)
+  function timelineHoverMatches(clock) {
+    return TimelineHoverState.matchesIdentity(
+      timelineHoverOwners, conversionSource(clock))
   }
 
-  function updateTimelineHover(owner, localMinutes, hovered) {
+  function timelineMarkerHovered(marker) {
+    return TimelineHoverState.markerHovered(timelineHoverOwners, marker)
+  }
+
+  function updateTimelineHover(owner, clock, hovered) {
     timelineHoverOwners = TimelineHoverState.updateOwners(
-      timelineHoverOwners, owner, localMinutes, hovered)
+      timelineHoverOwners, owner, conversionSource(clock), hovered)
   }
 
   function clearTimelineHover() {
@@ -1315,8 +1410,6 @@ Panel {
       mapClickPending = false
     }
   }
-  onCanAddChanged: if (!canAdd && searchVisible) closeSearch()
-
   Process {
     id: snapshotProcess
     stdout: StdioCollector { id: snapshotOutput; waitForEnd: true }
@@ -1499,7 +1592,7 @@ Panel {
           root.clearStatus()
           mapCanvas.focusOnLocations(root.searchResults)
           if (root.mode === "add"
-              && root.searchSubmitQuery === root.searchResultsQuery && root.canAdd) {
+              && root.searchSubmitQuery === root.searchResultsQuery) {
             root.searchSubmitQuery = ""
             root.selectMapLocation(root.searchResults[0])
           }
@@ -1589,7 +1682,9 @@ Panel {
       onCloseRequested: {
         if (root.mapSelection !== null) root.dismissMapSelection()
         else if (root.mode === "add" && root.searchVisible) root.closeSearch()
-        else if (root.mode === "read") root.close()
+        else if (root.mode === "read") {
+          if (!root.dismissTransientTime()) root.close()
+        }
         else root.mode = "read"
       }
       onTabRequested: function(direction) { root.switchPanel(direction) }
@@ -1635,6 +1730,7 @@ Panel {
           spacing: Style.space(root.mode === "add" ? 14 : 8)
 
           Item {
+            id: panelHeader
             visible: root.mode !== "add"
             width: parent.width
             height: visible
@@ -1794,8 +1890,8 @@ Panel {
 
               Button {
                 iconText: "󰐕"
-                enabled: root.canAdd && !actionProcess.running
-                tooltipText: root.canAdd ? "Add a location" : "Nine locations already shown"
+                enabled: !actionProcess.running
+                tooltipText: "Add a location"
                 horizontalPadding: Style.space(8)
                 verticalPadding: Style.space(5)
                 onClicked: root.mode = "add"
@@ -1903,22 +1999,36 @@ Panel {
                 Item {
                   id: summaryWeatherLine
                   visible: root.weatherPresentationActive
-                  width: Math.max(summaryWeatherText.implicitWidth,
+                  width: Math.max(summaryWeatherContent.implicitWidth,
                     summaryWeatherSkeleton.implicitWidth)
                   height: Style.space(16)
 
-                  Text {
-                    textFormat: Text.PlainText
-                    id: summaryWeatherText
+                  Row {
+                    id: summaryWeatherContent
                     visible: summaryClock.weatherData || !root.weatherLoading
                     anchors.centerIn: parent
-                    text: root.weatherGlyph(summaryClock.weatherData)
-                      + (summaryClock.weatherData ? "  " : "")
-                      + root.weatherText(summaryClock.weatherData)
-                    color: Qt.darker(root.contentForeground, 1.45)
-                    font.family: root.contentFontFamily
-                    font.pixelSize: Style.font.bodySmall
-                    font.letterSpacing: 0.3
+                    spacing: summaryClock.weatherData ? Style.space(6) : 0
+
+                    Text {
+                      textFormat: Text.PlainText
+                      id: summaryWeatherGlyph
+                      anchors.verticalCenter: parent.verticalCenter
+                      text: root.weatherGlyph(summaryClock.weatherData)
+                      color: root.weatherGlyphColor(summaryClock.weatherData)
+                      font.family: root.contentFontFamily
+                      font.pixelSize: Style.font.title
+                    }
+
+                    Text {
+                      textFormat: Text.PlainText
+                      id: summaryWeatherTemperature
+                      anchors.verticalCenter: parent.verticalCenter
+                      text: root.weatherText(summaryClock.weatherData)
+                      color: Qt.darker(root.contentForeground, 1.45)
+                      font.family: root.contentFontFamily
+                      font.pixelSize: Style.font.bodySmall
+                      font.letterSpacing: 0.3
+                    }
                   }
 
                   Row {
@@ -1954,16 +2064,15 @@ Panel {
               visible: root.clocks.length > 0
               width: parent.width
               height: visible ? Style.space(128) : 0
-              readonly property real railInset: Style.space(36)
+              readonly property real railInset: Style.space(54)
               readonly property real railWidth: Math.max(1, width - railInset * 2)
               readonly property real railY: Style.space(70)
               readonly property bool interacting:
                 root.scrubPreviewActive || railMouse.activeFocus || !root.live
-              readonly property real selectedX: railInset + (interacting
-                && root.scrubSelectedFrame
-                  ? Math.max(0, Math.min(railWidth, TimeRail.framePosition(
-                    root.scrubSelectedFrame, root.scrubAnchorMinute, railWidth)))
-                  : railWidth / 2)
+              readonly property real selectedX: railInset + railWidth / 2
+              readonly property bool sourceMarkerHovered:
+                TimelineHoverState.sourceMarkerHovered(
+                  root.timelineHoverOwners, root.timeline)
               readonly property bool selectedUnavailable: root.scrubSelectedFrame
                 && !root.scrubSelectedFrame.reference_utc
 
@@ -1972,8 +2081,9 @@ Panel {
                 visible: root.scrubLoading || !root.scrubSourceIsSummary
                 anchors.left: parent.left
                 anchors.leftMargin: timelineView.railInset
+                anchors.right: parent.right
+                anchors.rightMargin: timelineView.railInset
                 anchors.top: parent.top
-                width: parent.width * 0.54
                 elide: Text.ElideRight
                 text: root.scrubLoading
                   ? "PREPARING " + String(root.scrubSourceTitle || "TIME RAIL").toUpperCase()
@@ -2038,19 +2148,31 @@ Panel {
                   required property int index
                   required property var modelData
                   readonly property bool sourcePoint: modelData.source === true
+                  readonly property string overflowDirection:
+                    String(modelData.overflow || "")
+                  readonly property bool overflowPoint: overflowDirection !== ""
                   readonly property bool linkedHovered:
-                    root.timelineHoverMatches(modelData.minute)
+                    root.timelineMarkerHovered(modelData)
                   readonly property bool upperLane: Number(modelData.lane || 0) === 0
-                  width: Style.space(72)
+                  readonly property real markerCenterX:
+                    overflowDirection === "previous"
+                      ? timelineView.railInset - Style.space(18)
+                      : overflowDirection === "next"
+                      ? timelineView.railInset + timelineView.railWidth + Style.space(18)
+                      : timelineView.railInset
+                        + Number(modelData.position || 0) * timelineView.railWidth
+                  readonly property real markerLocalX: markerCenterX - x
+                  width: Style.space(overflowPoint ? 160 : 72)
                   height: parent.height
-                  x: Math.max(0, Math.min(timelineView.width - width,
-                    timelineView.railInset
-                      + Number(modelData.position || 0) * timelineView.railWidth
-                      - width / 2))
+                  x: overflowDirection === "previous" ? 0
+                    : overflowDirection === "next" ? timelineView.width - width
+                    : Math.max(0, Math.min(timelineView.width - width,
+                      markerCenterX - width / 2))
 
                   Rectangle {
                     id: markerStem
-                    x: Math.round((parent.width - width) / 2)
+                    visible: !(timelinePoint.sourcePoint && scrubPlayhead.visible)
+                    x: Math.round(timelinePoint.markerLocalX - width / 2)
                     y: timelinePoint.upperLane
                       ? markerHalo.y - height : markerHalo.y + markerHalo.height
                     width: Style.spacing.hairline
@@ -2065,7 +2187,8 @@ Panel {
 
                   Rectangle {
                     id: markerHalo
-                    x: Math.round((parent.width - width) / 2)
+                    visible: !(timelinePoint.sourcePoint && scrubPlayhead.visible)
+                    x: Math.round(timelinePoint.markerLocalX - width / 2)
                     y: timelineView.railY - height / 2
                     width: Style.space(timelinePoint.sourcePoint
                       ? 11 : (Number(timelinePoint.modelData.count || 1) > 1 ? 9 : 7))
@@ -2080,6 +2203,8 @@ Panel {
                       ? Style.spacing.hairline : 0
                     border.color: timelinePoint.sourcePoint || timelinePoint.linkedHovered
                       ? Style.selectedStateColor(root.contentForeground, Color.accent)
+                      : timelinePoint.overflowPoint
+                      ? root.mixColor(root.contentForeground, Color.accent, 0.28)
                       : root.contentForeground
 
                     Behavior on scale {
@@ -2111,11 +2236,18 @@ Panel {
                     y: timelinePoint.upperLane
                       ? timelineView.railY - height - Style.space(14)
                       : timelineView.railY + Style.space(13)
-                    horizontalAlignment: Text.AlignHCenter
+                    horizontalAlignment: timelinePoint.overflowDirection === "previous"
+                      ? Text.AlignLeft : timelinePoint.overflowDirection === "next"
+                      ? Text.AlignRight : Text.AlignHCenter
                     elide: Text.ElideRight
-                    text: String(timelinePoint.modelData.label || "").toUpperCase()
+                    text: (timelinePoint.overflowDirection === "previous" ? "← "
+                      : timelinePoint.overflowDirection === "next" ? "→ " : "")
+                      + String(timelinePoint.modelData.label || "").toUpperCase()
                     color: timelinePoint.sourcePoint || timelinePoint.linkedHovered
                       ? Style.selectedStateColor(root.contentForeground, Color.accent)
+                      : timelinePoint.overflowPoint
+                      ? root.mixColor(Qt.darker(root.contentForeground, 1.45),
+                        Color.accent, 0.28)
                       : Qt.darker(root.contentForeground, 1.45)
                     font.family: root.contentFontFamily
                     font.pixelSize: Style.font.caption
@@ -2130,24 +2262,34 @@ Panel {
               Rectangle {
                 id: scrubPlayhead
                 visible: root.scrubReady
+                readonly property bool linkedHovered: timelineView.sourceMarkerHovered
+                readonly property real connectorBottom:
+                  timelineView.railY + Style.space(32)
                 x: Math.round(timelineView.selectedX - width / 2)
-                y: Style.space(34)
+                y: scrubValueBubble.visible
+                  ? Style.space(34) : timelineView.railY - Style.space(5)
                 width: Style.spacing.hairline
-                height: Style.space(68)
+                height: Math.max(0, connectorBottom - y)
                 color: Style.selectedStateColor(root.contentForeground, Color.accent)
-                opacity: timelineView.interacting ? 0.9 : 0.38
+                opacity: timelineView.interacting || linkedHovered ? 0.9 : 0.38
 
-                Behavior on x {
-                  enabled: !root.scrubPreviewActive
-                  NumberAnimation { duration: 85; easing.type: Easing.OutQuart }
+                Behavior on opacity {
+                  NumberAnimation { duration: 160; easing.type: Easing.OutQuart }
                 }
 
                 Rectangle {
-                  anchors.centerIn: parent
+                  id: fixedPlayheadDot
+                  anchors.horizontalCenter: parent.horizontalCenter
+                  y: timelineView.railY - scrubPlayhead.y - height / 2
                   width: Style.space(9)
                   height: width
                   radius: width / 2
+                  scale: scrubPlayhead.linkedHovered ? 1.45 : 1
                   color: Style.selectedStateColor(root.contentForeground, Color.accent)
+
+                  Behavior on scale {
+                    NumberAnimation { duration: 180; easing.type: Easing.OutQuart }
+                  }
                 }
               }
 
@@ -2183,34 +2325,96 @@ Panel {
                 id: railMouse
                 z: 10
                 x: timelineView.railInset
-                y: Style.space(16)
+                y: timelineView.railY - Style.space(24)
                 width: timelineView.railWidth
-                height: Style.space(91)
+                height: Style.space(48)
                 enabled: root.scrubReady && root.mode === "read"
                 hoverEnabled: true
                 activeFocusOnTab: true
-                cursorShape: Qt.SizeHorCursor
+                cursorShape: pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor
                 Accessible.role: Accessible.Slider
                 Accessible.name: "Compare times across the day"
                 Accessible.description:
-                  "Move the pointer or use Left and Right. Press Enter or click to set the time."
-                function previewAtPosition(position) {
-                  root.applyScrubSlot(TimeRail.centeredSlotIndexAt(
-                    position, width, root.scrubPayload, root.scrubAnchorMinute))
+                  "Press S to focus, then use Left and Right. Press Enter to set the time, or drag or scroll the ruler."
+                property real pressX: 0
+                property int pressSlotIndex: -1
+                property bool dragged: false
+                property real wheelSlotRemainder: 0
+                property bool wheelMovedSelection: false
+                function previewAtDelta(delta) {
+                  var nextSlotIndex = TimeRail.draggedSlotIndexAt(
+                    delta, width, root.scrubPayload, pressSlotIndex)
+                  dragged = nextSlotIndex !== pressSlotIndex
+                  if (dragged || root.scrubPreviewActive)
+                    root.applyScrubSlot(nextSlotIndex)
+                  return nextSlotIndex
                 }
-                onEntered: previewAtPosition(mouseX)
-                onPositionChanged: function(mouse) { previewAtPosition(mouse.x) }
-                onExited: root.cancelScrubPreview()
-                onPressed: function(mouse) {
+                function scrubByWheel(event) {
+                  var motion = TimeRail.wheelSlotMotion(
+                    event.pixelDelta.x, event.pixelDelta.y,
+                    event.angleDelta.x, event.angleDelta.y,
+                    width, root.scrubPayload)
+                  if (!isFinite(motion) || motion === 0) return false
+                  wheelSlotRemainder += motion
+                  scrubWheelCommitTimer.restart()
+                  var wholeSlots = wheelSlotRemainder < 0
+                    ? Math.ceil(wheelSlotRemainder)
+                    : Math.floor(wheelSlotRemainder)
+                  if (wholeSlots !== 0) {
+                    wheelSlotRemainder -= wholeSlots
+                    wheelMovedSelection = true
+                    root.moveScrubSelection(wholeSlots)
+                  }
+                  return true
+                }
+                function handleWheel(event) {
+                  if (!scrubByWheel(event)) {
+                    event.accepted = false
+                    return
+                  }
                   forceActiveFocus(Qt.MouseFocusReason)
-                  previewAtPosition(mouse.x)
+                  event.accepted = true
                 }
-                onClicked: root.lockScrubSelection()
-                onActiveFocusChanged: {
-                  if (activeFocus && !root.scrubPreviewActive)
-                    root.applyScrubSlot(root.scrubSelectedSlotIndex)
-                  else if (!activeFocus && !containsMouse)
+                preventStealing: true
+                onPositionChanged: function(mouse) {
+                  if (!pressed) return
+                  previewAtDelta(mouse.x - pressX)
+                }
+                onPressed: function(mouse) {
+                  scrubWheelCommitTimer.stop()
+                  wheelSlotRemainder = 0
+                  wheelMovedSelection = false
+                  pressX = mouse.x
+                  pressSlotIndex = root.scrubSelectedSlotIndex >= 0
+                    ? root.scrubSelectedSlotIndex
+                    : root.nearestScrubSlot(root.clockForScrubSource())
+                  dragged = false
+                  forceActiveFocus(Qt.MouseFocusReason)
+                }
+                onReleased: function(mouse) {
+                  previewAtDelta(mouse.x - pressX)
+                  if (dragged)
+                    root.lockScrubSelection()
+                  else if (root.scrubPreviewActive)
                     root.cancelScrubPreview()
+                  pressSlotIndex = -1
+                  dragged = false
+                }
+                onCanceled: {
+                  scrubWheelCommitTimer.stop()
+                  wheelSlotRemainder = 0
+                  wheelMovedSelection = false
+                  pressSlotIndex = -1
+                  dragged = false
+                  root.cancelScrubPreview()
+                }
+                onActiveFocusChanged: {
+                  if (!activeFocus && !pressed) {
+                    scrubWheelCommitTimer.stop()
+                    wheelSlotRemainder = 0
+                    wheelMovedSelection = false
+                    root.cancelScrubPreview()
+                  }
                 }
                 Keys.onLeftPressed: function(event) {
                   root.moveScrubSelection(
@@ -2236,39 +2440,98 @@ Panel {
                   event.accepted = true
                 }
                 Keys.onEscapePressed: function(event) {
-                  root.cancelScrubPreview()
+                  scrubWheelCommitTimer.stop()
+                  wheelSlotRemainder = 0
+                  wheelMovedSelection = false
+                  root.dismissTransientTime()
                   keyCatcher.forceActiveFocus(Qt.ShortcutFocusReason)
                   event.accepted = true
+                }
+
+                Timer {
+                  id: scrubWheelCommitTimer
+                  interval: 180
+                  repeat: false
+                  onTriggered: {
+                    railMouse.wheelSlotRemainder = 0
+                    if (railMouse.wheelMovedSelection)
+                      root.lockScrubSelection()
+                    railMouse.wheelMovedSelection = false
+                  }
+                }
+              }
+
+              WheelHandler {
+                id: verticalScrubWheel
+                // Wheel and two-finger gestures belong to the whole visual
+                // timeline, including its labels, not only the thin drag band.
+                parent: timelineView
+                enabled: railMouse.enabled
+                acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+                orientation: Qt.Vertical
+                onWheel: function(event) {
+                  railMouse.handleWheel(event)
+                }
+              }
+
+              WheelHandler {
+                id: horizontalScrubWheel
+                // WheelHandler defaults to vertical events, so a dedicated
+                // horizontal handler is required for sideways trackpad motion.
+                parent: timelineView
+                enabled: railMouse.enabled
+                acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+                orientation: Qt.Horizontal
+                onWheel: function(event) {
+                  railMouse.handleWheel(event)
                 }
               }
             }
 
-            Column {
+            ListView {
               id: clockRows
               anchors.horizontalCenter: parent.horizontalCenter
               width: parent.width - Style.space(36)
-              spacing: Style.space(14)
+              height: root.clockViewportHeight
+              spacing: root.clockRowSpacing
+              model: Math.ceil(root.clocks.length / root.clockColumnCount)
+              clip: true
+              boundsBehavior: Flickable.StopAtBounds
+              interactive: contentHeight > height
+              reuseItems: true
+              cacheBuffer: root.clockRowHeight + root.clockRowSpacing
 
-              Repeater {
-                id: clockRowRepeater
-                model: Math.ceil(root.clocks.length / 3)
+              QQC.ScrollBar.vertical: QQC.ScrollBar {
+                policy: QQC.ScrollBar.AsNeeded
+              }
 
-                Row {
+              delegate: Row {
                   id: clockRow
                   required property int index
-                  readonly property int startIndex: index * 3
+                  readonly property int startIndex: index * root.clockColumnCount
                   readonly property int itemCount:
-                    Math.min(3, root.clocks.length - startIndex)
+                    Math.min(root.clockColumnCount, root.clocks.length - startIndex)
+                  readonly property real cellSpacing:
+                    Style.space(root.compactDensity ? 8 : 16)
                   readonly property real cellWidth:
-                    (clockRows.width - Style.space(32)) / 3
+                    (clockRows.width - cellSpacing * (root.clockColumnCount - 1))
+                      / root.clockColumnCount
                   function cellAt(cellIndex) {
                     return clockCellRepeater.itemAt(cellIndex)
                   }
-                  anchors.horizontalCenter: parent.horizontalCenter
+                  function resetRecycledState() {
+                    for (var cellIndex = 0; cellIndex < itemCount; cellIndex++) {
+                      var cell = cellAt(cellIndex)
+                      if (cell) cell.resetRecycledState()
+                    }
+                  }
+                  ListView.onPooled: clockRow.resetRecycledState()
+                  ListView.onReused: clockRow.resetRecycledState()
+                  anchors.left: parent.left
                   width: itemCount * cellWidth
-                    + Math.max(0, itemCount - 1) * spacing
-                  height: Style.space(root.mode === "edit" ? 110 : 100)
-                  spacing: Style.space(16)
+                    + Math.max(0, itemCount - 1) * cellSpacing
+                  height: root.clockRowHeight
+                  spacing: cellSpacing
 
                   Repeater {
                     id: clockCellRepeater
@@ -2288,8 +2551,16 @@ Panel {
                         root.keyboardCursorActive
                           && root.keyboardClockIndex === clockIndex
                       readonly property bool linkedHovered:
-                        root.timelineHoverMatches(clockData.local_minutes)
+                        root.timelineHoverMatches(clockData)
                       property bool labelEditing: false
+                      function resetRecycledState() {
+                        root.updateTimelineHover(hoverOwner, null, false)
+                        if (cardTimeInput.activeFocus || cardLabelInput.activeFocus)
+                          keyCatcher.forceActiveFocus(Qt.OtherFocusReason)
+                        labelEditing = false
+                        cardLabelInput.resetText()
+                        cardTimeInput.text = String(clockData.time || "")
+                      }
                       function focusTimeEditor() {
                         cardTimeInput.forceActiveFocus(Qt.ShortcutFocusReason)
                         cardTimeInput.selectAll()
@@ -2321,11 +2592,10 @@ Panel {
                       onClockDataChanged: {
                         if (!cardLabelInput.activeFocus) cardLabelInput.resetText()
                         if (cardHoverHandler.hovered)
-                          root.updateTimelineHover(hoverOwner,
-                            clockData.local_minutes, true)
+                          root.updateTimelineHover(hoverOwner, clockData, true)
                       }
                       Component.onDestruction:
-                        root.updateTimelineHover(hoverOwner, 0, false)
+                        root.updateTimelineHover(hoverOwner, null, false)
                       width: clockRow.cellWidth
                       height: clockRow.height
                       clip: true
@@ -2333,8 +2603,7 @@ Panel {
                       HoverHandler {
                         id: cardHoverHandler
                         onHoveredChanged: root.updateTimelineHover(
-                          clockCell.hoverOwner,
-                          clockCell.clockData.local_minutes, hovered)
+                          clockCell.hoverOwner, clockCell.clockData, hovered)
                       }
 
                       Rectangle {
@@ -2356,11 +2625,11 @@ Panel {
                       Column {
                         id: cardContent
                         anchors.fill: parent
-                        anchors.leftMargin: Style.space(10)
-                        anchors.rightMargin: Style.space(10)
-                        anchors.topMargin: Style.space(7)
-                        anchors.bottomMargin: Style.space(7)
-                        spacing: Style.space(4)
+                        anchors.leftMargin: Style.space(root.compactDensity ? 8 : 10)
+                        anchors.rightMargin: Style.space(root.compactDensity ? 8 : 10)
+                        anchors.topMargin: Style.space(root.compactDensity ? 5 : 7)
+                        anchors.bottomMargin: Style.space(root.compactDensity ? 5 : 7)
+                        spacing: Style.space(root.compactDensity ? 1 : 4)
 
                         Item {
                           width: parent.width
@@ -2379,7 +2648,8 @@ Panel {
                             text: String(clockCell.clockData.title || "").toUpperCase()
                             color: root.contentForeground
                             font.family: root.contentFontFamily
-                            font.pixelSize: Style.font.bodySmall
+                            font.pixelSize: root.compactDensity
+                              ? Style.font.caption : Style.font.bodySmall
                             font.bold: true
                             font.letterSpacing: 1
                             elide: Text.ElideRight
@@ -2503,7 +2773,8 @@ Panel {
                           selectionColor: Style.selectionFill
                           selectedTextColor: root.contentForeground
                           font.family: root.contentFontFamily
-                          font.pixelSize: Style.font.displayLarge
+                          font.pixelSize: root.compactDensity
+                            ? Style.font.display : Style.font.displayLarge
                           font.bold: true
                           selectByMouse: true
                           enabled: root.mode === "read" && root.snapshotLoaded
@@ -2545,9 +2816,11 @@ Panel {
                             anchors.rightMargin: cardWeatherBlock.visible
                               ? Style.space(8) : 0
                             anchors.verticalCenter: parent.verticalCenter
-                            text: root.clockDayLabel(clockCell.clockData).toUpperCase()
-                              + "  ·  "
-                              + String(clockCell.clockData.relative_label || "").toUpperCase()
+                            text: root.compactDensity
+                              ? root.clockDayLabel(clockCell.clockData).toUpperCase()
+                              : root.clockDayLabel(clockCell.clockData).toUpperCase()
+                                + "  ·  "
+                                + String(clockCell.clockData.relative_label || "").toUpperCase()
                             color: Qt.darker(root.contentForeground, 1.5)
                             font.family: root.contentFontFamily
                             font.pixelSize: Style.font.caption
@@ -2589,7 +2862,7 @@ Panel {
                               anchors.baseline: cardWeatherTemperature.baseline
                               text: clockCell.weatherData === null ? ""
                                 : root.weatherGlyph(clockCell.weatherData)
-                              color: Qt.darker(root.contentForeground, 1.5)
+                              color: root.weatherGlyphColor(clockCell.weatherData)
                               font.family: root.contentFontFamily
                               font.pixelSize: Style.font.bodySmall
                             }
@@ -2610,9 +2883,9 @@ Panel {
                       }
                     }
                   }
-                }
               }
             }
+
 
             Button {
               visible: root.clocks.length === 0
@@ -2663,7 +2936,7 @@ Panel {
                 rightPadding: addSearchCloseButton.width + Style.spacing.controlPaddingX
                 placeholderText: "Search for a city or timezone"
                 foreground: root.contentForeground
-                enabled: root.searchVisible && root.canAdd && !actionProcess.running
+                enabled: root.searchVisible && !actionProcess.running
                 onTextChanged: root.searchTextChanged()
                 onAccepted: root.selectFirstResult()
                 onActiveFocusChanged: root.editorActive = activeFocus
@@ -2777,33 +3050,11 @@ Panel {
               onClicked: root.openSearch()
             }
 
-            Rectangle {
-              visible: !root.canAdd
-              anchors.centerIn: parent
-              width: capacityLabel.implicitWidth + Style.space(28)
-              height: capacityLabel.implicitHeight + Style.space(16)
-              z: 25
-              radius: height / 2
-              color: root.mixColor(Color.background, root.contentForeground, 0.035)
-              border.width: Style.spacing.hairline
-              border.color: root.mixColor(Color.background, root.contentForeground, 0.24)
-
-              Text {
-                textFormat: Text.PlainText
-                id: capacityLabel
-                anchors.centerIn: parent
-                text: "Remove a location before adding another."
-                color: root.contentForeground
-                font.family: root.contentFontFamily
-                font.pixelSize: Style.font.body
-              }
-            }
-
             Globe {
               id: mapCanvas
               anchors.fill: parent
               clip: true
-              interactive: root.canAdd && !actionProcess.running
+              interactive: !actionProcess.running
               highResolutionEnabled: root.opened && root.globeDetailRequested
               property var markerLayouts: root.globeLabelLayouts(width, height)
               diameterRatio: 0.63
@@ -2847,8 +3098,7 @@ Panel {
                     required property var modelData
                     width: searchResultList.width
                     height: Style.space(48)
-                    enabled: root.canAddLocation(resultButton.modelData.timezone)
-                      && !actionProcess.running
+                    enabled: !actionProcess.running
                     leftAlign: true
                     text: ""
                     onClicked: root.selectMapLocation(resultButton.modelData)
@@ -2917,7 +3167,6 @@ Panel {
                   readonly property bool configured: modelData.configured === true
                   readonly property bool searchResult: modelData.searchResult === true
                   readonly property bool selectable: !configured
-                    && root.canAddLocation(location.timezone)
                     && !actionProcess.running
                   readonly property bool selected:
                     root.mapLocationSelected(mapMarker.location)
@@ -3213,7 +3462,6 @@ Panel {
                     text: actionProcess.running && root.actionName === "add"
                       ? "Adding…" : "Add"
                     enabled: root.mapSelection !== null && !actionProcess.running
-                      && root.canAddLocation(root.mapSelection.timezone)
                     active: true
                     bordered: true
                     focusable: true

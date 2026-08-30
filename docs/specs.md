@@ -32,14 +32,16 @@ AUR package, `PATH` lookup, user-configured backend command, or install hook.
 - It uses the normal compact status slot and native open-panel underline
   without recoloring the world icon.
 - With no pin, it displays only the icon.
-- With one or more pins, it displays the icon followed by a `CODE time` group
-  for every pinned place, in the order the places were pinned.
+- With one or more pins, it displays the icon followed by up to three
+  `CODE time` groups in pin order. Additional pins collapse into `+N`, keeping
+  the bar width bounded without changing the saved pin set.
 - A code is derived from the first segment of the display label: multi-word
   names use up to three initials (`New York` becomes `NY`), while single-word
   names use their first three alphanumeric characters (`Tokyo` becomes `TOK`).
 - Pinned times update on minute boundaries. A vertical bar stays icon-only.
-- Its tooltip is a compact, time-sorted table of the visible non-local places;
-  it omits both a title row and the local summary place.
+- Its tooltip is a compact, time-sorted table of up to twelve visible non-local
+  places; it omits both a title row and the local summary place, then appends a
+  `+N more locations` line when more places exist.
 - With no additional places, the tooltip says `No additional timezones yet.`
 - If the bundled backend cannot start, returns invalid output, or has an
   incompatible protocol, the widget is dimmed and its tooltip gives the
@@ -57,8 +59,14 @@ AUR package, `PATH` lookup, user-configured backend command, or install hook.
 - Opening the panel is an in-process state change; only bounded backend
   commands start an external process.
 - The panel has read, edit, and add modes.
-- Read mode shows the summary clock, proportional relative timeline, and up to
-  nine non-local location clocks in a borderless three-column layout.
+- Read mode shows the summary clock, proportional relative timeline, and every
+  non-local location clock. Comfortable density uses a borderless three-column
+  layout; automatic density switches to a denser grid when those cards would
+  exceed the panel's available height. Card density is entirely responsive,
+  not a user preference.
+- The panel height is bounded by the shell's available-card height and its
+  normal 680-pixel cap. Lists that still exceed compact density scroll inside
+  that bounded surface.
 - The current place uses an 18-pixel title at the default scale and sits close
   to its summary time, keeping place and time as the primary read-mode
   hierarchy.
@@ -134,14 +142,12 @@ Persistence rules:
 On first load, the detected local timezone is added unless already present. If
 the user later removes it, it is not automatically re-added.
 
-## Ordering and limits
+## Ordering and scale
 
 - Visible locations are ordered by wall-clock time at the reference instant.
 - Equal-time locations fall back to display-label ordering.
-- Up to nine non-local locations may be configured.
-- If travel makes more than nine configured locations non-local, every pinned
-  location remains visible so it can still be unpinned; unpinned locations fill
-  the remaining slots up to the normal nine-clock limit.
+- Any number of non-local locations may be configured and every configured
+  place remains present in snapshots, time conversion, weather, and the panel.
 - The UI never permits removing the final configured location.
 - If there are no non-local locations, opening the panel goes directly to add
   mode.
@@ -151,7 +157,37 @@ the user later removes it, it is not automatically re-added.
 The default reference instant is `now`; display clocks refresh on minute
 boundaries.
 
-The user may focus the summary time or a location time and enter:
+The user may drag the time ruler and release to commit a selected instant. The
+selection playhead and value bubble remain fixed at the center while hour ticks
+move beneath them, so releasing never appears to move the chosen value back to
+the center. The ruler follows direct manipulation: dragging it right brings
+earlier time under the playhead, while dragging it left brings later time under
+the playhead. Horizontal or vertical two-finger trackpad scrolling follows the
+same earlier/later direction, and a mouse-wheel notch moves by one hour. Wheel
+and trackpad selections commit after the gesture pauses. Merely hovering or
+pressing without dragging does not change the selected instant.
+Pointer movement only becomes a drag after it changes the selected 15-minute
+slot. Releasing on a nonexistent local time during a clock change cancels the
+preview and restores the preceding state instead of leaving the ruler pending.
+`Escape` unwinds time selection before dismissing the panel: it first cancels
+an in-progress preview, then returns an already locked selection to live time;
+another `Escape` closes the live panel.
+Large versus compact cards is resolved automatically from the available panel
+height, and incomplete final rows stay aligned with the first grid column.
+
+Timezone markers use calendar-aware positions instead of cyclic wrapping.
+Hovering a location card highlights its corresponding marker. When that
+location shares the source marker, the fixed playhead itself brightens and
+expands instead of drawing a second overlapping dot.
+Locations on the following day that fall beyond the visible 24-hour ruler are
+grouped just past its right edge; previous-day locations are grouped just
+before the left edge. A single overflow marker names its timezone and exact
+wall-clock distance (`→ NZDT · +17H`). Multiple markers summarize their count
+and distance range (`→ 3 ZONES · +13–17H`). Fractional-hour differences retain
+their minutes. This prevents a later calendar day from appearing before the
+selected source time without widening the ruler for every location.
+
+The user may also focus the summary time or a location time and enter:
 
 - `HH:MM`
 - compact `830` or `0830`
@@ -196,7 +232,8 @@ No separate World Clock 12/24-hour preference is stored.
   row, while Open-Meteo place search remains available.
 - The header identifies the provider from the first frame while data loads, so
   an asynchronous response never changes its geometry.
-- All visible coordinates are fetched in one request when the panel opens.
+- Visible coordinates are fetched in bounded batches when the panel opens, so
+  long location lists do not create an unbounded request URL or response.
 - A successful response is reused for 15 minutes. While the panel remains
   open, a lightweight freshness check runs every 30 seconds so reopening the
   panel cannot restart the full cache interval.
@@ -268,7 +305,7 @@ Rules:
   type-to-search handler
 - a successful addition returns to the main clock view, where the new clock is
   visible as confirmation
-- a duplicate or capacity violation produces an inline error
+- a duplicate place produces an inline error
 - remote failure leaves local search usable
 
 ## Globe and map lookup
@@ -286,8 +323,10 @@ Rules:
   dominating the initial view.
 - Drag rotates it. Mouse-wheel angle deltas and trackpad pixel deltas both
   zoom it across an extended range; zooming out reveals the complete sphere.
-- Configured places and a ranked catalogue of more than 300 capitals and
-  major cities appear as front-hemisphere markers with live local times.
+- Up to 48 configured places and a ranked catalogue of more than 300 capitals
+  and major cities appear as front-hemisphere markers with live local times.
+  The local summary and pinned places take priority in that saved-marker cap;
+  every saved place remains available as a card and excluded from add targets.
 - Major world cities remain visible at regional scale. More capitals and
   agglomerations fade in as the globe zooms closer, using Natural Earth's
   label priority and zoom guidance.
@@ -309,8 +348,8 @@ Rules:
 - The backend resolves land coordinates through the embedded compact timezone
   grid; ocean or invalid coordinates return no location.
 - Map lookup itself never calls a remote service.
-- A resolved location is persisted only from the detail card and only when the
-  capacity rule allows it.
+- A resolved location is persisted only from the detail card's explicit Add
+  action.
 
 ## Rename, pin, and remove
 
@@ -347,12 +386,33 @@ Rules:
 - The QML always resolves the backend from its plugin directory.
 - Plugin and backend versions match and the module protocol handshake passes.
 - The panel toggles and coordinates with built-in Quattro panels.
-- Multiple pins persist, update independently, and all appear in the bar.
+- Multiple pins persist and update independently; the first three appear in
+  the bar and any remainder appears as a `+N` summary.
 - Renaming persists, including for a pinned location and places that share a
   timezone.
 - Time conversion works from the summary and every visible location.
+- More than nine saved places remain visible; automatic compact density keeps
+  typical long lists together and the panel scrolls when compact rows still do
+  not fit.
+- Large versus compact card density is always resolved automatically.
+- The time-rail playhead stays centered while dragging moves the hour ruler in
+  the grabbed direction; trackpad and mouse-wheel scrubbing use the same
+  earlier/later model, and hovering or pressing without dragging does not
+  change the clocks.
+- `S` moves keyboard focus from the panel dispatcher to the time rail, where
+  Left/Right previews a time, Enter keeps it, Home returns live, and Escape
+  unwinds the current preview or locked selection.
+- Preparing the time rail keeps its 288 source-time slots independent of the
+  location count. Each location contributes only compact UTC-offset states,
+  including any DST transition in the rail window; the panel derives visible
+  card times locally instead of receiving a full clock copy in every slot.
+- Next-day markers never wrap to the left of the selected source; out-of-range
+  day markers appear beyond the appropriate ruler edge with their real offset,
+  and multiple markers collapse into a count and distance range. Card hover
+  follows the location identities carried by each marker, so equal wall-clock
+  minutes on different dates do not highlight one another.
 - Local search and map lookup work offline.
-- Current conditions load independently, refresh as one batched request, and
+- Current conditions load independently, refresh in bounded batches, and
   never block clock rendering or conversion.
 - Remote search is attributed and can be disabled.
 - Multiple names in one timezone remain distinct.

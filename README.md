@@ -61,10 +61,15 @@ the AUR package is no longer required.
 - Use the **pencil** to rename, pin, or remove locations. Click a location name
   to edit it, then press **Enter** to save it or **Escape** to cancel. Submit an
   empty name to restore the location's default place name.
-- Pin any combination of places to keep compact location codes and their
-  current times visible beside the bar icon.
-- Hover across the time rail to compare every place at that moment, then click
-  to keep the selected time.
+- Pin any combination of places. The first three stay visible as compact
+  location codes and times beside the bar icon; additional pins collapse into
+  a `+N` summary and remain available in the panel.
+- Drag the time ruler beneath its fixed center marker to compare every place at
+  that moment: pull right for earlier or left for later, then release to keep
+  the selection. Two-finger trackpad scrolling and the mouse wheel work too.
+- From the keyboard, press **S** to focus the ruler, use **Left/Right** to
+  compare times, and press **Enter** to keep the selection.
+- Cards automatically become compact only when the large layout would not fit.
 - Select a displayed time and enter another time to convert the same instant
   across every visible place.
 - Use **plus** to open the full-panel globe. Start typing or select **search**
@@ -73,14 +78,19 @@ the AUR package is no longer required.
 
 ## Features
 
-- Up to nine non-local places in a compact three-column view.
-- An interactive, DST-aware time scrubber with day and offset context.
+- Any number of saved places, with automatic large or compact cards plus a
+  bounded, scrollable panel for unusually long lists.
+- An interactive, DST-aware time scrubber with a fixed playhead, direct ruler
+  dragging, trackpad and wheel input, plus explicit previous- and next-day
+  overflow context.
 - Optional current temperature and conditions for every place with a known
   coordinate.
 - Multiple named places in the same timezone, such as Boston and New York.
 - Personal labels for saved locations, such as a person's name or "Home".
 - Multiple pinned place clocks in the bar, kept in pin order and identified by
-  compact codes such as `TOK` or `NY`.
+  compact codes such as `TOK` or `NY`, with excess pins summarized as `+N`.
+- A compact bar tooltip showing up to twelve time-sorted places and a summary
+  count for any additional locations.
 - Manual time conversion with DST-aware IANA timezone handling.
 - Local timezone and alias search that works offline.
 - Optional Open-Meteo city search for queries not resolved locally.
@@ -172,7 +182,7 @@ leaving optional Open-Meteo city search available.
 
 Local timezone searches and map clicks do not call a remote service. In live
 read mode, World Clock sends the saved coordinates for visible places directly
-from the user's machine to Open-Meteo in one batched request. Results are cached
+from the user's machine to Open-Meteo in bounded batches. Results are cached
 for 15 minutes while the panel stays loaded and are attributed beside the
 weather display. When a typed place query has no local result, World Clock may
 also send that query to Open-Meteo's Geocoding API.

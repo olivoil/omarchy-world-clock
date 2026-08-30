@@ -20,13 +20,18 @@ BarWidget {
   property bool moduleRefreshPending: false
   property string backendFailureDetail: "The bundled backend could not be started"
 
-  readonly property int supportedBackendProtocol: 4
+  readonly property int supportedBackendProtocol: 5
   readonly property string backendCommand:
     String(Qt.resolvedUrl("../bin/omarchy-world-clock-backend")).replace(/^file:\/\//, "")
   readonly property bool opened: panelLoader.item ? panelLoader.item.opened === true : false
   readonly property bool popoutSwitchClosing: panelLoader.item
     ? panelLoader.item.popoutSwitchClosing === true : false
   readonly property bool hasPinnedClocks: pinnedClocks.length > 0
+  readonly property int maximumVisiblePinnedClocks: 3
+  readonly property var visiblePinnedClocks:
+    pinnedClocks.slice(0, maximumVisiblePinnedClocks)
+  readonly property int hiddenPinnedClockCount:
+    Math.max(0, pinnedClocks.length - visiblePinnedClocks.length)
   readonly property Item activeButton: hasPinnedClocks && !vertical
     ? pinnedButton : iconButton
   // Match the clock widget's painted-content convention. The generic bar
@@ -272,7 +277,7 @@ BarWidget {
       }
 
       Repeater {
-        model: root.pinnedClocks
+        model: root.visiblePinnedClocks
 
         Row {
           id: pinnedClock
@@ -320,6 +325,36 @@ BarWidget {
             font.pixelSize: Style.font.body
             renderType: Text.NativeRendering
           }
+        }
+      }
+
+      Row {
+        visible: root.hiddenPinnedClockCount > 0
+        anchors.verticalCenter: parent.verticalCenter
+        spacing: Style.space(3)
+
+        Text {
+          textFormat: Text.PlainText
+          anchors.verticalCenter: parent.verticalCenter
+          text: "·"
+          color: pinnedButton.foreground
+          opacity: 0.58
+          font.family: pinnedButton.fontFamily
+          font.pixelSize: Style.font.caption
+          renderType: Text.NativeRendering
+        }
+
+        Text {
+          textFormat: Text.PlainText
+          anchors.verticalCenter: parent.verticalCenter
+          text: "+" + String(root.hiddenPinnedClockCount)
+          color: pinnedButton.foreground
+          opacity: 0.76
+          font.family: pinnedButton.fontFamily
+          font.pixelSize: Style.font.caption
+          font.bold: true
+          font.letterSpacing: 0.7
+          renderType: Text.NativeRendering
         }
       }
     }

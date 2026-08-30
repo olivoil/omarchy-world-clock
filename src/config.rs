@@ -22,7 +22,6 @@ use unicode_normalization::{char::is_combining_mark, UnicodeNormalization};
 
 pub const CONFIG_VERSION: u64 = 7;
 pub const LOCAL_TIMEZONE_MIGRATION_VERSION: u64 = 2;
-pub const CLOCK_CARD_LIMIT: usize = 9;
 
 const STANDARD_TZ_REGIONS: [&str; 10] = [
     "Africa",
@@ -55,6 +54,18 @@ pub struct LocationKey {
     pub timezone: String,
     #[serde(default)]
     pub label: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct LocationIdentity {
+    timezone: String,
+    label: String,
+}
+
+#[derive(Debug)]
+pub(crate) struct PinnedLocationIndex<'a> {
+    pinned_entries: Vec<&'a TimezoneEntry>,
+    pinned_identities: HashSet<LocationIdentity>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -101,18 +112,48 @@ impl LocationKey {
     }
 }
 
-pub fn non_local_location_count(entries: &[TimezoneEntry], local_timezone: &str) -> usize {
-    let local_timezone = canonical_timezone_name(local_timezone);
-    entries.len().saturating_sub(usize::from(
-        entries.iter().any(|entry| entry.timezone == local_timezone),
-    ))
+impl<'a> PinnedLocationIndex<'a> {
+    pub(crate) fn pinned_entries(&self) -> impl Iterator<Item = &'a TimezoneEntry> + '_ {
+        self.pinned_entries.iter().copied()
+    }
+
+    pub(crate) fn first_pinned_entry(&self) -> Option<&'a TimezoneEntry> {
+        self.pinned_entries.first().copied()
+    }
+
+    pub(crate) fn contains(&self, entry: &TimezoneEntry) -> bool {
+        self.pinned_identities
+            .contains(&location_identity(&entry.timezone, &entry.label))
+    }
 }
 
 impl AppConfig {
+    pub(crate) fn pinned_location_index(&self) -> PinnedLocationIndex<'_> {
+        let mut entries_by_identity = HashMap::with_capacity(self.timezones.len());
+        for entry in &self.timezones {
+            entries_by_identity
+                .entry(location_identity(&entry.timezone, &entry.label))
+                .or_insert(entry);
+        }
+
+        let mut pinned_entries = Vec::with_capacity(self.pinned_locations.len());
+        let mut pinned_identities = HashSet::with_capacity(self.pinned_locations.len());
+        for pinned in &self.pinned_locations {
+            let identity = location_identity(&pinned.timezone, &pinned.label);
+            if let Some(entry) = entries_by_identity.get(&identity) {
+                pinned_entries.push(*entry);
+            }
+            pinned_identities.insert(identity);
+        }
+
+        PinnedLocationIndex {
+            pinned_entries,
+            pinned_identities,
+        }
+    }
+
     pub fn pinned_entries(&self) -> impl Iterator<Item = &TimezoneEntry> {
-        self.pinned_locations
-            .iter()
-            .filter_map(|location| self.timezones.iter().find(|entry| location.matches(entry)))
+        self.pinned_location_index().pinned_entries.into_iter()
     }
 
     // Preserve the original single-pin accessor for callers that only need
@@ -146,6 +187,13 @@ fn normalized_location_label(timezone: &str, label: &str) -> String {
         label.to_string()
     };
     TimezoneResolver::normalize(&effective_label)
+}
+
+fn location_identity(timezone: &str, label: &str) -> LocationIdentity {
+    LocationIdentity {
+        timezone: canonical_timezone_name(timezone),
+        label: normalized_location_label(timezone, label),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -480,11 +528,6 @@ impl ConfigManager {
                 latitude,
                 longitude,
             });
-            if non_local_location_count(&config.timezones, local_timezone) > CLOCK_CARD_LIMIT {
-                anyhow::bail!(
-                    "World Clock can show up to {CLOCK_CARD_LIMIT} locations; remove one before adding another"
-                );
-            }
             Ok(true)
         })?;
         Ok(AddLocationOutcome { config, added })
@@ -2048,9 +2091,9 @@ fn unique_words(value: &str) -> Vec<String> {
 mod tests {
     use super::{
         canonical_timezone_name, detect_system_time_format_with_paths,
-        load_omarchy_shell_weather_unit, merge_zone_tab_coordinates, non_local_location_count,
-        parse_zone_tab_coordinate, AppConfig, ConfigManager, LocationKey, RemotePlaceResponse,
-        RemotePlaceResult, RemotePlaceSearch, TimezoneEntry, TimezoneResolver, CLOCK_CARD_LIMIT,
+        load_omarchy_shell_weather_unit, merge_zone_tab_coordinates, parse_zone_tab_coordinate,
+        AppConfig, ConfigManager, LocationKey, RemotePlaceResponse, RemotePlaceResult,
+        RemotePlaceSearch, TimezoneEntry, TimezoneResolver,
     };
     use crate::remote_response::{
         serve_http_redirect_to_response, serve_http_response_without_length,
@@ -2478,7 +2521,7 @@ mod tests {
     }
 
     #[test]
-    fn add_timezone_enforces_the_non_local_card_limit_before_saving() {
+    fn add_timezone_has_no_product_card_limit() {
         let temp_dir = TempDir::new().unwrap();
         let manager = manager_in(&temp_dir);
         manager.load_with_local_timezone("UTC").unwrap();
@@ -2500,7 +2543,7 @@ mod tests {
                 .unwrap();
         }
 
-        let error = manager
+        let outcome = manager
             .add_timezone_with_coordinate_for_local(
                 "Pacific/Auckland",
                 "Auckland",
@@ -2508,60 +2551,15 @@ mod tests {
                 None,
                 "UTC",
             )
-            .unwrap_err();
-        assert!(error.to_string().contains("up to 9 locations"));
+            .unwrap();
+        assert!(outcome.added);
 
         let saved = manager.load_with_local_timezone("UTC").unwrap();
-        assert_eq!(
-            non_local_location_count(&saved.timezones, "UTC"),
-            CLOCK_CARD_LIMIT
-        );
-        assert!(!saved
+        assert_eq!(saved.timezones.len(), locations.len() + 2);
+        assert!(saved
             .timezones
             .iter()
             .any(|entry| entry.label == "Auckland"));
-    }
-
-    #[test]
-    fn add_timezone_allows_the_local_summary_at_the_card_limit() {
-        let temp_dir = TempDir::new().unwrap();
-        let manager = manager_in(&temp_dir);
-        let timezones = [
-            "America/Vancouver",
-            "America/Denver",
-            "America/Chicago",
-            "America/New_York",
-            "Europe/London",
-            "Europe/Paris",
-            "Asia/Kolkata",
-            "Asia/Tokyo",
-            "Australia/Sydney",
-        ]
-        .into_iter()
-        .map(|timezone| TimezoneEntry {
-            timezone: timezone.to_string(),
-            label: String::new(),
-            latitude: None,
-            longitude: None,
-        })
-        .collect();
-        manager
-            .save(&AppConfig {
-                timezones,
-                pinned_locations: vec![],
-                disable_open_meteo_geolocation: false,
-            })
-            .unwrap();
-
-        let updated = manager
-            .add_timezone_with_coordinate_for_local("UTC", "Home", None, None, "UTC")
-            .unwrap();
-        assert!(updated.added);
-        assert_eq!(updated.config.timezones.len(), CLOCK_CARD_LIMIT + 1);
-        assert_eq!(
-            non_local_location_count(&updated.config.timezones, "UTC"),
-            CLOCK_CARD_LIMIT
-        );
     }
 
     #[test]

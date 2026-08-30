@@ -74,7 +74,7 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(qml.contains("property var pinnedClocks: []"));
     assert!(qml.contains("readonly property bool hasPinnedClocks:"));
     assert!(qml.contains("property bool moduleRefreshPending: false"));
-    assert!(qml.contains("readonly property int supportedBackendProtocol: 4"));
+    assert!(qml.contains("readonly property int supportedBackendProtocol: 5"));
     assert!(qml.contains("function markBackendUnavailable(detail)"));
     assert!(qml.contains("function validPinnedClocks(value)"));
     assert!(qml.contains("!payload || typeof payload !== \"object\" || Array.isArray(payload)"));
@@ -109,11 +109,35 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("owner: root.barIdentity"));
     assert!(panel.contains("onTabRequested"));
     assert!(panel.contains("root.switchPanel(direction)"));
-    assert!(panel.contains("readonly property int maxClocks: 9"));
+    assert!(!panel.contains("maxClocks"));
+    assert!(!panel.contains("canAddLocation"));
+    assert!(panel.contains("readonly property bool autoCompactDensity"));
+    assert!(panel.contains("readonly property bool compactDensity"));
+    let compact_density = panel
+        .split("readonly property bool compactDensity:")
+        .nth(1)
+        .and_then(|source| {
+            source
+                .split("readonly property int clockColumnCount:")
+                .next()
+        })
+        .expect("compact density binding");
+    assert!(
+        compact_density.contains("(mode === \"read\" || mode === \"edit\") && autoCompactDensity")
+    );
+    assert!(!panel.contains("densityPreference"));
+    assert!(panel.contains("readonly property int clockColumnCount"));
+    assert!(panel
+        .contains("readonly property real clockRowHeight: Style.space(compactDensity ? 88 : 100)"));
+    assert!(panel
+        .contains("readonly property real clockRowSpacing: Style.space(compactDensity ? 8 : 14)"));
+    assert!(!panel.contains("root.mode === \"edit\" ? 110 : 100"));
+    assert!(!panel.contains("locationView"));
+    assert!(!panel.contains("id: densityButton"));
+    assert!(!panel.contains("id: scheduleViewButton"));
+    assert!(!panel.contains("id: scheduleRows"));
+    assert!(!panel.contains("availabilitySlotIndexAt"));
     assert!(panel.contains("readonly property bool localTimezoneConfigured"));
-    assert!(panel.contains("readonly property int nonLocalLocationCount"));
-    assert!(panel.contains("function canAddLocation(timezone)"));
-    assert!(panel.contains("root.canAddLocation(resultButton.modelData.timezone)"));
     assert!(panel.contains("Globe {"));
     assert!(panel.contains("snapshot.featured_cities"));
     assert!(panel.contains("function globeLabelLayouts(width, height)"));
@@ -123,6 +147,11 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("layout.reveal * (searchResult || configured"));
     assert!(panel.contains("function mapLocationKey(location)"));
     assert!(panel.contains("function mapLocationSelected(location)"));
+    assert!(panel.contains("readonly property int maximumSavedGlobeMarkers: 48"));
+    assert!(panel.contains("var preferredSavedMarkers = []"));
+    assert!(panel.contains("saved.pinned === true"));
+    assert!(panel.contains(".slice(0, maximumSavedGlobeMarkers)"));
+    assert!(panel.contains("if (savedKey) seenPlaces[savedKey] = true"));
     assert!(panel.contains("var mayPlaceLabel = !mapLocationSelected(location)"));
     assert!(panel.contains("visible: mapMarker.layout.labelVisible && !mapMarker.selected"));
     assert!(!panel.contains("featuredPlaced < 7"));
@@ -220,16 +249,18 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("id: timelineTickRepeater"));
     assert!(panel.contains("property var timelineHoverOwners: ({})"));
     assert!(panel.contains("import \"TimeRail.js\" as TimeRail"));
-    assert!(panel.contains("function timelineHoverMatches(localMinutes)"));
+    assert!(panel.contains("function timelineHoverMatches(clock)"));
+    assert!(panel.contains("TimelineHoverState.matchesIdentity("));
+    assert!(panel.contains("timelineHoverOwners, conversionSource(clock)"));
     assert!(!panel.contains("id: timelinePointHover"));
     assert!(panel.contains("id: cardHoverHandler"));
-    assert!(panel.contains("root.timelineHoverMatches(clockData.local_minutes)"));
+    assert!(panel.contains("root.timelineHoverMatches(clockData)"));
     assert_eq!(
         panel
-            .matches("root.updateTimelineHover(hoverOwner, 0, false)")
+            .matches("root.updateTimelineHover(hoverOwner, null, false)")
             .count(),
-        1,
-        "destroyed card delegates must release hover ownership"
+        2,
+        "destroyed and pooled card delegates must release hover ownership"
     );
     assert!(panel.contains("backendCommand,\n      \"scrub\""));
     assert!(panel.contains("function applyScrubSlot(slotIndex)"));
@@ -265,7 +296,7 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(request_snapshot.contains(
         "if (scrubPreviewActive) {\n      snapshotRequestPending = true\n      snapshotRequestReference = reference\n      return"
     ));
-    assert!(panel.contains("TimeRail.mergeSnapshot(scrubBaseSnapshot, frame)"));
+    assert!(panel.contains("TimeRail.mergeSnapshot(scrubBaseSnapshot, scrubPayload, index)"));
     assert!(panel.contains("property real scrubAnchorMinute: 0"));
     assert!(panel.contains("readonly property bool scrubSourceIsSummary"));
     assert!(panel.contains("function clockDayLabel(clock)"));
@@ -277,12 +308,8 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
         .nth(1)
         .and_then(|source| source.split("readonly property var scrubAxisTicks:").next())
         .expect("scrubReady binding body");
-    assert!(scrub_ready
-        .contains("String(scrubPayload.date || \"\") === String(sourceClock.date || \"\")"));
-    assert!(scrub_ready.contains("TimeRail.payloadMatchesSnapshot(scrubPayload, snapshot)"));
-    assert!(scrub_ready.contains(
-        "String(scrubPayload.time_format || \"\")\n        === String(snapshot.time_format || \"24h\")"
-    ));
+    assert!(scrub_ready.contains("TimeRail.scrubPayloadReady(scrubPayload, snapshot,"));
+    assert!(scrub_ready.contains("scrubBaseSnapshot, scrubSourceTimezone, scrubSourceKey"));
     let request_scrub = panel
         .split("function requestScrubFor(clock) {")
         .nth(1)
@@ -292,24 +319,142 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(request_scrub.contains("TimeRail.payloadMatchesSnapshot(scrubPayload, snapshot)"));
     assert!(panel.contains("|| !TimeRail.payloadMatchesSnapshot(payload, root.snapshot)"));
     assert!(!panel.contains("scrubPayloadLocationSignature = root.scrubActiveLocationSignature"));
-    assert!(panel.contains("visible: root.scrubLoading || !root.scrubSourceIsSummary"));
-    assert!(panel.contains("TimeRail.centeredSlotIndexAt("));
-    assert!(panel.contains("TimeRail.framePosition("));
+    assert!(!panel.contains("WORK HOURS 09:00–17:00"));
+    assert!(!panel.contains("TimeRail.centeredSlotIndexAt("));
+    assert!(!panel.contains("TimeRail.framePosition("));
+    assert!(panel.contains("readonly property real scrubViewportMinute:"));
+    assert!(
+        panel.contains("TimeRail.buildMarkers(snapshot, scrubSourceTimezone, scrubViewportMinute)")
+    );
     assert!(panel.contains(
-        "TimeRail.axisTicks(scrubAnchorMinute, String(snapshot.time_format || \"24h\"))"
+        "TimeRail.axisTicks(scrubViewportMinute, String(snapshot.time_format || \"24h\"))"
     ));
     assert!(!panel.contains("HOVER TO COMPARE"));
     assert!(!panel.contains("CLICK TO SET"));
     assert!(panel.contains("id: scrubPlayhead"));
-    assert!(panel.contains("Behavior on x {\n                  enabled: !root.scrubPreviewActive"));
+    assert!(panel.contains("readonly property real selectedX: railInset + railWidth / 2"));
+    assert_eq!(
+        panel
+            .matches("visible: !(timelinePoint.sourcePoint && scrubPlayhead.visible)")
+            .count(),
+        2,
+        "the fixed playhead must replace the overlapping source dot and stem"
+    );
+    let scrub_playhead = panel
+        .split("id: scrubPlayhead")
+        .nth(1)
+        .and_then(|source| source.split("id: scrubValueBubble").next())
+        .expect("fixed scrub playhead body");
+    assert!(scrub_playhead.contains("x: Math.round(timelineView.selectedX - width / 2)"));
+    assert!(panel.contains("readonly property bool sourceMarkerHovered:"));
+    assert!(scrub_playhead
+        .contains("readonly property bool linkedHovered: timelineView.sourceMarkerHovered"));
+    assert!(scrub_playhead.contains("id: fixedPlayheadDot"));
+    assert!(scrub_playhead.contains("scale: scrubPlayhead.linkedHovered ? 1.45 : 1"));
+    assert!(scrub_playhead.contains(
+        "y: scrubValueBubble.visible\n                  ? Style.space(34) : timelineView.railY - Style.space(5)"
+    ));
+    assert!(scrub_playhead.contains("y: timelineView.railY - scrubPlayhead.y - height / 2"));
+    assert!(!scrub_playhead.contains("Behavior on x"));
     assert!(panel.contains("id: scrubValueBubble"));
     assert!(panel.contains("root.scrubPreviewActive || railMouse.activeFocus || !root.live"));
     assert!(panel.contains("TimeRail.selectionLabel(root.scrubPayload,"));
     assert!(panel.contains("Accessible.name: \"Compare times across the day\""));
+    assert!(panel.contains("property real pressX: 0"));
+    assert!(panel.contains("property int pressSlotIndex: -1"));
+    assert!(panel.contains("TimeRail.draggedSlotIndexAt("));
+    assert!(panel.contains("dragged = nextSlotIndex !== pressSlotIndex"));
+    assert!(!panel.contains("Math.abs(mouse.x - pressX) >= 1"));
+    assert!(panel.contains("previewAtDelta(mouse.x - pressX)"));
+    assert!(panel.contains("onReleased: function(mouse)"));
+    assert!(panel.contains("TimeRail.wheelSlotMotion("));
+    assert!(panel.contains("parent: timelineView"));
+    assert!(panel.contains("acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad"));
+    assert!(panel.contains("id: verticalScrubWheel"));
+    assert!(panel.contains("id: horizontalScrubWheel"));
+    assert!(panel.contains("orientation: Qt.Vertical"));
+    assert!(panel.contains("orientation: Qt.Horizontal"));
+    assert_eq!(panel.matches("railMouse.handleWheel(event)").count(), 2);
+    assert!(panel.contains("id: scrubWheelCommitTimer"));
+    let lock_scrub_selection = panel
+        .split("function lockScrubSelection() {")
+        .nth(1)
+        .and_then(|source| source.split("function moveScrubSelection(").next())
+        .expect("lock scrub selection body");
+    assert!(lock_scrub_selection.contains("live = false"));
+    assert!(lock_scrub_selection.contains("requestSnapshot("));
+    assert!(lock_scrub_selection.contains("if (!scrubSelectedFrame.reference_utc) {"));
+    assert!(lock_scrub_selection
+        .contains("TimeRail.mergeSnapshot(base, scrubPayload, scrubSelectedSlotIndex)"));
+    assert!(lock_scrub_selection.contains("cancelScrubPreview()"));
+    assert!(!panel.contains("function toggleLocationView()"));
+    assert!(!panel.contains("function cycleLocationLayout()"));
+    let shared_read_chrome = panel
+        .split("id: readPage")
+        .nth(1)
+        .and_then(|source| source.split("id: timelineView").next())
+        .expect("shared read-mode chrome");
+    assert!(shared_read_chrome.contains("spacing: Style.space(18)"));
+    assert!(shared_read_chrome.contains("height: Style.space(92)"));
+    assert!(shared_read_chrome.contains("font.pixelSize: Style.space(52)"));
+    assert!(shared_read_chrome.contains("anchors.topMargin: Style.space(7)"));
+    let rail_mouse = panel
+        .split("id: railMouse")
+        .nth(1)
+        .and_then(|source| source.split("hoverEnabled: true").next())
+        .expect("time rail hit target geometry");
+    assert!(rail_mouse.contains("x: timelineView.railInset"));
+    assert!(rail_mouse.contains("y: timelineView.railY - Style.space(24)"));
+    assert!(rail_mouse.contains("width: timelineView.railWidth"));
+    assert!(rail_mouse.contains("height: Style.space(48)"));
+    assert!(panel.contains("cursorShape: pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor"));
+    assert!(!panel.contains("cursorShape: Qt.SizeHorCursor"));
+    assert!(!panel.contains("stableLocationViewHeight"));
+    let clock_rows = panel
+        .split("id: clockRows")
+        .nth(1)
+        .and_then(|source| source.split("Repeater {").next())
+        .expect("clock rows geometry");
+    assert!(clock_rows.contains("height: root.clockViewportHeight"));
+    assert!(clock_rows.contains("spacing: root.clockRowSpacing"));
+    assert!(clock_rows.contains("model: Math.ceil(root.clocks.length / root.clockColumnCount)"));
+    assert!(clock_rows.contains("reuseItems: true"));
+    assert!(clock_rows.contains("cacheBuffer: root.clockRowHeight + root.clockRowSpacing"));
+    assert!(clock_rows.contains("QQC.ScrollBar.vertical: QQC.ScrollBar"));
+    assert!(panel.contains("ListView.onPooled: clockRow.resetRecycledState()"));
+    assert!(panel.contains("ListView.onReused: clockRow.resetRecycledState()"));
+    assert!(panel.contains("keyCatcher.forceActiveFocus(Qt.OtherFocusReason)"));
+    assert!(panel.contains("cardTimeInput.text = String(clockData.time || \"\")"));
+    assert!(panel.contains("readonly property real clockViewportHeight:"));
+    assert!(panel
+        .contains("Math.min(clockGridHeight, Math.max(0, readHeightLimit - readChromeHeight))"));
+    assert!(panel.contains("clockRows.itemAtIndex("));
+    assert!(!panel.contains("id: clockRowRepeater"));
+    let clock_row = panel
+        .split("id: clockRow\n")
+        .nth(1)
+        .and_then(|source| source.split("Repeater {").next())
+        .expect("clock row geometry");
+    assert!(clock_row.contains("anchors.left: parent.left"));
+    assert!(clock_row.contains("height: root.clockRowHeight"));
+    assert!(!clock_row.contains("anchors.horizontalCenter: parent.horizontalCenter"));
+    assert!(panel.contains("readonly property string overflowDirection:"));
+    assert!(panel.contains("root.timelineMarkerHovered(modelData)"));
+    assert!(panel.contains("readonly property real markerCenterX:"));
+    assert!(panel.contains("timelineView.railInset - Style.space(18)"));
+    assert!(panel.contains("timelineView.railInset + timelineView.railWidth + Style.space(18)"));
+    assert!(panel.contains("\"← \""));
+    assert!(panel.contains("\"→ \""));
+    let convert_process = panel
+        .split("id: convertProcess")
+        .nth(1)
+        .and_then(|source| source.split("id: actionProcess").next())
+        .expect("convert process body");
+    assert!(convert_process.contains("root.live = false"));
     assert!(panel.contains("Keys.onLeftPressed"));
     assert!(panel.contains("Keys.onRightPressed"));
     assert!(panel.contains("function focusTimeRail()"));
-    assert!(panel.contains("root.focusTimeRail()"));
+    assert!(panel.contains("else if (text === \"s\" || text === \"S\") root.focusTimeRail()"));
     assert!(panel.contains("root.lockScrubSelection()"));
     assert!(panel.contains("if (activeFocus) root.selectScrubSource(root.summary)"));
     assert!(panel.contains("root.selectScrubSource(clockCell.clockData)"));
@@ -386,7 +531,7 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("property string searchResultsQuery: \"\""));
     assert!(panel.contains("property string searchSubmitQuery: \"\""));
     assert!(panel.contains("if (mode !== \"add\" || !searchVisible) return"));
-    assert!(panel.contains("if (mode !== \"add\" || !searchVisible || !query || !canAdd"));
+    assert!(panel.contains("if (mode !== \"add\" || !searchVisible || !query"));
     assert!(panel.contains("searchDebounce.stop()"));
     assert!(panel.contains("searchResultsQuery === query"));
     assert!(panel.contains("searchSubmitQuery = query"));
@@ -452,7 +597,6 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("text: root.currentTimezoneMetadata"));
     assert!(panel.contains("id: clockRows"));
     assert!(panel.contains("anchors.horizontalCenter: parent.horizontalCenter"));
-    assert!(panel.contains("anchors.leftMargin: Style.space(10)"));
     assert!(panel.contains("id: clockSurface"));
     assert!(panel.contains("? Style.hoverFillFor(root.contentForeground, Color.accent)"));
     assert!(panel.contains(": Style.normalFillFor(root.contentForeground, Color.accent)"));
@@ -463,8 +607,19 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("weatherFreshnessCheckMilliseconds: 30 * 1000"));
     assert!(panel.contains("function weatherFor(clock)"));
     assert!(panel.contains("function weatherGlyph(item)"));
+    assert!(panel.contains("function weatherGlyphColor(item)"));
     assert!(panel.contains("function weatherTemperatureCompact(value)"));
     assert!(panel.contains("readonly property bool weatherEnabled:"));
+    let weather_presentation = panel
+        .split("readonly property bool weatherPresentationActive:")
+        .nth(1)
+        .and_then(|source| {
+            source
+                .split("readonly property int weatherRefreshMilliseconds:")
+                .next()
+        })
+        .expect("weather presentation binding");
+    assert!(weather_presentation.contains("root.weatherEnabled && root.live"));
     assert!(panel.contains("root.setting(\"showWeather\", true) !== false"));
     assert!(panel.contains("function clearWeatherState()"));
     assert!(panel.contains("if (!weatherEnabled)"));
@@ -480,11 +635,14 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("id: summaryMetadataLine"));
     assert!(panel.contains("height: Style.space(92)"));
     assert!(panel.contains("id: summaryWeatherLine"));
+    assert!(panel.contains("id: summaryWeatherGlyph"));
+    assert!(panel.contains("color: root.weatherGlyphColor(summaryClock.weatherData)"));
     assert!(panel.contains("id: cardTitle"));
     assert!(panel.contains("id: cardMetadataRow"));
     assert!(panel.contains("id: cardWeatherBlock"));
     assert!(panel.contains("id: cardWeatherTemperature"));
     assert!(panel.contains("id: cardWeatherGlyph"));
+    assert!(panel.contains("color: root.weatherGlyphColor(clockCell.weatherData)"));
     assert!(panel.contains("anchors.baseline: cardWeatherTemperature.baseline"));
     assert!(panel.contains("anchors.verticalCenter: parent.verticalCenter"));
     assert!(panel.contains("id: weatherProviderAttribution"));
@@ -529,7 +687,12 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(qml.contains("function edit(): void { root.editCurrentTime() }"));
     assert!(qml.contains("panelLoader.item.opened && panelLoader.item.live"));
     assert!(qml.contains("onDateChanged: root.refresh()"));
-    assert!(qml.contains("model: root.pinnedClocks"));
+    assert!(qml.contains("readonly property int maximumVisiblePinnedClocks: 3"));
+    assert!(qml.contains("pinnedClocks.slice(0, maximumVisiblePinnedClocks)"));
+    assert!(qml.contains("model: root.visiblePinnedClocks"));
+    assert!(qml.contains("visible: root.hiddenPinnedClockCount > 0"));
+    assert!(qml.contains("text: \"+\" + String(root.hiddenPinnedClockCount)"));
+    assert!(!qml.contains("model: root.pinnedClocks"));
     assert!(qml.contains("text: pinnedClock.modelData.code"));
     assert!(qml.contains("text: pinnedClock.modelData.time"));
 
@@ -711,7 +874,6 @@ fn return_to_live_releases_the_active_editor_before_requesting_now() {
         .nth(1)
         .and_then(|source| source.split("function convertFrom(").next())
         .expect("returnToLive function body");
-
     let invalidate = return_to_live
         .find("invalidateSnapshotRequests()")
         .expect("returning live must invalidate converted snapshot work");
@@ -726,4 +888,43 @@ fn return_to_live_releases_the_active_editor_before_requesting_now() {
         invalidate < release_focus && release_focus < request_now,
         "converted work must be invalidated and editor focus released before requesting now"
     );
+}
+
+#[test]
+fn escape_unwinds_preview_and_locked_time_before_closing() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let panel =
+        fs::read_to_string(root.join("quattro/Panel.qml")).expect("read native panel source");
+    let dismiss_time = panel
+        .split("function dismissTransientTime() {")
+        .nth(1)
+        .and_then(|source| source.split("function ").next())
+        .expect("dismissTransientTime function body");
+    let cancel_preview = dismiss_time
+        .find("if (scrubPreviewActive)")
+        .expect("Escape must cancel an in-progress scrub preview");
+    let return_live = dismiss_time
+        .find("if (!live)")
+        .expect("Escape must return a locked selection to live time");
+    assert!(cancel_preview < return_live);
+    assert!(dismiss_time.contains("cancelScrubPreview()"));
+    assert!(dismiss_time.contains("returnToLive()"));
+
+    let close_request = panel
+        .split("onCloseRequested: {")
+        .nth(1)
+        .and_then(|source| source.split("onTabRequested:").next())
+        .expect("panel Escape handler");
+    assert!(close_request.contains("!root.dismissTransientTime()"));
+    assert!(close_request.contains("root.close()"));
+
+    let rail_escape = panel
+        .split("id: railMouse")
+        .nth(1)
+        .and_then(|source| source.split("id: scrubWheelCommitTimer").next())
+        .expect("time-rail keyboard handlers");
+    assert!(rail_escape.contains("scrubWheelCommitTimer.stop()"));
+    assert!(rail_escape.contains("wheelSlotRemainder = 0"));
+    assert!(rail_escape.contains("wheelMovedSelection = false"));
+    assert!(rail_escape.contains("root.dismissTransientTime()"));
 }

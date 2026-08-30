@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, sync::OnceLock};
 
 pub const SNAPSHOT_SCHEMA_VERSION: u64 = 1;
-pub const BACKEND_PROTOCOL_VERSION: u64 = 4;
+pub const BACKEND_PROTOCOL_VERSION: u64 = 5;
 pub const SCRUB_STEP_MINUTES: u32 = 15;
 const MODULE_TOOLTIP_LOCATION_LIMIT: usize = 12;
 

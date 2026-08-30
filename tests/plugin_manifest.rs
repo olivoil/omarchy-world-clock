@@ -74,7 +74,7 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(qml.contains("property var pinnedClocks: []"));
     assert!(qml.contains("readonly property bool hasPinnedClocks:"));
     assert!(qml.contains("property bool moduleRefreshPending: false"));
-    assert!(qml.contains("readonly property int supportedBackendProtocol: 4"));
+    assert!(qml.contains("readonly property int supportedBackendProtocol: 5"));
     assert!(qml.contains("function markBackendUnavailable(detail)"));
     assert!(qml.contains("function validPinnedClocks(value)"));
     assert!(qml.contains("!payload || typeof payload !== \"object\" || Array.isArray(payload)"));

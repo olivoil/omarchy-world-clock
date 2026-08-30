@@ -174,6 +174,9 @@ Large versus compact cards is resolved automatically from the available panel
 height, and incomplete final rows stay aligned with the first grid column.
 
 Timezone markers use calendar-aware positions instead of cyclic wrapping.
+Hovering a location card highlights its corresponding marker. When that
+location shares the source marker, the fixed playhead itself brightens and
+expands instead of drawing a second overlapping dot.
 Locations on the following day that fall beyond the visible 24-hour ruler are
 grouped just past its right edge; previous-day locations are grouped just
 before the left edge. A single overflow marker names its timezone and exact

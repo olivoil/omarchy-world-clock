@@ -22,3 +22,19 @@ function matchesMinutes(owners, relativeMinutes) {
         && Number(active[owner]) === target) return true
   return false
 }
+
+function markerHovered(owners, marker) {
+  if (!marker) return false
+  var minutes = Array.isArray(marker.minutes) ? marker.minutes : [marker.minute]
+  for (var index = 0; index < minutes.length; index++)
+    if (matchesMinutes(owners, minutes[index])) return true
+  return false
+}
+
+function sourceMarkerHovered(owners, markers) {
+  if (!Array.isArray(markers)) return false
+  for (var index = 0; index < markers.length; index++)
+    if (markers[index] && markers[index].source === true
+        && markerHovered(owners, markers[index])) return true
+  return false
+}

@@ -31,4 +31,14 @@ assert.equal(context.matchesMinutes(owners, -120), true,
 owners = context.updateOwners(owners, "timeline:0", -120, false)
 assert.deepEqual(Object.keys(owners), [], "the final departure clears all hover state")
 
+let sharedSourceOwners = {}
+sharedSourceOwners = context.updateOwners(
+  sharedSourceOwners, "card:austin", 958, true)
+const sharedSourceMarkers = [
+  { source: true, minutes: [958], count: 2 },
+  { source: false, minutes: [1078], count: 1 },
+]
+assert.equal(context.sourceMarkerHovered(sharedSourceOwners, sharedSourceMarkers), true,
+  "hovering a card grouped with the source reaches the fixed playhead")
+
 console.log("Timeline hover state tests passed.")

@@ -1310,11 +1310,7 @@ Panel {
   }
 
   function timelineMarkerHovered(marker) {
-    if (!marker) return false
-    var minutes = Array.isArray(marker.minutes) ? marker.minutes : [marker.minute]
-    for (var index = 0; index < minutes.length; index++)
-      if (timelineHoverMatches(minutes[index])) return true
-    return false
+    return TimelineHoverState.markerHovered(timelineHoverOwners, marker)
   }
 
   function updateTimelineHover(owner, localMinutes, hovered) {
@@ -2030,6 +2026,9 @@ Panel {
               readonly property bool interacting:
                 root.scrubPreviewActive || railMouse.activeFocus || !root.live
               readonly property real selectedX: railInset + railWidth / 2
+              readonly property bool sourceMarkerHovered:
+                TimelineHoverState.sourceMarkerHovered(
+                  root.timelineHoverOwners, root.timeline)
               readonly property bool selectedUnavailable: root.scrubSelectedFrame
                 && !root.scrubSelectedFrame.reference_utc
 
@@ -2219,6 +2218,7 @@ Panel {
               Rectangle {
                 id: scrubPlayhead
                 visible: root.scrubReady
+                readonly property bool linkedHovered: timelineView.sourceMarkerHovered
                 readonly property real connectorBottom:
                   timelineView.railY + Style.space(32)
                 x: Math.round(timelineView.selectedX - width / 2)
@@ -2227,15 +2227,25 @@ Panel {
                 width: Style.spacing.hairline
                 height: Math.max(0, connectorBottom - y)
                 color: Style.selectedStateColor(root.contentForeground, Color.accent)
-                opacity: timelineView.interacting ? 0.9 : 0.38
+                opacity: timelineView.interacting || linkedHovered ? 0.9 : 0.38
+
+                Behavior on opacity {
+                  NumberAnimation { duration: 160; easing.type: Easing.OutQuart }
+                }
 
                 Rectangle {
+                  id: fixedPlayheadDot
                   anchors.horizontalCenter: parent.horizontalCenter
                   y: timelineView.railY - scrubPlayhead.y - height / 2
                   width: Style.space(9)
                   height: width
                   radius: width / 2
+                  scale: scrubPlayhead.linkedHovered ? 1.45 : 1
                   color: Style.selectedStateColor(root.contentForeground, Color.accent)
+
+                  Behavior on scale {
+                    NumberAnimation { duration: 180; easing.type: Easing.OutQuart }
+                  }
                 }
               }
 

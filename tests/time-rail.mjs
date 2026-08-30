@@ -210,5 +210,9 @@ const grouped = context.buildMarkers({
 assert.equal(grouped.length, 1)
 assert.equal(grouped[0].count, 3)
 assert.equal(grouped[0].label, "GMT / UTC")
+assert.equal(grouped[0].source, true,
+  "a same-time group retains its source identity for the fixed playhead")
+assert.deepEqual(Array.from(grouped[0].minutes), [720],
+  "the shared source marker retains the card minute used by hover linking")
 
 console.log("Time rail tests passed.")

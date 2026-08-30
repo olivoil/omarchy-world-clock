@@ -339,6 +339,11 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
         .and_then(|source| source.split("id: scrubValueBubble").next())
         .expect("fixed scrub playhead body");
     assert!(scrub_playhead.contains("x: Math.round(timelineView.selectedX - width / 2)"));
+    assert!(panel.contains("readonly property bool sourceMarkerHovered:"));
+    assert!(scrub_playhead
+        .contains("readonly property bool linkedHovered: timelineView.sourceMarkerHovered"));
+    assert!(scrub_playhead.contains("id: fixedPlayheadDot"));
+    assert!(scrub_playhead.contains("scale: scrubPlayhead.linkedHovered ? 1.45 : 1"));
     assert!(scrub_playhead.contains(
         "y: scrubValueBubble.visible\n                  ? Style.space(34) : timelineView.railY - Style.space(5)"
     ));

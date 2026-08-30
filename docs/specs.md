@@ -164,6 +164,9 @@ the playhead. Horizontal or vertical two-finger trackpad scrolling follows the
 same earlier/later direction, and a mouse-wheel notch moves by one hour. Wheel
 and trackpad selections commit after the gesture pauses. Merely hovering or
 pressing without dragging does not change the selected instant.
+Pointer movement only becomes a drag after it changes the selected 15-minute
+slot. Releasing on a nonexistent local time during a clock change cancels the
+preview and restores the preceding state instead of leaving the ruler pending.
 `Escape` unwinds time selection before dismissing the panel: it first cancels
 an in-progress preview, then returns an already locked selection to live time;
 another `Escape` closes the live panel.
@@ -172,9 +175,12 @@ height, and incomplete final rows stay aligned with the first grid column.
 
 Timezone markers use calendar-aware positions instead of cyclic wrapping.
 Locations on the following day that fall beyond the visible 24-hour ruler are
-grouped just past its right edge and keep their `+1` label; previous-day
-locations are grouped just before the left edge with `-1`. This prevents a
-later calendar day from appearing before the selected source time.
+grouped just past its right edge; previous-day locations are grouped just
+before the left edge. A single overflow marker names its timezone and exact
+wall-clock distance (`→ NZDT · +17H`). Multiple markers summarize their count
+and distance range (`→ 3 ZONES · +13–17H`). Fractional-hour differences retain
+their minutes. This prevents a later calendar day from appearing before the
+selected source time without widening the ruler for every location.
 
 The user may also focus the summary time or a location time and enter:
 
@@ -386,7 +392,8 @@ Rules:
   earlier/later model, and hovering or pressing without dragging does not
   change the clocks.
 - Next-day markers never wrap to the left of the selected source; out-of-range
-  day markers appear beyond the appropriate ruler edge with `+1` or `-1`.
+  day markers appear beyond the appropriate ruler edge with their real offset,
+  and multiple markers collapse into a count and distance range.
 - Local search and map lookup work offline.
 - Current conditions load independently, refresh in bounded batches, and
   never block clock rendering or conversion.

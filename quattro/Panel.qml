@@ -167,7 +167,7 @@ Panel {
   readonly property bool compactDensity:
     (mode === "read" || mode === "edit") && autoCompactDensity
   readonly property int clockColumnCount: compactDensity ? compactClockColumns : 3
-  readonly property real clockRowHeight: Style.space(compactDensity ? 76 : 100)
+  readonly property real clockRowHeight: Style.space(compactDensity ? 88 : 100)
   readonly property real clockRowSpacing: Style.space(compactDensity ? 8 : 14)
   readonly property real clockGridHeight: {
     var rows = Math.ceil(clocks.length / clockColumnCount)
@@ -729,11 +729,20 @@ Panel {
   }
 
   function lockScrubSelection() {
-    if (!scrubReady || !scrubSelectedFrame
-        || !scrubSelectedFrame.reference_utc || !scrubSelectedFrame.summary) return
+    if (!scrubReady || !scrubSelectedFrame) {
+      if (scrubPreviewActive) cancelScrubPreview()
+      return
+    }
+    if (!scrubSelectedFrame.reference_utc || !scrubSelectedFrame.summary) {
+      cancelScrubPreview()
+      return
+    }
     var base = scrubBaseSnapshot || snapshot
     var merged = TimeRail.mergeSnapshot(base, scrubSelectedFrame)
-    if (!merged) return
+    if (!merged) {
+      cancelScrubPreview()
+      return
+    }
     snapshot = merged
     summaryInput.text = String(merged.summary.time || "--:--")
     scrubBaseSnapshot = null
@@ -2102,19 +2111,25 @@ Panel {
                   readonly property bool linkedHovered:
                     root.timelineMarkerHovered(modelData)
                   readonly property bool upperLane: Number(modelData.lane || 0) === 0
-                  width: Style.space(72)
+                  readonly property real markerCenterX:
+                    overflowDirection === "previous"
+                      ? timelineView.railInset - Style.space(18)
+                      : overflowDirection === "next"
+                      ? timelineView.railInset + timelineView.railWidth + Style.space(18)
+                      : timelineView.railInset
+                        + Number(modelData.position || 0) * timelineView.railWidth
+                  readonly property real markerLocalX: markerCenterX - x
+                  width: Style.space(overflowPoint ? 160 : 72)
                   height: parent.height
                   x: overflowDirection === "previous" ? 0
                     : overflowDirection === "next" ? timelineView.width - width
                     : Math.max(0, Math.min(timelineView.width - width,
-                      timelineView.railInset
-                        + Number(modelData.position || 0) * timelineView.railWidth
-                        - width / 2))
+                      markerCenterX - width / 2))
 
                   Rectangle {
                     id: markerStem
                     visible: !(timelinePoint.sourcePoint && scrubPlayhead.visible)
-                    x: Math.round((parent.width - width) / 2)
+                    x: Math.round(timelinePoint.markerLocalX - width / 2)
                     y: timelinePoint.upperLane
                       ? markerHalo.y - height : markerHalo.y + markerHalo.height
                     width: Style.spacing.hairline
@@ -2130,7 +2145,7 @@ Panel {
                   Rectangle {
                     id: markerHalo
                     visible: !(timelinePoint.sourcePoint && scrubPlayhead.visible)
-                    x: Math.round((parent.width - width) / 2)
+                    x: Math.round(timelinePoint.markerLocalX - width / 2)
                     y: timelineView.railY - height / 2
                     width: Style.space(timelinePoint.sourcePoint
                       ? 11 : (Number(timelinePoint.modelData.count || 1) > 1 ? 9 : 7))
@@ -2178,7 +2193,9 @@ Panel {
                     y: timelinePoint.upperLane
                       ? timelineView.railY - height - Style.space(14)
                       : timelineView.railY + Style.space(13)
-                    horizontalAlignment: Text.AlignHCenter
+                    horizontalAlignment: timelinePoint.overflowDirection === "previous"
+                      ? Text.AlignLeft : timelinePoint.overflowDirection === "next"
+                      ? Text.AlignRight : Text.AlignHCenter
                     elide: Text.ElideRight
                     text: (timelinePoint.overflowDirection === "previous" ? "← "
                       : timelinePoint.overflowDirection === "next" ? "→ " : "")
@@ -2271,8 +2288,12 @@ Panel {
                 property real wheelSlotRemainder: 0
                 property bool wheelMovedSelection: false
                 function previewAtDelta(delta) {
-                  root.applyScrubSlot(TimeRail.draggedSlotIndexAt(
-                    delta, width, root.scrubPayload, pressSlotIndex))
+                  var nextSlotIndex = TimeRail.draggedSlotIndexAt(
+                    delta, width, root.scrubPayload, pressSlotIndex)
+                  dragged = nextSlotIndex !== pressSlotIndex
+                  if (dragged || root.scrubPreviewActive)
+                    root.applyScrubSlot(nextSlotIndex)
+                  return nextSlotIndex
                 }
                 function scrubByWheel(event) {
                   var motion = TimeRail.wheelSlotMotion(
@@ -2303,8 +2324,7 @@ Panel {
                 preventStealing: true
                 onPositionChanged: function(mouse) {
                   if (!pressed) return
-                  if (Math.abs(mouse.x - pressX) >= 1) dragged = true
-                  if (dragged) previewAtDelta(mouse.x - pressX)
+                  previewAtDelta(mouse.x - pressX)
                 }
                 onPressed: function(mouse) {
                   scrubWheelCommitTimer.stop()
@@ -2318,10 +2338,11 @@ Panel {
                   forceActiveFocus(Qt.MouseFocusReason)
                 }
                 onReleased: function(mouse) {
-                  if (dragged) {
-                    previewAtDelta(mouse.x - pressX)
+                  previewAtDelta(mouse.x - pressX)
+                  if (dragged)
                     root.lockScrubSelection()
-                  }
+                  else if (root.scrubPreviewActive)
+                    root.cancelScrubPreview()
                   pressSlotIndex = -1
                   dragged = false
                 }

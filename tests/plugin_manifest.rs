@@ -128,7 +128,7 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(!panel.contains("densityPreference"));
     assert!(panel.contains("readonly property int clockColumnCount"));
     assert!(panel
-        .contains("readonly property real clockRowHeight: Style.space(compactDensity ? 76 : 100)"));
+        .contains("readonly property real clockRowHeight: Style.space(compactDensity ? 88 : 100)"));
     assert!(panel
         .contains("readonly property real clockRowSpacing: Style.space(compactDensity ? 8 : 14)"));
     assert!(!panel.contains("root.mode === \"edit\" ? 110 : 100"));
@@ -351,6 +351,8 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("property real pressX: 0"));
     assert!(panel.contains("property int pressSlotIndex: -1"));
     assert!(panel.contains("TimeRail.draggedSlotIndexAt("));
+    assert!(panel.contains("dragged = nextSlotIndex !== pressSlotIndex"));
+    assert!(!panel.contains("Math.abs(mouse.x - pressX) >= 1"));
     assert!(panel.contains("previewAtDelta(mouse.x - pressX)"));
     assert!(panel.contains("onReleased: function(mouse)"));
     assert!(panel.contains("TimeRail.wheelSlotMotion("));
@@ -369,6 +371,9 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
         .expect("lock scrub selection body");
     assert!(lock_scrub_selection.contains("live = false"));
     assert!(lock_scrub_selection.contains("requestSnapshot("));
+    assert!(lock_scrub_selection
+        .contains("if (!scrubSelectedFrame.reference_utc || !scrubSelectedFrame.summary) {"));
+    assert!(lock_scrub_selection.contains("cancelScrubPreview()"));
     assert!(!panel.contains("function toggleLocationView()"));
     assert!(!panel.contains("function cycleLocationLayout()"));
     let shared_read_chrome = panel
@@ -407,8 +412,9 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(!clock_row.contains("anchors.horizontalCenter: parent.horizontalCenter"));
     assert!(panel.contains("readonly property string overflowDirection:"));
     assert!(panel.contains("root.timelineMarkerHovered(modelData)"));
-    assert!(panel.contains("overflowDirection === \"previous\" ? 0"));
-    assert!(panel.contains("overflowDirection === \"next\" ? timelineView.width - width"));
+    assert!(panel.contains("readonly property real markerCenterX:"));
+    assert!(panel.contains("timelineView.railInset - Style.space(18)"));
+    assert!(panel.contains("timelineView.railInset + timelineView.railWidth + Style.space(18)"));
     assert!(panel.contains("\"← \""));
     assert!(panel.contains("\"→ \""));
     let convert_process = panel

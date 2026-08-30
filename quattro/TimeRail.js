@@ -231,6 +231,38 @@ function markerLabel(clock, sourceClock) {
   return notation + (suffix ? " " + suffix : "")
 }
 
+function distanceMagnitudeLabel(minutes) {
+  var total = Math.round(Math.abs(Number(minutes || 0)))
+  var hours = Math.floor(total / 60)
+  var remainder = total % 60
+  if (remainder === 0) return String(hours) + "H"
+  return String(hours) + "H" + (remainder < 10 ? "0" : "")
+    + String(remainder) + "M"
+}
+
+function overflowDistanceLabel(relativeMinutes, direction) {
+  if (!Array.isArray(relativeMinutes) || relativeMinutes.length === 0) return ""
+  var magnitudes = []
+  for (var index = 0; index < relativeMinutes.length; index++)
+    magnitudes.push(Math.abs(Math.round(Number(relativeMinutes[index] || 0))))
+  magnitudes.sort(function(left, right) { return left - right })
+  var nearest = magnitudes[0]
+  var farthest = magnitudes[magnitudes.length - 1]
+  var sign = direction === "previous" ? "−" : "+"
+  if (nearest === farthest) return sign + distanceMagnitudeLabel(nearest)
+  if (nearest % 60 === 0 && farthest % 60 === 0)
+    return sign + String(nearest / 60) + "–" + String(farthest / 60) + "H"
+  return sign + distanceMagnitudeLabel(nearest)
+    + "–" + distanceMagnitudeLabel(farthest)
+}
+
+function overflowMarkerLabel(marker) {
+  var distance = overflowDistanceLabel(marker.relative_minutes, marker.overflow)
+  if (marker.count > 1) return String(marker.count) + " ZONES · " + distance
+  var notation = marker.notations.length > 0 ? marker.notations[0] : "1 ZONE"
+  return notation + " · " + distance
+}
+
 function buildMarkers(snapshot, sourceTimezone, anchorMinute) {
   if (!snapshot || !snapshot.summary) return []
   var clocks = [snapshot.summary]
@@ -261,10 +293,12 @@ function buildMarkers(snapshot, sourceTimezone, anchorMinute) {
       group = {
         minute: minute,
         minutes: [],
+        relative_minutes: [],
         position: position,
         overflow: overflow,
         time: String(clock.time || ""),
         labels: [],
+        notations: [],
         source: false,
         count: 0,
         lane: 0
@@ -273,7 +307,12 @@ function buildMarkers(snapshot, sourceTimezone, anchorMinute) {
     }
     var label = markerLabel(clock, sourceClock)
     if (label && group.labels.indexOf(label) === -1) group.labels.push(label)
+    var notation = String(clock.notation || "").toUpperCase()
+    if (notation && group.notations.indexOf(notation) === -1)
+      group.notations.push(notation)
     if (group.minutes.indexOf(minute) === -1) group.minutes.push(minute)
+    if (group.relative_minutes.indexOf(relativeMinute) === -1)
+      group.relative_minutes.push(relativeMinute)
     if (String(clock.timezone || "") === String(sourceTimezone || "")) group.source = true
     group.count += 1
     if (overflow === "previous") group.position = Math.min(group.position, position)
@@ -285,9 +324,13 @@ function buildMarkers(snapshot, sourceTimezone, anchorMinute) {
     if (!Object.prototype.hasOwnProperty.call(groups, minuteKey)) continue
     var marker = groups[minuteKey]
     marker.labels.sort()
+    marker.notations.sort()
     marker.minutes.sort(function(left, right) { return left - right })
-    marker.label = marker.labels.join(" / ")
+    marker.relative_minutes.sort(function(left, right) { return left - right })
+    marker.label = marker.overflow
+      ? overflowMarkerLabel(marker) : marker.labels.join(" / ")
     delete marker.labels
+    delete marker.notations
     markers.push(marker)
   }
   markers.sort(function(left, right) { return left.position - right.position })

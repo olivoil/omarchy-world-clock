@@ -19,6 +19,8 @@ const payload = {
 }
 assert.equal(context.draggedSlotIndexAt(0, 960, payload, 135), 135,
   "pressing the fixed-center ruler does not jump the selected instant")
+assert.equal(context.draggedSlotIndexAt(1, 960, payload, 135), 135,
+  "sub-slot pointer jitter does not count as a changed selection")
 assert.equal(context.draggedSlotIndexAt(480, 960, payload, 135), 87,
   "pulling the ruler right brings twelve-hours-earlier instants to center")
 assert.equal(context.draggedSlotIndexAt(-480, 960, payload, 135), 183,
@@ -138,7 +140,7 @@ assert.equal(markers[0].source, true)
 assert.equal(markers[0].position, 0.5,
   "the selected source timezone remains under the fixed playhead")
 assert.equal(markers[1].minute, 60)
-assert.equal(markers[1].label, "JST +1")
+assert.equal(markers[1].label, "JST · +14H")
 assert.equal(markers[1].overflow, "next")
 assert.ok(markers[1].position > 1,
   "a next-day timezone stays after the ruler instead of wrapping left")
@@ -163,8 +165,12 @@ assert.equal(overflowMarkers.length, 2,
   "multiple next-day zones share one readable overflow marker")
 assert.equal(overflowMarkers[1].overflow, "next")
 assert.equal(overflowMarkers[1].count, 2)
-assert.equal(overflowMarkers[1].label, "AEST +1 / JST +1")
+assert.equal(overflowMarkers[1].label, "2 ZONES · +14–16H")
 assert.deepEqual(Array.from(overflowMarkers[1].minutes), [60, 180])
+assert.deepEqual(Array.from(overflowMarkers[1].relative_minutes), [840, 960],
+  "an overflow summary keeps the real wall-clock distances it represents")
+assert.equal(context.overflowDistanceLabel([780, 900, 1020], "next"), "+13–17H",
+  "whole-hour overflow ranges use the compact edge-marker notation")
 
 const previousDayMarkers = context.buildMarkers({
   summary: {
@@ -179,7 +185,20 @@ const previousDayMarkers = context.buildMarkers({
 assert.equal(previousDayMarkers[0].overflow, "previous")
 assert.ok(previousDayMarkers[0].position < 0,
   "a previous-day timezone stays before the ruler")
-assert.equal(previousDayMarkers[0].label, "PDT -1")
+assert.equal(previousDayMarkers[0].label, "PDT · −19H")
+
+const fractionalOverflow = context.buildMarkers({
+  summary: {
+    timezone: "America/Cancun", time: "11:00", date: "2026-08-28",
+    notation: "EST", local_minutes: 660,
+  },
+  clocks: [{
+    timezone: "Pacific/Chatham", time: "05:45", date: "2026-08-29",
+    notation: "CHAST", local_minutes: 345,
+  }],
+}, "America/Cancun", 660)
+assert.equal(fractionalOverflow[1].label, "CHAST · +18H45M",
+  "non-hour timezone distances remain exact at the edge")
 
 const grouped = context.buildMarkers({
   summary: { timezone: "UTC", time: "12:00", notation: "UTC", local_minutes: 720 },

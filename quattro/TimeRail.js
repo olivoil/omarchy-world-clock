@@ -10,6 +10,131 @@ function localDayPosition(localMinutes) {
   return Math.max(0, Math.min(DAY_MINUTES, minute)) / DAY_MINUTES
 }
 
+function localDaylightTrack(kind, positions, alphas, sunriseMinutes,
+    solarNoonMinutes, sunsetMinutes) {
+  return {
+    kind: kind,
+    positions: positions,
+    alphas: alphas,
+    sunrise_minutes: sunriseMinutes,
+    solar_noon_minutes: solarNoonMinutes,
+    sunset_minutes: sunsetMinutes
+  }
+}
+
+function fallbackLocalDaylight(kind, solarNoonMinutes) {
+  var trackPositions = [0, 0.2, 0.3, 0.5, 0.7, 0.8, 1]
+  if (kind === "polar-day") {
+    return localDaylightTrack(kind, trackPositions,
+      [0.11, 0.13, 0.14, 0.16, 0.14, 0.13, 0.11],
+      null, solarNoonMinutes, null)
+  }
+  if (kind === "polar-night") {
+    return localDaylightTrack(kind, trackPositions,
+      [0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03],
+      null, solarNoonMinutes, null)
+  }
+  return localDaylightTrack("fallback", trackPositions,
+    [0.03, 0.035, 0.1, 0.16, 0.1, 0.035, 0.03], null, null, null)
+}
+
+function parsedLocalDate(value) {
+  var match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ""))
+  if (!match) return null
+  var year = Number(match[1])
+  var month = Number(match[2])
+  var day = Number(match[3])
+  if (year < 1600 || month < 1 || month > 12 || day < 1 || day > 31) return null
+  var milliseconds = Date.UTC(year, month - 1, day)
+  var date = new Date(milliseconds)
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1
+      || date.getUTCDate() !== day) return null
+  var yearStart = Date.UTC(year, 0, 1)
+  return {
+    year: year,
+    month: month,
+    day: day,
+    milliseconds: milliseconds,
+    day_of_year: Math.floor((milliseconds - yearStart) / 86400000) + 1,
+    days_in_year: Date.UTC(year + 1, 0, 1) - yearStart === 366 * 86400000
+      ? 366 : 365
+  }
+}
+
+function clockUtcOffsetMinutes(clock, referenceUtc, date) {
+  var offsetValue = clock && clock.utc_offset_seconds
+  var seconds = Number(offsetValue)
+  if (offsetValue !== null && offsetValue !== undefined
+      && isFinite(seconds) && Math.abs(seconds) <= 15 * 60 * 60)
+    return seconds / 60
+
+  var localMinutes = Number(clock && clock.local_minutes)
+  var referenceMilliseconds = Date.parse(String(referenceUtc || ""))
+  if (!isFinite(localMinutes) || localMinutes < 0 || localMinutes >= DAY_MINUTES
+      || !isFinite(referenceMilliseconds)) return null
+  var localMilliseconds = date.milliseconds + Math.round(localMinutes) * 60000
+  var offset = Math.floor(localMilliseconds / 60000)
+    - Math.floor(referenceMilliseconds / 60000)
+  return Math.abs(offset) <= 15 * 60 ? offset : null
+}
+
+function localDaylight(clock, referenceUtc) {
+  var date = parsedLocalDate(clock && clock.date)
+  var latitudeValue = clock && clock.latitude
+  var longitudeValue = clock && clock.longitude
+  var latitude = Number(latitudeValue)
+  var longitude = Number(longitudeValue)
+  if (!date || latitudeValue === null || latitudeValue === undefined
+      || longitudeValue === null || longitudeValue === undefined
+      || !isFinite(latitude) || !isFinite(longitude)
+      || latitude < -90 || latitude > 90
+      || longitude < -180 || longitude > 180) return fallbackLocalDaylight("fallback")
+
+  var utcOffsetMinutes = clockUtcOffsetMinutes(clock, referenceUtc, date)
+  if (utcOffsetMinutes === null) return fallbackLocalDaylight("fallback")
+
+  // NOAA's compact solar equations use 90.833 degrees for apparent sunrise
+  // and sunset, accounting for atmospheric refraction and the solar disc.
+  var radians = Math.PI / 180
+  var gamma = 2 * Math.PI / date.days_in_year * (date.day_of_year - 1)
+  var equationOfTime = 229.18 * (0.000075
+    + 0.001868 * Math.cos(gamma) - 0.032077 * Math.sin(gamma)
+    - 0.014615 * Math.cos(2 * gamma) - 0.040849 * Math.sin(2 * gamma))
+  var declination = 0.006918 - 0.399912 * Math.cos(gamma)
+    + 0.070257 * Math.sin(gamma) - 0.006758 * Math.cos(2 * gamma)
+    + 0.000907 * Math.sin(2 * gamma) - 0.002697 * Math.cos(3 * gamma)
+    + 0.00148 * Math.sin(3 * gamma)
+  var latitudeRadians = latitude * radians
+  var hourAngleCosine = Math.cos(90.833 * radians)
+      / (Math.cos(latitudeRadians) * Math.cos(declination))
+    - Math.tan(latitudeRadians) * Math.tan(declination)
+  var solarNoon = 720 - 4 * longitude - equationOfTime + utcOffsetMinutes
+  if (!(solarNoon >= 0 && solarNoon <= DAY_MINUTES))
+    return fallbackLocalDaylight("fallback")
+
+  if (hourAngleCosine > 1) return fallbackLocalDaylight("polar-night", solarNoon)
+  if (hourAngleCosine < -1) return fallbackLocalDaylight("polar-day", solarNoon)
+
+  var hourAngleDegrees = Math.acos(hourAngleCosine) / radians
+  var sunrise = solarNoon - 4 * hourAngleDegrees
+  var sunset = solarNoon + 4 * hourAngleDegrees
+  if (!(sunrise >= 0 && sunrise < solarNoon
+      && solarNoon < sunset && sunset <= DAY_MINUTES))
+    return fallbackLocalDaylight("fallback")
+
+  var transitionMinutes = 45
+  return localDaylightTrack("solar", [
+    0,
+    Math.max(0, sunrise - transitionMinutes) / DAY_MINUTES,
+    sunrise / DAY_MINUTES,
+    solarNoon / DAY_MINUTES,
+    sunset / DAY_MINUTES,
+    Math.min(DAY_MINUTES, sunset + transitionMinutes) / DAY_MINUTES,
+    1
+  ], [0.03, 0.03, 0.1, 0.16, 0.1, 0.03, 0.03],
+    sunrise, solarNoon, sunset)
+}
+
 function slotsPerDay(payload) {
   var step = Math.max(1, Number(payload && payload.step_minutes || 15))
   return Math.round(DAY_MINUTES / step)
@@ -239,6 +364,7 @@ function renderedScrubClock(baseClock, state, referenceMilliseconds,
     day: day,
     notation: state.notation,
     local_minutes: hour * 60 + minute,
+    utc_offset_seconds: state.utc_offset_seconds,
     source_day_offset: dateDayOffset(date, sourceDate),
     relative_minutes: relativeMinutes,
     relative_label: relativeClockLabel(relativeMinutes)

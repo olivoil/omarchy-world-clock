@@ -177,6 +177,7 @@ pub struct QuattroClock {
     pub day: String,
     pub notation: String,
     pub local_minutes: u32,
+    pub utc_offset_seconds: i32,
     pub relative_minutes: i64,
     pub relative_label: String,
     pub latitude: Option<f64>,
@@ -343,6 +344,7 @@ fn clock_from_entry(
         day: day_label(reference_utc, local_timezone, &entry.timezone),
         notation: format_timezone_notation(&zoned),
         local_minutes: zoned.hour() * 60 + zoned.minute(),
+        utc_offset_seconds: zoned.offset().fix().local_minus_utc(),
         relative_minutes,
         relative_label: relative_label(relative_minutes),
         latitude,
@@ -869,6 +871,8 @@ mod tests {
         assert_eq!(snapshot.clocks[0].day, "Tomorrow");
         assert_eq!(snapshot.summary.date, "2026-08-11");
         assert_eq!(snapshot.summary.local_minutes, 18 * 60 + 45);
+        assert_eq!(snapshot.summary.utc_offset_seconds, -18_000);
+        assert_eq!(snapshot.clocks[0].utc_offset_seconds, 19_800);
     }
 
     #[test]

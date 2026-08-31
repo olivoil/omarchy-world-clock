@@ -325,9 +325,11 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("id: cardLocalDayRuler"));
     assert!(panel.contains("id: localDayTrack"));
     assert!(panel.contains("orientation: Gradient.Horizontal"));
-    assert!(panel.contains("position: 0.2"));
-    assert!(panel.contains("position: 0.5"));
-    assert!(panel.contains("position: 0.8"));
+    assert!(panel.contains("readonly property var localDaylight:"));
+    assert!(panel.contains("TimeRail.localDaylight(clockData, root.snapshot.reference_utc)"));
+    assert!(panel.contains("position: clockCell.localDaylight.positions[0]"));
+    assert!(panel.contains("position: clockCell.localDaylight.positions[6]"));
+    assert!(panel.contains("clockCell.localDaylight.alphas[3]"));
     assert!(panel.contains("TimeRail.localDayPosition(clockCell.clockData.local_minutes)"));
     let local_day_ruler = panel
         .split("id: cardLocalDayRuler")

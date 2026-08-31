@@ -33,6 +33,85 @@ assert.equal(context.localDayPosition(25 * 60), 1,
   "local-day positions stay inside the right edge")
 assert.equal(context.localDayPosition("unknown"), 0,
   "invalid local minutes fail safely at the start of the ruler")
+
+function assertNear(actual, expected, tolerance, message) {
+  assert.ok(Math.abs(actual - expected) <= tolerance,
+    `${message}: expected ${expected} ± ${tolerance}, received ${actual}`)
+}
+
+const newYorkDaylight = context.localDaylight({
+  date: "2026-08-30",
+  local_minutes: 13 * 60,
+  utc_offset_seconds: -4 * 60 * 60,
+  latitude: 40.72,
+  longitude: -74.02,
+}, "2026-08-30T17:00:00Z")
+assert.equal(newYorkDaylight.kind, "solar")
+assertNear(newYorkDaylight.sunrise_minutes, 6 * 60 + 21, 2,
+  "New York sunrise follows the NOAA reference table")
+assertNear(newYorkDaylight.solar_noon_minutes, 12 * 60 + 57, 2,
+  "New York solar noon follows the NOAA equations")
+assertNear(newYorkDaylight.sunset_minutes, 19 * 60 + 31, 4,
+  "New York sunset follows the NOAA reference table")
+assert.deepEqual(Array.from(newYorkDaylight.positions).sort((left, right) => left - right),
+  Array.from(newYorkDaylight.positions),
+  "solar gradient stops remain ordered from midnight to midnight")
+
+const rennesDaylight = context.localDaylight({
+  date: "2026-08-31",
+  local_minutes: 19 * 60,
+  utc_offset_seconds: 2 * 60 * 60,
+  latitude: 48.1173,
+  longitude: -1.6778,
+}, "2026-08-31T17:00:00Z")
+const aucklandDaylight = context.localDaylight({
+  date: "2026-08-31",
+  local_minutes: 5 * 60,
+  utc_offset_seconds: 12 * 60 * 60,
+  latitude: -36.848055,
+  longitude: 174.763027,
+}, "2026-08-30T17:00:00Z")
+assert.ok(rennesDaylight.sunset_minutes - rennesDaylight.sunrise_minutes
+    > aucklandDaylight.sunset_minutes - aucklandDaylight.sunrise_minutes,
+  "the seasonal daylight span differs between northern and southern locations")
+
+const tromsoSummer = context.localDaylight({
+  date: "2026-06-21",
+  utc_offset_seconds: 2 * 60 * 60,
+  latitude: 69.6492,
+  longitude: 18.9553,
+}, "2026-06-21T10:00:00Z")
+assert.equal(tromsoSummer.kind, "polar-day",
+  "midnight sun produces a continuously lit track")
+const tromsoWinter = context.localDaylight({
+  date: "2026-12-21",
+  utc_offset_seconds: 60 * 60,
+  latitude: 69.6492,
+  longitude: 18.9553,
+}, "2026-12-21T11:00:00Z")
+assert.equal(tromsoWinter.kind, "polar-night",
+  "polar night produces a continuously dim track")
+assert.ok(tromsoWinter.alphas.every(alpha => alpha === tromsoWinter.alphas[0]),
+  "polar night does not imply a sunrise that never occurs")
+
+const missingCoordinates = context.localDaylight({
+  date: "2026-08-30",
+  local_minutes: 12 * 60,
+  utc_offset_seconds: 0,
+  latitude: null,
+  longitude: null,
+}, "2026-08-30T12:00:00Z")
+assert.equal(missingCoordinates.kind, "fallback",
+  "locations without coordinates retain the neutral day cycle")
+const derivedOffsetDaylight = context.localDaylight({
+  date: "2026-08-30",
+  local_minutes: 13 * 60,
+  latitude: 40.72,
+  longitude: -74.02,
+}, "2026-08-30T17:00:42Z")
+assertNear(derivedOffsetDaylight.sunrise_minutes, newYorkDaylight.sunrise_minutes, 0.01,
+  "older snapshots can derive their UTC offset without second-level drift")
+
 assert.equal(context.draggedSlotIndexAt(0, 960, payload, 135), 135,
   "pressing the fixed-center ruler does not jump the selected instant")
 assert.equal(context.draggedSlotIndexAt(1, 960, payload, 135), 135,

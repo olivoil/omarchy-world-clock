@@ -2554,6 +2554,8 @@ Panel {
                           && root.keyboardClockIndex === clockIndex
                       readonly property bool linkedHovered:
                         root.timelineHoverMatches(clockData)
+                      readonly property var localDaylight:
+                        TimeRail.localDaylight(clockData, root.snapshot.reference_utc)
                       property bool labelEditing: false
                       function resetRecycledState() {
                         root.updateTimelineHover(hoverOwner, null, false)
@@ -2907,39 +2909,46 @@ Panel {
                           gradient: Gradient {
                             orientation: Gradient.Horizontal
                             GradientStop {
-                              position: 0
+                              position: clockCell.localDaylight.positions[0]
                               color: Qt.rgba(root.contentForeground.r,
-                                root.contentForeground.g, root.contentForeground.b, 0.03)
+                                root.contentForeground.g, root.contentForeground.b,
+                                clockCell.localDaylight.alphas[0])
                             }
                             GradientStop {
-                              position: 0.2
+                              position: clockCell.localDaylight.positions[1]
                               color: Qt.rgba(root.contentForeground.r,
-                                root.contentForeground.g, root.contentForeground.b, 0.035)
+                                root.contentForeground.g, root.contentForeground.b,
+                                clockCell.localDaylight.alphas[1])
                             }
                             GradientStop {
-                              position: 0.3
+                              position: clockCell.localDaylight.positions[2]
                               color: Qt.rgba(root.contentForeground.r,
-                                root.contentForeground.g, root.contentForeground.b, 0.1)
+                                root.contentForeground.g, root.contentForeground.b,
+                                clockCell.localDaylight.alphas[2])
                             }
                             GradientStop {
-                              position: 0.5
+                              position: clockCell.localDaylight.positions[3]
                               color: Qt.rgba(root.contentForeground.r,
-                                root.contentForeground.g, root.contentForeground.b, 0.16)
+                                root.contentForeground.g, root.contentForeground.b,
+                                clockCell.localDaylight.alphas[3])
                             }
                             GradientStop {
-                              position: 0.7
+                              position: clockCell.localDaylight.positions[4]
                               color: Qt.rgba(root.contentForeground.r,
-                                root.contentForeground.g, root.contentForeground.b, 0.1)
+                                root.contentForeground.g, root.contentForeground.b,
+                                clockCell.localDaylight.alphas[4])
                             }
                             GradientStop {
-                              position: 0.8
+                              position: clockCell.localDaylight.positions[5]
                               color: Qt.rgba(root.contentForeground.r,
-                                root.contentForeground.g, root.contentForeground.b, 0.035)
+                                root.contentForeground.g, root.contentForeground.b,
+                                clockCell.localDaylight.alphas[5])
                             }
                             GradientStop {
-                              position: 1
+                              position: clockCell.localDaylight.positions[6]
                               color: Qt.rgba(root.contentForeground.r,
-                                root.contentForeground.g, root.contentForeground.b, 0.03)
+                                root.contentForeground.g, root.contentForeground.b,
+                                clockCell.localDaylight.alphas[6])
                             }
                           }
                         }

@@ -210,10 +210,14 @@ remains visible after the selected time is locked.
 
 While previewing or viewing a selected time, every location card also shows a
 passive local-day ruler seated on its bottom edge. The common left-to-right
-scale runs from 00:00 to 24:00. A neutral tonal cycle stays dim through the
-night, brightens toward noon, and fades back toward midnight; a single marker
-rises into the card at that card's `local_minutes`. The rulers disappear in live
-and edit modes, never replace the printed time, and do not label or imply
+scale runs from 00:00 to 24:00. Its tonal cycle follows apparent sunrise, solar
+noon, and sunset for that location's coordinates and the displayed local date;
+the solar times are calculated locally, without an Open-Meteo request. A soft
+45-minute transition keeps the two-pixel line legible without presenting dawn
+or dusk as additional data. Polar day stays gently lit, polar night stays dim,
+and missing coordinates fall back to the neutral cycle. A single marker rises
+into the card at that card's `local_minutes`. The rulers disappear in live and
+edit modes, never replace the printed time, and do not label or imply
 availability. They are not an additional time-scrubbing target.
 
 Pressing `Enter` in read mode focuses and selects the summary time for direct

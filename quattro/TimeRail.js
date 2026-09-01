@@ -60,25 +60,35 @@ function fallbackLocalDaylight(kind, solarNoonMinutes) {
     null, solarNoonMinutes, null)
 }
 
+function utcDateMilliseconds(year, monthIndex, day) {
+  // Date.UTC treats years 0–99 as 1900–1999. setUTCFullYear preserves the
+  // proleptic four-digit year emitted by the backend instead.
+  var date = new Date(0)
+  date.setUTCFullYear(year, monthIndex, day)
+  date.setUTCHours(0, 0, 0, 0)
+  return date.getTime()
+}
+
 function parsedLocalDate(value) {
   var match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ""))
   if (!match) return null
   var year = Number(match[1])
   var month = Number(match[2])
   var day = Number(match[3])
-  if (year < 1600 || month < 1 || month > 12 || day < 1 || day > 31) return null
-  var milliseconds = Date.UTC(year, month - 1, day)
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null
+  var milliseconds = utcDateMilliseconds(year, month - 1, day)
   var date = new Date(milliseconds)
   if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1
       || date.getUTCDate() !== day) return null
-  var yearStart = Date.UTC(year, 0, 1)
+  var yearStart = utcDateMilliseconds(year, 0, 1)
   return {
     year: year,
     month: month,
     day: day,
     milliseconds: milliseconds,
     day_of_year: Math.floor((milliseconds - yearStart) / 86400000) + 1,
-    days_in_year: Date.UTC(year + 1, 0, 1) - yearStart === 366 * 86400000
+    days_in_year: utcDateMilliseconds(year + 1, 0, 1) - yearStart
+      === 366 * 86400000
       ? 366 : 365
   }
 }

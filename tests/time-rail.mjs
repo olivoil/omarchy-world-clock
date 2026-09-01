@@ -140,6 +140,19 @@ assert.ok(historicalManilaDaylight.solar_noon_minutes > 11 * 60
     && historicalManilaDaylight.solar_noon_minutes < 14 * 60,
   "historical Manila solar noon remains near local midday")
 
+const historicalParisDaylight = context.localDaylight({
+  date: "1500-06-01",
+  local_minutes: 12 * 60,
+  utc_offset_seconds: 561,
+  utc_offset_states: [{ from_minute: 0, utc_offset_seconds: 561 }],
+  latitude: 48.8566,
+  longitude: 2.3522,
+}, "1500-06-01T11:50:39Z")
+assert.equal(historicalParisDaylight.kind, "solar",
+  "four-digit historical dates accepted by conversion retain their solar profile")
+assert.ok(context.parsedLocalDate("0000-02-29"),
+  "year zero avoids JavaScript's special Date.UTC handling for years below 100")
+
 const reykjavikSummer = context.localDaylight({
   date: "2026-06-21",
   local_minutes: 12 * 60,

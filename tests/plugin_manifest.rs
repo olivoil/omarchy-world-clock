@@ -128,7 +128,8 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(!panel.contains("densityPreference"));
     assert!(panel.contains("readonly property int clockColumnCount"));
     assert!(panel
-        .contains("readonly property real clockRowHeight: Style.space(compactDensity ? 88 : 100)"));
+        .contains("readonly property real clockRowHeight: Style.space(compactDensity ? 92 : 104)"));
+    assert!(panel.contains("rows * Style.space(104)"));
     assert!(panel
         .contains("readonly property real clockRowSpacing: Style.space(compactDensity ? 8 : 14)"));
     assert!(!panel.contains("root.mode === \"edit\" ? 110 : 100"));

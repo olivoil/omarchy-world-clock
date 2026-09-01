@@ -153,7 +153,7 @@ Panel {
   readonly property real comfortableClockGridHeight: {
     var rows = Math.ceil(clocks.length / 3)
     return rows <= 0 ? 0
-      : rows * Style.space(100) + (rows - 1) * Style.space(14)
+      : rows * Style.space(104) + (rows - 1) * Style.space(14)
   }
   readonly property real comfortableRequiredHeight: panelHeader.height
     + panelColumn.spacing + Style.space(92)
@@ -170,7 +170,7 @@ Panel {
   readonly property bool compactDensity:
     (mode === "read" || mode === "edit") && autoCompactDensity
   readonly property int clockColumnCount: compactDensity ? compactClockColumns : 3
-  readonly property real clockRowHeight: Style.space(compactDensity ? 88 : 100)
+  readonly property real clockRowHeight: Style.space(compactDensity ? 92 : 104)
   readonly property real clockRowSpacing: Style.space(compactDensity ? 8 : 14)
   readonly property real clockGridHeight: {
     var rows = Math.ceil(clocks.length / clockColumnCount)

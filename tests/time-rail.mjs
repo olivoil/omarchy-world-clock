@@ -124,6 +124,22 @@ assert.ok(apiaDaylight.solar_noon_minutes > 11 * 60
     && apiaDaylight.solar_noon_minutes < 14 * 60,
   "date-line solar noon remains near local midday")
 
+const historicalManilaDaylight = context.localDaylight({
+  date: "1844-05-01",
+  local_minutes: 12 * 60,
+  utc_offset_seconds: -57368,
+  utc_offset_states: [
+    { from_minute: 0, utc_offset_seconds: -57368 },
+  ],
+  latitude: 14.6,
+  longitude: 120.98,
+}, "1844-05-02T03:56:08Z")
+assert.equal(historicalManilaDaylight.kind, "solar",
+  "historical IANA offsets beyond 15 hours retain their solar profile")
+assert.ok(historicalManilaDaylight.solar_noon_minutes > 11 * 60
+    && historicalManilaDaylight.solar_noon_minutes < 14 * 60,
+  "historical Manila solar noon remains near local midday")
+
 const reykjavikSummer = context.localDaylight({
   date: "2026-06-21",
   local_minutes: 12 * 60,

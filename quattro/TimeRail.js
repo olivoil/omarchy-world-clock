@@ -85,7 +85,9 @@ function parsedLocalDate(value) {
 
 function validUtcOffsetMinutes(value) {
   var seconds = Number(value)
-  if (!isFinite(seconds) || Math.abs(seconds) > 15 * 60 * 60) return null
+  // Historical IANA local-mean-time offsets can exceed the modern civil
+  // range. The backend's fixed offsets support every value within one day.
+  if (!isFinite(seconds) || Math.abs(seconds) >= DAY_MINUTES * 60) return null
   return seconds / 60
 }
 
@@ -121,7 +123,7 @@ function clockUtcOffsetMinutes(clock, referenceUtc, date, localMinute) {
   var localMilliseconds = date.milliseconds + Math.round(localMinutes) * 60000
   var offset = Math.floor(localMilliseconds / 60000)
     - Math.floor(referenceMilliseconds / 60000)
-  return Math.abs(offset) <= 15 * 60 ? offset : null
+  return Math.abs(offset) < DAY_MINUTES ? offset : null
 }
 
 function solarEventLocalMinute(clock, referenceUtc, date, utcMinute,

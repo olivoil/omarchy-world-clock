@@ -17,6 +17,236 @@ const payload = {
     minute: index % 96 * 15,
   })),
 }
+assert.equal(context.localDayPosition(0), 0,
+  "midnight starts the local-day ruler")
+assert.equal(context.localDayPosition(6 * 60), 0.25,
+  "06:00 sits at the first quarter of the local-day ruler")
+assert.equal(context.localDayPosition(12 * 60), 0.5,
+  "noon sits at the center of the local-day ruler")
+assert.equal(context.localDayPosition(18 * 60), 0.75,
+  "18:00 sits at the third quarter of the local-day ruler")
+assert.equal(context.localDayPosition(24 * 60), 1,
+  "the helper permits the conceptual 24:00 endpoint")
+assert.equal(context.localDayPosition(-30), 0,
+  "local-day positions stay inside the left edge")
+assert.equal(context.localDayPosition(25 * 60), 1,
+  "local-day positions stay inside the right edge")
+assert.equal(context.localDayPosition("unknown"), 0,
+  "invalid local minutes fail safely at the start of the ruler")
+
+function assertNear(actual, expected, tolerance, message) {
+  assert.ok(Math.abs(actual - expected) <= tolerance,
+    `${message}: expected ${expected} ± ${tolerance}, received ${actual}`)
+}
+
+const newYorkDaylight = context.localDaylight({
+  date: "2026-08-30",
+  local_minutes: 13 * 60,
+  utc_offset_seconds: -4 * 60 * 60,
+  latitude: 40.72,
+  longitude: -74.02,
+}, "2026-08-30T17:00:00Z")
+assert.equal(newYorkDaylight.kind, "solar")
+assertNear(newYorkDaylight.sunrise_minutes, 6 * 60 + 21, 2,
+  "New York sunrise follows the NOAA reference table")
+assertNear(newYorkDaylight.solar_noon_minutes, 12 * 60 + 57, 2,
+  "New York solar noon follows the NOAA equations")
+assertNear(newYorkDaylight.sunset_minutes, 19 * 60 + 31, 4,
+  "New York sunset follows the NOAA reference table")
+assert.equal(newYorkDaylight.curve_positions.length, 33,
+  "the solar profile samples a smooth but bounded card curve")
+assert.equal(newYorkDaylight.curve_heights.length,
+  newYorkDaylight.curve_positions.length,
+  "each solar curve position has a normalized height")
+assertNear(newYorkDaylight.curve_positions[0],
+  newYorkDaylight.sunrise_minutes / (24 * 60), 0.0001,
+  "the curve begins at apparent sunrise")
+assertNear(newYorkDaylight.curve_positions.at(-1),
+  newYorkDaylight.sunset_minutes / (24 * 60), 0.0001,
+  "the curve ends at apparent sunset")
+assert.ok(newYorkDaylight.curve_heights[0] < 0.01
+    && newYorkDaylight.curve_heights.at(-1) < 0.01,
+  "the elevation curve meets the horizon at sunrise and sunset")
+const newYorkPeakIndex = newYorkDaylight.curve_heights.indexOf(
+  Math.max(...newYorkDaylight.curve_heights))
+assert.deepEqual(Array.from(newYorkDaylight.curve_positions)
+    .sort((left, right) => left - right),
+  Array.from(newYorkDaylight.curve_positions),
+  "solar elevation samples remain ordered from sunrise to sunset")
+assertNear(newYorkDaylight.curve_positions[newYorkPeakIndex],
+  newYorkDaylight.solar_noon_minutes / (24 * 60), 0.002,
+  "the elevation curve peaks at local solar noon")
+assert.ok(newYorkDaylight.peak_elevation_degrees > 50,
+  "the curve retains the physical peak elevation")
+assert.ok(newYorkDaylight.marker_light > 0.9,
+  "a daytime marker receives the daylight end of the marker scale")
+
+const newYorkNight = context.localDaylight({
+  date: "2026-08-30",
+  local_minutes: 2 * 60,
+  utc_offset_seconds: -4 * 60 * 60,
+  latitude: 40.72,
+  longitude: -74.02,
+}, "2026-08-30T06:00:00Z")
+assert.ok(newYorkNight.marker_light < 0.1,
+  "a nighttime marker receives the cool end of the marker scale")
+
+const newYorkSpringForward = context.localDaylight({
+  date: "2026-03-08",
+  local_minutes: 90,
+  utc_offset_seconds: -5 * 60 * 60,
+  utc_offset_states: [
+    { from_minute: 0, utc_offset_seconds: -5 * 60 * 60 },
+    { from_minute: 3 * 60, utc_offset_seconds: -4 * 60 * 60 },
+  ],
+  latitude: 40.72,
+  longitude: -74.02,
+}, "2026-03-08T06:30:00Z")
+assert.equal(newYorkSpringForward.kind, "solar")
+assertNear(newYorkSpringForward.sunrise_minutes, 7 * 60 + 21, 3,
+  "sunrise uses the offset in force at the solar event")
+assertNear(newYorkSpringForward.solar_noon_minutes, 13 * 60 + 8, 3,
+  "solar noon uses the post-transition offset")
+
+const apiaDaylight = context.localDaylight({
+  date: "2026-08-31",
+  local_minutes: 12 * 60,
+  utc_offset_seconds: 13 * 60 * 60,
+  utc_offset_states: [
+    { from_minute: 0, utc_offset_seconds: 13 * 60 * 60 },
+  ],
+  latitude: -13.8333,
+  longitude: -171.75,
+}, "2026-08-30T23:00:00Z")
+assert.equal(apiaDaylight.kind, "solar",
+  "date-line locations normalize their solar cycle into the civil day")
+assert.ok(apiaDaylight.solar_noon_minutes > 11 * 60
+    && apiaDaylight.solar_noon_minutes < 14 * 60,
+  "date-line solar noon remains near local midday")
+
+const historicalManilaDaylight = context.localDaylight({
+  date: "1844-05-01",
+  local_minutes: 12 * 60,
+  utc_offset_seconds: -57368,
+  utc_offset_states: [
+    { from_minute: 0, utc_offset_seconds: -57368 },
+  ],
+  latitude: 14.6,
+  longitude: 120.98,
+}, "1844-05-02T03:56:08Z")
+assert.equal(historicalManilaDaylight.kind, "solar",
+  "historical IANA offsets beyond 15 hours retain their solar profile")
+assert.ok(historicalManilaDaylight.solar_noon_minutes > 11 * 60
+    && historicalManilaDaylight.solar_noon_minutes < 14 * 60,
+  "historical Manila solar noon remains near local midday")
+
+const historicalParisDaylight = context.localDaylight({
+  date: "1500-06-01",
+  local_minutes: 12 * 60,
+  utc_offset_seconds: 561,
+  utc_offset_states: [{ from_minute: 0, utc_offset_seconds: 561 }],
+  latitude: 48.8566,
+  longitude: 2.3522,
+}, "1500-06-01T11:50:39Z")
+assert.equal(historicalParisDaylight.kind, "solar",
+  "four-digit historical dates accepted by conversion retain their solar profile")
+assert.ok(context.parsedLocalDate("0000-02-29"),
+  "year zero avoids JavaScript's special Date.UTC handling for years below 100")
+
+const reykjavikSummer = context.localDaylight({
+  date: "2026-06-21",
+  local_minutes: 12 * 60,
+  utc_offset_seconds: 0,
+  utc_offset_states: [{ from_minute: 0, utc_offset_seconds: 0 }],
+  latitude: 64.1466,
+  longitude: -21.9426,
+}, "2026-06-21T12:00:00Z")
+assert.equal(reykjavikSummer.kind, "solar",
+  "near-midnight sunset retains the solar profile")
+assert.ok(reykjavikSummer.sunrise_minutes > reykjavikSummer.sunset_minutes,
+  "a daylight cycle crossing midnight keeps its wrapped event order")
+assert.equal(reykjavikSummer.daylight_intervals.length, 2,
+  "daylight crossing midnight is split at the ruler boundary")
+assert.equal(reykjavikSummer.curve_segments.length, 2,
+  "the clipped solar glow has one segment on each side of midnight")
+
+const newYorkWinter = context.localDaylight({
+  date: "2026-12-21",
+  local_minutes: 12 * 60,
+  utc_offset_seconds: -5 * 60 * 60,
+  latitude: 40.72,
+  longitude: -74.02,
+}, "2026-12-21T17:00:00Z")
+assert.ok(newYorkDaylight.peak_elevation_degrees
+    > newYorkWinter.peak_elevation_degrees + 25,
+  "seasonal solar elevation materially changes the arc height")
+assert.ok(Math.max(...newYorkDaylight.curve_heights)
+    > Math.max(...newYorkWinter.curve_heights),
+  "the visually compressed curve still preserves seasonal height")
+
+const rennesDaylight = context.localDaylight({
+  date: "2026-08-31",
+  local_minutes: 19 * 60,
+  utc_offset_seconds: 2 * 60 * 60,
+  latitude: 48.1173,
+  longitude: -1.6778,
+}, "2026-08-31T17:00:00Z")
+const aucklandDaylight = context.localDaylight({
+  date: "2026-08-31",
+  local_minutes: 5 * 60,
+  utc_offset_seconds: 12 * 60 * 60,
+  latitude: -36.848055,
+  longitude: 174.763027,
+}, "2026-08-30T17:00:00Z")
+assert.ok(rennesDaylight.sunset_minutes - rennesDaylight.sunrise_minutes
+    > aucklandDaylight.sunset_minutes - aucklandDaylight.sunrise_minutes,
+  "the seasonal daylight span differs between northern and southern locations")
+
+const tromsoSummer = context.localDaylight({
+  date: "2026-06-21",
+  utc_offset_seconds: 2 * 60 * 60,
+  latitude: 69.6492,
+  longitude: 18.9553,
+}, "2026-06-21T10:00:00Z")
+assert.equal(tromsoSummer.kind, "polar-day",
+  "midnight sun produces a continuously lit track")
+assert.equal(tromsoSummer.curve_positions.length, 33,
+  "polar day retains a full-day elevation profile")
+assert.ok(tromsoSummer.curve_heights.every(height => height > 0),
+  "the midnight-sun curve stays above the horizon")
+const tromsoWinter = context.localDaylight({
+  date: "2026-12-21",
+  utc_offset_seconds: 60 * 60,
+  latitude: 69.6492,
+  longitude: 18.9553,
+}, "2026-12-21T11:00:00Z")
+assert.equal(tromsoWinter.kind, "polar-night",
+  "polar night produces a continuously dim track")
+assert.ok(tromsoWinter.curve_heights.every(height => height === 0),
+  "polar night never draws a daylight arc")
+
+const missingCoordinates = context.localDaylight({
+  date: "2026-08-30",
+  local_minutes: 12 * 60,
+  utc_offset_seconds: 0,
+  latitude: null,
+  longitude: null,
+}, "2026-08-30T12:00:00Z")
+assert.equal(missingCoordinates.kind, "fallback",
+  "locations without coordinates retain the neutral day cycle")
+assert.deepEqual(Array.from(missingCoordinates.curve_positions), [],
+  "locations without coordinates do not invent a solar arc")
+assert.equal(missingCoordinates.marker_light, 0.5,
+  "locations without coordinates keep a neutral marker")
+const derivedOffsetDaylight = context.localDaylight({
+  date: "2026-08-30",
+  local_minutes: 13 * 60,
+  latitude: 40.72,
+  longitude: -74.02,
+}, "2026-08-30T17:00:42Z")
+assertNear(derivedOffsetDaylight.sunrise_minutes, newYorkDaylight.sunrise_minutes, 0.01,
+  "older snapshots can derive their UTC offset without second-level drift")
+
 assert.equal(context.draggedSlotIndexAt(0, 960, payload, 135), 135,
   "pressing the fixed-center ruler does not jump the selected instant")
 assert.equal(context.draggedSlotIndexAt(1, 960, payload, 135), 135,
@@ -73,6 +303,21 @@ const matchingLocations = {
     },
   ],
 }
+const springForwardOffsets = context.scrubOffsetStatesForDate({
+  slots: [
+    { reference_utc: "2026-03-08T06:45:00Z" },
+    { reference_utc: "2026-03-08T07:00:00Z" },
+  ],
+}, {
+  states: [
+    { from_slot: 0, utc_offset_seconds: -5 * 60 * 60 },
+    { from_slot: 1, utc_offset_seconds: -4 * 60 * 60 },
+  ],
+}, "2026-03-08")
+assert.deepEqual(Array.from(springForwardOffsets, state => ({ ...state })), [
+  { from_minute: 0, utc_offset_seconds: -5 * 60 * 60 },
+  { from_minute: 3 * 60, utc_offset_seconds: -4 * 60 * 60 },
+], "scrub previews retain the displayed date's offset transition")
 assert.equal(context.payloadMatchesSnapshot(matchingLocations, base), true,
   "ordered backend identities authenticate against the displayed snapshot")
 assert.equal(context.payloadMatchesSnapshot({

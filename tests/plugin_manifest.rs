@@ -128,7 +128,8 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(!panel.contains("densityPreference"));
     assert!(panel.contains("readonly property int clockColumnCount"));
     assert!(panel
-        .contains("readonly property real clockRowHeight: Style.space(compactDensity ? 88 : 100)"));
+        .contains("readonly property real clockRowHeight: Style.space(compactDensity ? 92 : 104)"));
+    assert!(panel.contains("rows * Style.space(104)"));
     assert!(panel
         .contains("readonly property real clockRowSpacing: Style.space(compactDensity ? 8 : 14)"));
     assert!(!panel.contains("root.mode === \"edit\" ? 110 : 100"));
@@ -320,6 +321,40 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("|| !TimeRail.payloadMatchesSnapshot(payload, root.snapshot)"));
     assert!(!panel.contains("scrubPayloadLocationSignature = root.scrubActiveLocationSignature"));
     assert!(!panel.contains("WORK HOURS 09:00–17:00"));
+    assert!(panel.contains("readonly property bool localDayRulersVisible:"));
+    assert!(panel.contains("mode === \"read\" && (scrubPreviewActive || !live)"));
+    assert!(panel.contains("id: cardLocalDayRuler"));
+    assert!(panel.contains("id: localDayTrack"));
+    assert!(panel.contains("id: localSolarGlow"));
+    assert!(panel.contains("Canvas {"));
+    assert!(panel.contains("readonly property var localDaylight:"));
+    assert!(panel.contains("TimeRail.localDaylight(clockData, root.snapshot.reference_utc)"));
+    assert!(panel.contains("clockCell.localDaylight.curve_segments"));
+    assert!(panel.contains("clockCell.localDaylight.daylight_intervals"));
+    assert!(panel.contains("id: localDaylightEdgeRepeater"));
+    assert!(!panel.contains("id: localSunriseCap"));
+    assert!(!panel.contains("id: localSunsetCap"));
+    assert!(panel.contains("clockCell.localDaylight.marker_light"));
+    assert!(panel.contains("Behavior on color { ColorAnimation { duration: 150 } }"));
+    assert!(!panel.contains("orientation: Gradient.Horizontal"));
+    assert!(panel.contains("TimeRail.localDayPosition(clockCell.clockData.local_minutes)"));
+    let local_day_ruler = panel
+        .split("id: cardLocalDayRuler")
+        .nth(1)
+        .and_then(|source| source.split("id: localDayMarker").next())
+        .expect("passive local-day ruler body");
+    assert!(!local_day_ruler.contains("MouseArea"));
+    let local_day_marker = panel
+        .split("id: localDayMarker")
+        .nth(1)
+        .and_then(|source| source.split("Button {").next())
+        .expect("local-day ruler marker body");
+    assert!(local_day_marker.contains("height: Math.round(parent.height * 0.5)"));
+    assert!(local_day_marker.contains("readonly property color nightTint:"));
+    assert!(local_day_marker.contains("nightTint, clockSurface.color"));
+    assert!(local_day_marker.contains("readonly property real restingOpacity:"));
+    assert!(local_day_marker.contains("0.68 + sunlight * 0.26"));
+    assert!(!local_day_marker.contains("Behavior on x"));
     assert!(!panel.contains("TimeRail.centeredSlotIndexAt("));
     assert!(!panel.contains("TimeRail.framePosition("));
     assert!(panel.contains("readonly property real scrubViewportMinute:"));
@@ -888,6 +923,44 @@ fn return_to_live_releases_the_active_editor_before_requesting_now() {
         invalidate < release_focus && release_focus < request_now,
         "converted work must be invalidated and editor focus released before requesting now"
     );
+}
+
+#[test]
+fn closing_the_panel_discards_selected_time_and_requests_now() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let panel =
+        fs::read_to_string(root.join("quattro/Panel.qml")).expect("read native panel source");
+    let reset_on_close = panel
+        .split("function resetTimeOnPanelClose() {")
+        .nth(1)
+        .and_then(|source| source.split("function convertFrom(").next())
+        .expect("resetTimeOnPanelClose function body");
+    let cancel_preview = reset_on_close
+        .find("cancelScrubPreview()")
+        .expect("closing must first cancel an in-progress preview");
+    let invalidate = reset_on_close
+        .find("invalidateSnapshotRequests()")
+        .expect("closing must invalidate pending conversions even while live");
+    let live_return = reset_on_close
+        .find("if (live) return")
+        .expect("closing may skip the live refresh after invalidation");
+    let restore_live = reset_on_close
+        .find("live = true")
+        .expect("closing must discard a locked selected time");
+    let request_now = reset_on_close
+        .find("requestLiveSnapshot()")
+        .expect("closing must refresh the live instant");
+
+    assert!(cancel_preview < invalidate && invalidate < live_return);
+    assert!(live_return < restore_live && restore_live < request_now);
+
+    let opened_changed = panel
+        .split("onOpenedChanged: {")
+        .nth(1)
+        .and_then(|source| source.split("onWeatherEnabledChanged:").next())
+        .expect("panel opened-state handler");
+    assert!(opened_changed.contains("if (!opened)"));
+    assert!(opened_changed.contains("resetTimeOnPanelClose()"));
 }
 
 #[test]

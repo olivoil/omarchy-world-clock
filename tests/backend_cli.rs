@@ -118,6 +118,18 @@ fn bundled_backend_supports_the_complete_quattro_command_protocol() {
     assert_eq!(snapshot["pinned_timezone"], "Asia/Tokyo");
     assert_eq!(snapshot["configured_count"], 2);
     assert_eq!(snapshot["weather_unit"], "metric");
+    assert!(snapshot["summary"]["utc_offset_seconds"].is_number());
+    assert!(snapshot["summary"]["utc_offset_states"]
+        .as_array()
+        .is_some_and(|states| !states.is_empty()));
+    assert!(snapshot["clocks"].as_array().is_some_and(|clocks| clocks
+        .iter()
+        .all(|clock| clock["utc_offset_seconds"].is_number())));
+    assert!(snapshot["clocks"].as_array().is_some_and(|clocks| clocks
+        .iter()
+        .all(|clock| clock["utc_offset_states"]
+            .as_array()
+            .is_some_and(|states| !states.is_empty()))));
     assert!(snapshot["featured_cities"]
         .as_array()
         .is_some_and(|cities| !cities.is_empty()));

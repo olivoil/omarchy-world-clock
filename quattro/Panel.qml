@@ -1755,27 +1755,6 @@ Panel {
               }
 
               Button {
-                id: weatherProviderAttribution
-                anchors.verticalCenter: parent.verticalCenter
-                visible: root.mode !== "add" && root.weatherEnabled && root.live
-                  && !root.scrubPreviewActive
-                  && root.weather.disabled !== true
-                text: root.weatherLocations.length > 0 || !root.weatherError
-                  ? "Open-Meteo"
-                    + (root.weatherError ? "  ·  Update unavailable" : "")
-                  : "Weather unavailable"
-                tooltipText: "Weather data by Open-Meteo"
-                foreground: Qt.darker(root.contentForeground, 1.35)
-                background: "transparent"
-                fontFamily: root.contentFontFamily
-                fontSize: Style.fontPx(0.75)
-                focusable: true
-                horizontalPadding: Style.space(4)
-                verticalPadding: Style.space(1)
-                onClicked: Qt.openUrlExternally("https://open-meteo.com/")
-              }
-
-              Button {
                 visible: root.summary.pinned === true
                 enabled: !actionProcess.running
                 text: "UNPIN"
@@ -3134,26 +3113,6 @@ Panel {
                     }
                   }
                 }
-              }
-
-              Button {
-                id: openMeteoAttribution
-                visible: root.showOpenMeteoAttribution
-                anchors.left: parent.left
-                anchors.bottom: parent.bottom
-                anchors.margins: Style.space(12)
-                z: 28
-                text: "Location data by Open-Meteo"
-                tooltipText: "Open Open-Meteo"
-                foreground: Qt.darker(root.contentForeground, 1.35)
-                background: root.mixColor(Color.popups.background,
-                  root.contentForeground, 0.025)
-                fontFamily: root.contentFontFamily
-                fontSize: Style.font.caption
-                focusable: true
-                horizontalPadding: Style.space(6)
-                verticalPadding: Style.space(3)
-                onClicked: Qt.openUrlExternally("https://open-meteo.com/")
               }
 
               Repeater {

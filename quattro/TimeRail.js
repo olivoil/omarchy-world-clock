@@ -17,8 +17,10 @@ function localDaylightTrack(kind, sunriseMinutes, solarNoonMinutes,
     sunrise_minutes: sunriseMinutes,
     solar_noon_minutes: solarNoonMinutes,
     sunset_minutes: sunsetMinutes,
+    daylight_intervals: [],
     curve_positions: [],
     curve_heights: [],
+    curve_segments: [],
     peak_elevation_degrees: null,
     current_elevation_degrees: null,
     marker_light: 0.5
@@ -53,38 +55,6 @@ function solarMarkerLight(elevationDegrees) {
   return progress * progress * (3 - 2 * progress)
 }
 
-function addSolarProfile(track, latitudeRadians, declination, solarNoon,
-    localMinutes, curveStart, curveEnd) {
-  var sampleCount = 33
-  var start = Number(curveStart)
-  var end = Number(curveEnd)
-  if (!isFinite(start) || !isFinite(end) || !(start < end)) return track
-
-  var positions = []
-  var heights = []
-  for (var index = 0; index < sampleCount; index++) {
-    var progress = index / (sampleCount - 1)
-    var minute = start + (end - start) * progress
-    var elevation = solarElevationDegrees(
-      latitudeRadians, declination, solarNoon, minute)
-    positions.push(minute / DAY_MINUTES)
-    heights.push(solarCurveHeight(elevation))
-  }
-  track.curve_positions = positions
-  track.curve_heights = heights
-  track.peak_elevation_degrees = solarElevationDegrees(
-    latitudeRadians, declination, solarNoon, solarNoon)
-
-  var currentMinute = Number(localMinutes)
-  if (isFinite(currentMinute)) {
-    var currentElevation = solarElevationDegrees(
-      latitudeRadians, declination, solarNoon, wrapMinute(currentMinute))
-    track.current_elevation_degrees = currentElevation
-    track.marker_light = solarMarkerLight(currentElevation)
-  }
-  return track
-}
-
 function fallbackLocalDaylight(kind, solarNoonMinutes) {
   return localDaylightTrack(kind === "fallback" ? "fallback" : kind,
     null, solarNoonMinutes, null)
@@ -113,12 +83,36 @@ function parsedLocalDate(value) {
   }
 }
 
-function clockUtcOffsetMinutes(clock, referenceUtc, date) {
+function validUtcOffsetMinutes(value) {
+  var seconds = Number(value)
+  if (!isFinite(seconds) || Math.abs(seconds) > 15 * 60 * 60) return null
+  return seconds / 60
+}
+
+function clockOffsetStateMinutes(clock, localMinute) {
+  var states = clock && clock.utc_offset_states
+  if (!Array.isArray(states) || states.length === 0) return null
+  var minute = wrapMinute(localMinute)
+  var selected = null
+  for (var index = 0; index < states.length; index++) {
+    var fromMinute = Number(states[index] && states[index].from_minute)
+    var offset = validUtcOffsetMinutes(
+      states[index] && states[index].utc_offset_seconds)
+    if (!isFinite(fromMinute) || offset === null) continue
+    if (fromMinute > minute) break
+    selected = offset
+  }
+  if (selected !== null) return selected
+  return validUtcOffsetMinutes(states[0] && states[0].utc_offset_seconds)
+}
+
+function clockUtcOffsetMinutes(clock, referenceUtc, date, localMinute) {
+  var stateOffset = clockOffsetStateMinutes(clock, localMinute)
+  if (stateOffset !== null) return stateOffset
   var offsetValue = clock && clock.utc_offset_seconds
-  var seconds = Number(offsetValue)
-  if (offsetValue !== null && offsetValue !== undefined
-      && isFinite(seconds) && Math.abs(seconds) <= 15 * 60 * 60)
-    return seconds / 60
+  var directOffset = validUtcOffsetMinutes(offsetValue)
+  if (offsetValue !== null && offsetValue !== undefined && directOffset !== null)
+    return directOffset
 
   var localMinutes = Number(clock && clock.local_minutes)
   var referenceMilliseconds = Date.parse(String(referenceUtc || ""))
@@ -128,6 +122,82 @@ function clockUtcOffsetMinutes(clock, referenceUtc, date) {
   var offset = Math.floor(localMilliseconds / 60000)
     - Math.floor(referenceMilliseconds / 60000)
   return Math.abs(offset) <= 15 * 60 ? offset : null
+}
+
+function solarEventLocalMinute(clock, referenceUtc, date, utcMinute,
+    fallbackOffsetMinutes) {
+  var candidate = wrapMinute(Number(utcMinute) + Number(fallbackOffsetMinutes))
+  for (var iteration = 0; iteration < 3; iteration++) {
+    var offset = clockUtcOffsetMinutes(clock, referenceUtc, date, candidate)
+    if (offset === null) offset = fallbackOffsetMinutes
+    var next = wrapMinute(Number(utcMinute) + Number(offset))
+    if (Math.abs(next - candidate) < 0.001) return next
+    candidate = next
+  }
+  return candidate
+}
+
+function solarElevationAtLocalMinute(clock, referenceUtc, date,
+    latitudeRadians, declination, solarNoonUtc, localMinute,
+    fallbackOffsetMinutes) {
+  var offset = clockUtcOffsetMinutes(clock, referenceUtc, date, localMinute)
+  if (offset === null) offset = fallbackOffsetMinutes
+  return solarElevationDegrees(latitudeRadians, declination, solarNoonUtc,
+    Number(localMinute) - Number(offset))
+}
+
+function daylightIntervals(sunriseMinutes, sunsetMinutes) {
+  var sunrise = wrapMinute(sunriseMinutes)
+  var sunset = wrapMinute(sunsetMinutes)
+  if (sunrise < sunset) return [[sunrise, sunset]]
+  if (sunrise > sunset) return [[0, sunset], [sunrise, DAY_MINUTES]]
+  return []
+}
+
+function addSolarProfile(track, clock, referenceUtc, date, latitudeRadians,
+    declination, solarNoonUtc, fallbackOffsetMinutes, curveIntervals) {
+  var positions = []
+  var heights = []
+  var segments = []
+  for (var intervalIndex = 0; intervalIndex < curveIntervals.length;
+      intervalIndex++) {
+    var start = Number(curveIntervals[intervalIndex][0])
+    var end = Number(curveIntervals[intervalIndex][1])
+    if (!isFinite(start) || !isFinite(end) || !(start < end)) continue
+    var sampleCount = curveIntervals.length === 1 ? 33
+      : Math.max(2, Math.round((end - start) / DAY_MINUTES * 32) + 1)
+    var segmentPositions = []
+    var segmentHeights = []
+    for (var sampleIndex = 0; sampleIndex < sampleCount; sampleIndex++) {
+      var progress = sampleIndex / (sampleCount - 1)
+      var minute = start + (end - start) * progress
+      var elevation = solarElevationAtLocalMinute(clock, referenceUtc, date,
+        latitudeRadians, declination, solarNoonUtc, minute,
+        fallbackOffsetMinutes)
+      var position = minute / DAY_MINUTES
+      var height = solarCurveHeight(elevation)
+      segmentPositions.push(position)
+      segmentHeights.push(height)
+      positions.push(position)
+      heights.push(height)
+    }
+    segments.push({ positions: segmentPositions, heights: segmentHeights })
+  }
+  track.curve_positions = positions
+  track.curve_heights = heights
+  track.curve_segments = segments
+  track.peak_elevation_degrees = solarElevationDegrees(
+    latitudeRadians, declination, solarNoonUtc, solarNoonUtc)
+
+  var currentMinute = Number(clock && clock.local_minutes)
+  if (isFinite(currentMinute)) {
+    var currentElevation = solarElevationAtLocalMinute(clock, referenceUtc, date,
+      latitudeRadians, declination, solarNoonUtc, wrapMinute(currentMinute),
+      fallbackOffsetMinutes)
+    track.current_elevation_degrees = currentElevation
+    track.marker_light = solarMarkerLight(currentElevation)
+  }
+  return track
 }
 
 function localDaylight(clock, referenceUtc) {
@@ -142,7 +212,8 @@ function localDaylight(clock, referenceUtc) {
       || latitude < -90 || latitude > 90
       || longitude < -180 || longitude > 180) return fallbackLocalDaylight("fallback")
 
-  var utcOffsetMinutes = clockUtcOffsetMinutes(clock, referenceUtc, date)
+  var utcOffsetMinutes = clockUtcOffsetMinutes(
+    clock, referenceUtc, date, clock && clock.local_minutes)
   if (utcOffsetMinutes === null) return fallbackLocalDaylight("fallback")
 
   // NOAA's compact solar equations use 90.833 degrees for apparent sunrise
@@ -160,29 +231,41 @@ function localDaylight(clock, referenceUtc) {
   var hourAngleCosine = Math.cos(90.833 * radians)
       / (Math.cos(latitudeRadians) * Math.cos(declination))
     - Math.tan(latitudeRadians) * Math.tan(declination)
-  var solarNoon = 720 - 4 * longitude - equationOfTime + utcOffsetMinutes
-  if (!(solarNoon >= 0 && solarNoon <= DAY_MINUTES))
+  var solarNoonUtc = 720 - 4 * longitude - equationOfTime
+  if (!isFinite(solarNoonUtc))
     return fallbackLocalDaylight("fallback")
+  var solarNoon = solarEventLocalMinute(
+    clock, referenceUtc, date, solarNoonUtc, utcOffsetMinutes)
 
-  if (hourAngleCosine > 1)
-    return addSolarProfile(fallbackLocalDaylight("polar-night", solarNoon),
-      latitudeRadians, declination, solarNoon, clock && clock.local_minutes,
-      0, DAY_MINUTES)
-  if (hourAngleCosine < -1)
-    return addSolarProfile(fallbackLocalDaylight("polar-day", solarNoon),
-      latitudeRadians, declination, solarNoon, clock && clock.local_minutes,
-      0, DAY_MINUTES)
+  if (hourAngleCosine > 1) {
+    var polarNight = fallbackLocalDaylight("polar-night", solarNoon)
+    return addSolarProfile(polarNight, clock, referenceUtc, date,
+      latitudeRadians, declination, solarNoonUtc, utcOffsetMinutes,
+      [[0, DAY_MINUTES]])
+  }
+  if (hourAngleCosine < -1) {
+    var polarDay = fallbackLocalDaylight("polar-day", solarNoon)
+    polarDay.daylight_intervals = [{ start: 0, end: 1 }]
+    return addSolarProfile(polarDay, clock, referenceUtc, date,
+      latitudeRadians, declination, solarNoonUtc, utcOffsetMinutes,
+      [[0, DAY_MINUTES]])
+  }
 
   var hourAngleDegrees = Math.acos(hourAngleCosine) / radians
-  var sunrise = solarNoon - 4 * hourAngleDegrees
-  var sunset = solarNoon + 4 * hourAngleDegrees
-  if (!(sunrise >= 0 && sunrise < solarNoon
-      && solarNoon < sunset && sunset <= DAY_MINUTES))
+  var sunrise = solarEventLocalMinute(clock, referenceUtc, date,
+    solarNoonUtc - 4 * hourAngleDegrees, utcOffsetMinutes)
+  var sunset = solarEventLocalMinute(clock, referenceUtc, date,
+    solarNoonUtc + 4 * hourAngleDegrees, utcOffsetMinutes)
+  if (!isFinite(sunrise) || !isFinite(sunset) || sunrise === sunset)
     return fallbackLocalDaylight("fallback")
 
   var track = localDaylightTrack("solar", sunrise, solarNoon, sunset)
-  return addSolarProfile(track, latitudeRadians, declination, solarNoon,
-    clock && clock.local_minutes, sunrise, sunset)
+  var intervals = daylightIntervals(sunrise, sunset)
+  track.daylight_intervals = intervals.map(function(interval) {
+    return { start: interval[0] / DAY_MINUTES, end: interval[1] / DAY_MINUTES }
+  })
+  return addSolarProfile(track, clock, referenceUtc, date, latitudeRadians,
+    declination, solarNoonUtc, utcOffsetMinutes, intervals)
 }
 
 function slotsPerDay(payload) {
@@ -392,6 +475,43 @@ function timezoneStateAt(location, slotIndex) {
   }
 }
 
+function scrubOffsetStatesForDate(payload, location, date) {
+  if (!payload || !Array.isArray(payload.slots) || !location || !date) return []
+  var offsetsByMinute = ({})
+  for (var slotIndex = 0; slotIndex < payload.slots.length; slotIndex++) {
+    var frame = payload.slots[slotIndex]
+    if (!frame || !frame.reference_utc) continue
+    var referenceMilliseconds = Date.parse(String(frame.reference_utc))
+    var state = timezoneStateAt(location, slotIndex)
+    if (!isFinite(referenceMilliseconds) || !state) continue
+    var local = new Date(referenceMilliseconds + state.utc_offset_seconds * 1000)
+    if (!isFinite(local.getTime())) continue
+    var localDate = paddedNumber(local.getUTCFullYear(), 4) + "-"
+      + paddedNumber(local.getUTCMonth() + 1, 2) + "-"
+      + paddedNumber(local.getUTCDate(), 2)
+    if (localDate !== String(date)) continue
+    var localMinute = local.getUTCHours() * 60 + local.getUTCMinutes()
+    var key = String(localMinute)
+    if (offsetsByMinute[key] === undefined)
+      offsetsByMinute[key] = state.utc_offset_seconds
+  }
+
+  var minutes = Object.keys(offsetsByMinute)
+    .map(function(value) { return Number(value) })
+    .sort(function(left, right) { return left - right })
+  var result = []
+  var previousOffset = null
+  for (var minuteIndex = 0; minuteIndex < minutes.length; minuteIndex++) {
+    var minute = minutes[minuteIndex]
+    var offset = Number(offsetsByMinute[String(minute)])
+    if (!isFinite(offset) || offset === previousOffset) continue
+    result.push({ from_minute: minute, utc_offset_seconds: Math.round(offset) })
+    previousOffset = offset
+  }
+  if (result.length > 0) result[0].from_minute = 0
+  return result
+}
+
 function renderedScrubClock(baseClock, state, referenceMilliseconds,
     timeFormat, sourceDate, summaryDate, summaryOffsetSeconds) {
   var local = new Date(referenceMilliseconds + state.utc_offset_seconds * 1000)
@@ -452,12 +572,23 @@ function mergeSnapshot(base, payload, slotIndex) {
   result.summary = renderedScrubClock(base.summary, states[0], referenceMilliseconds,
     payload.time_format, sourceDate, summaryDate, states[0].utc_offset_seconds)
   if (!result.summary) return null
+  var summaryOffsetStates = scrubOffsetStatesForDate(
+    payload, payload.locations[0], result.summary.date)
+  result.summary.utc_offset_states = summaryOffsetStates.length > 0
+    ? summaryOffsetStates
+    : [{ from_minute: 0, utc_offset_seconds: states[0].utc_offset_seconds }]
   result.clocks = []
   for (var clockIndex = 0; clockIndex < base.clocks.length; clockIndex++) {
     var rendered = renderedScrubClock(base.clocks[clockIndex], states[clockIndex + 1],
       referenceMilliseconds, payload.time_format, sourceDate, summaryDate,
       states[0].utc_offset_seconds)
     if (!rendered) return null
+    var offsetStates = scrubOffsetStatesForDate(
+      payload, payload.locations[clockIndex + 1], rendered.date)
+    rendered.utc_offset_states = offsetStates.length > 0
+      ? offsetStates
+      : [{ from_minute: 0,
+          utc_offset_seconds: states[clockIndex + 1].utc_offset_seconds }]
     result.clocks.push(rendered)
   }
   return result

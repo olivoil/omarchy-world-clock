@@ -329,12 +329,11 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("Canvas {"));
     assert!(panel.contains("readonly property var localDaylight:"));
     assert!(panel.contains("TimeRail.localDaylight(clockData, root.snapshot.reference_utc)"));
-    assert!(panel.contains("clockCell.localDaylight.curve_positions"));
-    assert!(panel.contains("clockCell.localDaylight.curve_heights"));
+    assert!(panel.contains("clockCell.localDaylight.curve_segments"));
+    assert!(panel.contains("clockCell.localDaylight.daylight_intervals"));
+    assert!(panel.contains("id: localDaylightEdgeRepeater"));
     assert!(!panel.contains("id: localSunriseCap"));
     assert!(!panel.contains("id: localSunsetCap"));
-    assert!(panel.contains("clockCell.localDaylight.sunrise_minutes"));
-    assert!(panel.contains("clockCell.localDaylight.sunset_minutes"));
     assert!(panel.contains("clockCell.localDaylight.marker_light"));
     assert!(panel.contains("Behavior on color { ColorAnimation { duration: 150 } }"));
     assert!(!panel.contains("orientation: Gradient.Horizontal"));
@@ -939,6 +938,12 @@ fn closing_the_panel_discards_selected_time_and_requests_now() {
     let cancel_preview = reset_on_close
         .find("cancelScrubPreview()")
         .expect("closing must first cancel an in-progress preview");
+    let invalidate = reset_on_close
+        .find("invalidateSnapshotRequests()")
+        .expect("closing must invalidate pending conversions even while live");
+    let live_return = reset_on_close
+        .find("if (live) return")
+        .expect("closing may skip the live refresh after invalidation");
     let restore_live = reset_on_close
         .find("live = true")
         .expect("closing must discard a locked selected time");
@@ -946,7 +951,8 @@ fn closing_the_panel_discards_selected_time_and_requests_now() {
         .find("requestLiveSnapshot()")
         .expect("closing must refresh the live instant");
 
-    assert!(cancel_preview < restore_live && restore_live < request_now);
+    assert!(cancel_preview < invalidate && invalidate < live_return);
+    assert!(live_return < restore_live && restore_live < request_now);
 
     let opened_changed = panel
         .split("onOpenedChanged: {")

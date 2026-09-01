@@ -1067,8 +1067,8 @@ Panel {
 
   function resetTimeOnPanelClose() {
     cancelScrubPreview()
-    if (live) return
     invalidateSnapshotRequests()
+    if (live) return
     invalidConversionSource = ""
     live = true
     requestLiveSnapshot()
@@ -2912,14 +2912,10 @@ Panel {
                         Canvas {
                           id: localSolarGlow
                           anchors.fill: parent
-                          readonly property var curvePositions:
-                            clockCell.localDaylight.curve_positions
-                          readonly property var curveHeights:
-                            clockCell.localDaylight.curve_heights
+                          readonly property var curveSegments:
+                            clockCell.localDaylight.curve_segments
                           readonly property color glowColor: root.contentForeground
-                          visible: curvePositions && curveHeights
-                            && curvePositions.length > 1
-                            && curvePositions.length === curveHeights.length
+                          visible: curveSegments && curveSegments.length > 0
                           Accessible.ignored: true
 
                           function canvasColor(color, alpha) {
@@ -2929,8 +2925,7 @@ Panel {
                               + String(Math.max(0, Math.min(1, Number(alpha)))) + ")"
                           }
 
-                          onCurvePositionsChanged: requestPaint()
-                          onCurveHeightsChanged: requestPaint()
+                          onCurveSegmentsChanged: requestPaint()
                           onGlowColorChanged: requestPaint()
                           onWidthChanged: requestPaint()
                           onHeightChanged: requestPaint()
@@ -2943,26 +2938,7 @@ Panel {
                             var baseline = Math.max(0,
                               height - Style.spacing.hairline / 2)
                             var amplitude = Math.max(0, height - Style.space(1))
-                            var firstX = Math.max(0, Math.min(1,
-                              Number(curvePositions[0]))) * width
-                            var lastX = firstX
-
                             context.save()
-                            context.beginPath()
-                            context.moveTo(firstX, baseline)
-                            for (var curveIndex = 0;
-                                curveIndex < curvePositions.length; curveIndex++) {
-                              var curveX = Math.max(0, Math.min(1,
-                                Number(curvePositions[curveIndex]))) * width
-                              var curveHeight = Math.max(0, Math.min(1,
-                                Number(curveHeights[curveIndex])))
-                              context.lineTo(curveX,
-                                baseline - curveHeight * amplitude)
-                              lastX = curveX
-                            }
-                            context.lineTo(lastX, baseline)
-                            context.closePath()
-
                             var glow = context.createLinearGradient(0, 0, 0, height)
                             glow.addColorStop(0, canvasColor(glowColor, 0.008))
                             glow.addColorStop(0.48, canvasColor(glowColor, 0.05))
@@ -2970,7 +2946,32 @@ Panel {
                             context.fillStyle = glow
                             context.shadowColor = canvasColor(glowColor, 0.11)
                             context.shadowBlur = Style.space(3)
-                            context.fill()
+                            for (var segmentIndex = 0;
+                                segmentIndex < curveSegments.length; segmentIndex++) {
+                              var segment = curveSegments[segmentIndex]
+                              var positions = segment && segment.positions
+                              var heights = segment && segment.heights
+                              if (!positions || !heights || positions.length < 2
+                                  || positions.length !== heights.length) continue
+                              var firstX = Math.max(0, Math.min(1,
+                                Number(positions[0]))) * width
+                              var lastX = firstX
+                              context.beginPath()
+                              context.moveTo(firstX, baseline)
+                              for (var curveIndex = 0;
+                                  curveIndex < positions.length; curveIndex++) {
+                                var curveX = Math.max(0, Math.min(1,
+                                  Number(positions[curveIndex]))) * width
+                                var curveHeight = Math.max(0, Math.min(1,
+                                  Number(heights[curveIndex])))
+                                context.lineTo(curveX,
+                                  baseline - curveHeight * amplitude)
+                                lastX = curveX
+                              }
+                              context.lineTo(lastX, baseline)
+                              context.closePath()
+                              context.fill()
+                            }
                             context.restore()
                           }
                         }
@@ -2985,24 +2986,25 @@ Panel {
                           opacity: 0.08
                         }
 
-                        Rectangle {
-                          id: localDaylightEdge
-                          readonly property bool fullDay:
-                            clockCell.localDaylight.kind === "polar-day"
-                          readonly property real startPosition: fullDay ? 0
-                            : TimeRail.localDayPosition(
-                              clockCell.localDaylight.sunrise_minutes)
-                          readonly property real endPosition: fullDay ? 1
-                            : TimeRail.localDayPosition(
-                              clockCell.localDaylight.sunset_minutes)
-                          visible: fullDay || clockCell.localDaylight.kind === "solar"
-                          x: Math.round(startPosition * parent.width)
-                          anchors.bottom: parent.bottom
-                          width: Math.max(0,
-                            Math.round(endPosition * parent.width) - x)
-                          height: Style.spacing.hairline
-                          color: root.contentForeground
-                          opacity: 0.14
+                        Repeater {
+                          id: localDaylightEdgeRepeater
+                          model: clockCell.localDaylight.daylight_intervals || []
+
+                          Rectangle {
+                            required property var modelData
+                            readonly property real startPosition: Math.max(0,
+                              Math.min(1, Number(modelData.start)))
+                            readonly property real endPosition: Math.max(0,
+                              Math.min(1, Number(modelData.end)))
+                            visible: endPosition > startPosition
+                            x: Math.round(startPosition * parent.width)
+                            anchors.bottom: parent.bottom
+                            width: Math.max(0,
+                              Math.round(endPosition * parent.width) - x)
+                            height: Style.spacing.hairline
+                            color: root.contentForeground
+                            opacity: 0.14
+                          }
                         }
 
                         Rectangle {

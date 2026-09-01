@@ -214,12 +214,14 @@ While previewing or viewing a selected time, every location card also shows a
 passive local-day ruler seated on its bottom edge. The common left-to-right
 scale runs from 00:00 to 24:00. A clipped glow begins at apparent sunrise,
 follows the sun's calculated elevation to its solar-noon peak, and returns to
-the edge at sunset. Latitude, longitude, displayed local date, and UTC offset
-drive the NOAA-based profile locally, without an Open-Meteo request. Square-root
-visual compression keeps low winter arcs legible while preserving their lower
-peak relative to summer and tropical arcs. Polar day retains its full-day
-elevation profile, polar night stays dim, and missing coordinates fall back to a
-neutral edge. A half-height marker rises from the edge at that card's
+the edge at sunset. Latitude, longitude, displayed local date, and that civil
+day's time-zone offset transitions drive the NOAA-based profile locally,
+without an Open-Meteo request. Daylight cycles crossing midnight split cleanly
+at the ruler boundary. Square-root visual compression keeps low winter arcs
+legible while preserving their lower peak relative to summer and tropical arcs.
+Polar day retains its full-day elevation profile, polar night stays dim, and
+missing coordinates fall back to a neutral edge. A half-height marker rises
+from the edge at that card's
 `local_minutes`; its restrained color and contrast interpolate from cool, muted
 night through twilight to warm, bright daylight using the current solar
 elevation.

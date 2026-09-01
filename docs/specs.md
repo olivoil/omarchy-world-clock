@@ -172,6 +172,8 @@ preview and restores the preceding state instead of leaving the ruler pending.
 `Escape` unwinds time selection before dismissing the panel: it first cancels
 an in-progress preview, then returns an already locked selection to live time;
 another `Escape` closes the live panel.
+Closing the panel by any route also discards an in-progress preview or locked
+selection, requests the current instant, and makes the next open start live.
 Large versus compact cards is resolved automatically from the available panel
 height, and incomplete final rows stay aligned with the first grid column.
 
@@ -210,15 +212,20 @@ remains visible after the selected time is locked.
 
 While previewing or viewing a selected time, every location card also shows a
 passive local-day ruler seated on its bottom edge. The common left-to-right
-scale runs from 00:00 to 24:00. Its tonal cycle follows apparent sunrise, solar
-noon, and sunset for that location's coordinates and the displayed local date;
-the solar times are calculated locally, without an Open-Meteo request. A soft
-45-minute transition keeps the two-pixel line legible without presenting dawn
-or dusk as additional data. Polar day stays gently lit, polar night stays dim,
-and missing coordinates fall back to the neutral cycle. A single marker rises
-into the card at that card's `local_minutes`. The rulers disappear in live and
-edit modes, never replace the printed time, and do not label or imply
-availability. They are not an additional time-scrubbing target.
+scale runs from 00:00 to 24:00. A clipped glow begins at apparent sunrise,
+follows the sun's calculated elevation to its solar-noon peak, and returns to
+the edge at sunset. Latitude, longitude, displayed local date, and UTC offset
+drive the NOAA-based profile locally, without an Open-Meteo request. Square-root
+visual compression keeps low winter arcs legible while preserving their lower
+peak relative to summer and tropical arcs. Polar day retains its full-day
+elevation profile, polar night stays dim, and missing coordinates fall back to a
+neutral edge. A half-height marker rises from the edge at that card's
+`local_minutes`; its restrained color and contrast interpolate from cool, muted
+night through twilight to warm, bright daylight using the current solar
+elevation.
+The rulers disappear in live and edit modes, never replace the printed time,
+and do not label or imply availability. They are not an additional
+time-scrubbing target.
 
 Pressing `Enter` in read mode focuses and selects the summary time for direct
 replacement.

@@ -10,32 +10,84 @@ function localDayPosition(localMinutes) {
   return Math.max(0, Math.min(DAY_MINUTES, minute)) / DAY_MINUTES
 }
 
-function localDaylightTrack(kind, positions, alphas, sunriseMinutes,
-    solarNoonMinutes, sunsetMinutes) {
+function localDaylightTrack(kind, sunriseMinutes, solarNoonMinutes,
+    sunsetMinutes) {
   return {
     kind: kind,
-    positions: positions,
-    alphas: alphas,
     sunrise_minutes: sunriseMinutes,
     solar_noon_minutes: solarNoonMinutes,
-    sunset_minutes: sunsetMinutes
+    sunset_minutes: sunsetMinutes,
+    curve_positions: [],
+    curve_heights: [],
+    peak_elevation_degrees: null,
+    current_elevation_degrees: null,
+    marker_light: 0.5
   }
 }
 
+function clamp(value, minimum, maximum) {
+  return Math.max(minimum, Math.min(maximum, Number(value)))
+}
+
+function solarElevationDegrees(latitudeRadians, declination, solarNoon,
+    localMinute) {
+  var radians = Math.PI / 180
+  var hourAngle = (Number(localMinute) - Number(solarNoon)) / 4 * radians
+  var sineElevation = Math.sin(latitudeRadians) * Math.sin(declination)
+    + Math.cos(latitudeRadians) * Math.cos(declination) * Math.cos(hourAngle)
+  return Math.asin(clamp(sineElevation, -1, 1)) / radians
+}
+
+function solarCurveHeight(elevationDegrees) {
+  // Apparent sunrise occurs with the solar center 0.833 degrees below the
+  // geometric horizon. Square-root compression keeps low winter arcs visible
+  // in a few pixels without letting a high tropical sun dominate the card.
+  var apparentElevation = Number(elevationDegrees) + 0.833
+  var daylight = Math.sin(Math.max(0, apparentElevation) * Math.PI / 180)
+  return Math.sqrt(clamp(daylight, 0, 1))
+}
+
+function solarMarkerLight(elevationDegrees) {
+  if (!isFinite(Number(elevationDegrees))) return 0.5
+  var progress = clamp((Number(elevationDegrees) + 6) / 12, 0, 1)
+  return progress * progress * (3 - 2 * progress)
+}
+
+function addSolarProfile(track, latitudeRadians, declination, solarNoon,
+    localMinutes, curveStart, curveEnd) {
+  var sampleCount = 33
+  var start = Number(curveStart)
+  var end = Number(curveEnd)
+  if (!isFinite(start) || !isFinite(end) || !(start < end)) return track
+
+  var positions = []
+  var heights = []
+  for (var index = 0; index < sampleCount; index++) {
+    var progress = index / (sampleCount - 1)
+    var minute = start + (end - start) * progress
+    var elevation = solarElevationDegrees(
+      latitudeRadians, declination, solarNoon, minute)
+    positions.push(minute / DAY_MINUTES)
+    heights.push(solarCurveHeight(elevation))
+  }
+  track.curve_positions = positions
+  track.curve_heights = heights
+  track.peak_elevation_degrees = solarElevationDegrees(
+    latitudeRadians, declination, solarNoon, solarNoon)
+
+  var currentMinute = Number(localMinutes)
+  if (isFinite(currentMinute)) {
+    var currentElevation = solarElevationDegrees(
+      latitudeRadians, declination, solarNoon, wrapMinute(currentMinute))
+    track.current_elevation_degrees = currentElevation
+    track.marker_light = solarMarkerLight(currentElevation)
+  }
+  return track
+}
+
 function fallbackLocalDaylight(kind, solarNoonMinutes) {
-  var trackPositions = [0, 0.2, 0.3, 0.5, 0.7, 0.8, 1]
-  if (kind === "polar-day") {
-    return localDaylightTrack(kind, trackPositions,
-      [0.11, 0.13, 0.14, 0.16, 0.14, 0.13, 0.11],
-      null, solarNoonMinutes, null)
-  }
-  if (kind === "polar-night") {
-    return localDaylightTrack(kind, trackPositions,
-      [0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03],
-      null, solarNoonMinutes, null)
-  }
-  return localDaylightTrack("fallback", trackPositions,
-    [0.03, 0.035, 0.1, 0.16, 0.1, 0.035, 0.03], null, null, null)
+  return localDaylightTrack(kind === "fallback" ? "fallback" : kind,
+    null, solarNoonMinutes, null)
 }
 
 function parsedLocalDate(value) {
@@ -112,8 +164,14 @@ function localDaylight(clock, referenceUtc) {
   if (!(solarNoon >= 0 && solarNoon <= DAY_MINUTES))
     return fallbackLocalDaylight("fallback")
 
-  if (hourAngleCosine > 1) return fallbackLocalDaylight("polar-night", solarNoon)
-  if (hourAngleCosine < -1) return fallbackLocalDaylight("polar-day", solarNoon)
+  if (hourAngleCosine > 1)
+    return addSolarProfile(fallbackLocalDaylight("polar-night", solarNoon),
+      latitudeRadians, declination, solarNoon, clock && clock.local_minutes,
+      0, DAY_MINUTES)
+  if (hourAngleCosine < -1)
+    return addSolarProfile(fallbackLocalDaylight("polar-day", solarNoon),
+      latitudeRadians, declination, solarNoon, clock && clock.local_minutes,
+      0, DAY_MINUTES)
 
   var hourAngleDegrees = Math.acos(hourAngleCosine) / radians
   var sunrise = solarNoon - 4 * hourAngleDegrees
@@ -122,17 +180,9 @@ function localDaylight(clock, referenceUtc) {
       && solarNoon < sunset && sunset <= DAY_MINUTES))
     return fallbackLocalDaylight("fallback")
 
-  var transitionMinutes = 45
-  return localDaylightTrack("solar", [
-    0,
-    Math.max(0, sunrise - transitionMinutes) / DAY_MINUTES,
-    sunrise / DAY_MINUTES,
-    solarNoon / DAY_MINUTES,
-    sunset / DAY_MINUTES,
-    Math.min(DAY_MINUTES, sunset + transitionMinutes) / DAY_MINUTES,
-    1
-  ], [0.03, 0.03, 0.1, 0.16, 0.1, 0.03, 0.03],
-    sunrise, solarNoon, sunset)
+  var track = localDaylightTrack("solar", sunrise, solarNoon, sunset)
+  return addSolarProfile(track, latitudeRadians, declination, solarNoon,
+    clock && clock.local_minutes, sunrise, sunset)
 }
 
 function slotsPerDay(payload) {

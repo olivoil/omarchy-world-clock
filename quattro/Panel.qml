@@ -1065,6 +1065,15 @@ Panel {
     requestWeather(false)
   }
 
+  function resetTimeOnPanelClose() {
+    cancelScrubPreview()
+    if (live) return
+    invalidateSnapshotRequests()
+    invalidConversionSource = ""
+    live = true
+    requestLiveSnapshot()
+  }
+
   function convertFrom(timezone, value, source) {
     var text = String(value || "").trim()
     var timezoneName = String(timezone || "").trim()
@@ -1370,7 +1379,7 @@ Panel {
   onOpenedChanged: {
     if (!opened) {
       globeDetailRequested = false
-      cancelScrubPreview()
+      resetTimeOnPanelClose()
       clearTimelineHover()
       return
     }
@@ -2893,11 +2902,77 @@ Panel {
                         anchors.bottom: parent.bottom
                         anchors.leftMargin: Style.space(root.compactDensity ? 8 : 10)
                         anchors.rightMargin: Style.space(root.compactDensity ? 8 : 10)
-                        height: Style.space(root.compactDensity ? 4 : 6)
+                        height: Style.space(root.compactDensity ? 8 : 12)
                         opacity: root.localDayRulersVisible ? 1 : 0
 
                         Behavior on opacity {
                           NumberAnimation { duration: 150; easing.type: Easing.OutQuart }
+                        }
+
+                        Canvas {
+                          id: localSolarGlow
+                          anchors.fill: parent
+                          readonly property var curvePositions:
+                            clockCell.localDaylight.curve_positions
+                          readonly property var curveHeights:
+                            clockCell.localDaylight.curve_heights
+                          readonly property color glowColor: root.contentForeground
+                          visible: curvePositions && curveHeights
+                            && curvePositions.length > 1
+                            && curvePositions.length === curveHeights.length
+                          Accessible.ignored: true
+
+                          function canvasColor(color, alpha) {
+                            return "rgba(" + String(Math.round(color.r * 255)) + ","
+                              + String(Math.round(color.g * 255)) + ","
+                              + String(Math.round(color.b * 255)) + ","
+                              + String(Math.max(0, Math.min(1, Number(alpha)))) + ")"
+                          }
+
+                          onCurvePositionsChanged: requestPaint()
+                          onCurveHeightsChanged: requestPaint()
+                          onGlowColorChanged: requestPaint()
+                          onWidthChanged: requestPaint()
+                          onHeightChanged: requestPaint()
+                          Component.onCompleted: requestPaint()
+
+                          onPaint: {
+                            var context = getContext("2d")
+                            context.clearRect(0, 0, width, height)
+                            if (!visible) return
+                            var baseline = Math.max(0,
+                              height - Style.spacing.hairline / 2)
+                            var amplitude = Math.max(0, height - Style.space(1))
+                            var firstX = Math.max(0, Math.min(1,
+                              Number(curvePositions[0]))) * width
+                            var lastX = firstX
+
+                            context.save()
+                            context.beginPath()
+                            context.moveTo(firstX, baseline)
+                            for (var curveIndex = 0;
+                                curveIndex < curvePositions.length; curveIndex++) {
+                              var curveX = Math.max(0, Math.min(1,
+                                Number(curvePositions[curveIndex]))) * width
+                              var curveHeight = Math.max(0, Math.min(1,
+                                Number(curveHeights[curveIndex])))
+                              context.lineTo(curveX,
+                                baseline - curveHeight * amplitude)
+                              lastX = curveX
+                            }
+                            context.lineTo(lastX, baseline)
+                            context.closePath()
+
+                            var glow = context.createLinearGradient(0, 0, 0, height)
+                            glow.addColorStop(0, canvasColor(glowColor, 0.008))
+                            glow.addColorStop(0.48, canvasColor(glowColor, 0.05))
+                            glow.addColorStop(1, canvasColor(glowColor, 0.17))
+                            context.fillStyle = glow
+                            context.shadowColor = canvasColor(glowColor, 0.11)
+                            context.shadowBlur = Style.space(3)
+                            context.fill()
+                            context.restore()
+                          }
                         }
 
                         Rectangle {
@@ -2905,68 +2980,57 @@ Panel {
                           anchors.left: parent.left
                           anchors.right: parent.right
                           anchors.bottom: parent.bottom
-                          height: Style.space(2)
-                          gradient: Gradient {
-                            orientation: Gradient.Horizontal
-                            GradientStop {
-                              position: clockCell.localDaylight.positions[0]
-                              color: Qt.rgba(root.contentForeground.r,
-                                root.contentForeground.g, root.contentForeground.b,
-                                clockCell.localDaylight.alphas[0])
-                            }
-                            GradientStop {
-                              position: clockCell.localDaylight.positions[1]
-                              color: Qt.rgba(root.contentForeground.r,
-                                root.contentForeground.g, root.contentForeground.b,
-                                clockCell.localDaylight.alphas[1])
-                            }
-                            GradientStop {
-                              position: clockCell.localDaylight.positions[2]
-                              color: Qt.rgba(root.contentForeground.r,
-                                root.contentForeground.g, root.contentForeground.b,
-                                clockCell.localDaylight.alphas[2])
-                            }
-                            GradientStop {
-                              position: clockCell.localDaylight.positions[3]
-                              color: Qt.rgba(root.contentForeground.r,
-                                root.contentForeground.g, root.contentForeground.b,
-                                clockCell.localDaylight.alphas[3])
-                            }
-                            GradientStop {
-                              position: clockCell.localDaylight.positions[4]
-                              color: Qt.rgba(root.contentForeground.r,
-                                root.contentForeground.g, root.contentForeground.b,
-                                clockCell.localDaylight.alphas[4])
-                            }
-                            GradientStop {
-                              position: clockCell.localDaylight.positions[5]
-                              color: Qt.rgba(root.contentForeground.r,
-                                root.contentForeground.g, root.contentForeground.b,
-                                clockCell.localDaylight.alphas[5])
-                            }
-                            GradientStop {
-                              position: clockCell.localDaylight.positions[6]
-                              color: Qt.rgba(root.contentForeground.r,
-                                root.contentForeground.g, root.contentForeground.b,
-                                clockCell.localDaylight.alphas[6])
-                            }
-                          }
+                          height: Style.spacing.hairline
+                          color: root.contentForeground
+                          opacity: 0.08
+                        }
+
+                        Rectangle {
+                          id: localDaylightEdge
+                          readonly property bool fullDay:
+                            clockCell.localDaylight.kind === "polar-day"
+                          readonly property real startPosition: fullDay ? 0
+                            : TimeRail.localDayPosition(
+                              clockCell.localDaylight.sunrise_minutes)
+                          readonly property real endPosition: fullDay ? 1
+                            : TimeRail.localDayPosition(
+                              clockCell.localDaylight.sunset_minutes)
+                          visible: fullDay || clockCell.localDaylight.kind === "solar"
+                          x: Math.round(startPosition * parent.width)
+                          anchors.bottom: parent.bottom
+                          width: Math.max(0,
+                            Math.round(endPosition * parent.width) - x)
+                          height: Style.spacing.hairline
+                          color: root.contentForeground
+                          opacity: 0.14
                         }
 
                         Rectangle {
                           id: localDayMarker
                           readonly property real dayPosition:
                             TimeRail.localDayPosition(clockCell.clockData.local_minutes)
+                          readonly property real sunlight: Math.max(0, Math.min(1,
+                            Number(clockCell.localDaylight.marker_light)))
+                          readonly property color nightTint: root.mixColor(
+                            root.contentForeground,
+                            Qt.rgba(0.43, 0.54, 0.76, 1), 0.48)
+                          readonly property color nightColor: root.mixColor(
+                            nightTint, clockSurface.color, 0.30)
+                          readonly property color dayColor: root.mixColor(
+                            root.contentForeground,
+                            Qt.rgba(0.96, 0.72, 0.27, 1), 0.36)
+                          readonly property real restingOpacity:
+                            0.68 + sunlight * 0.26
                           x: Math.round(dayPosition * Math.max(0,
                             parent.width - width))
                           anchors.bottom: parent.bottom
                           width: Style.spacing.hairline
-                          height: parent.height
-                          color: Style.selectedStateColor(
-                            root.contentForeground, Color.accent)
+                          height: Math.round(parent.height * 0.5)
+                          color: root.mixColor(nightColor, dayColor, sunlight)
                           opacity: clockCell.hasKeyboardCursor || clockCell.linkedHovered
-                            ? 0.9 : 0.68
+                            ? 0.96 : restingOpacity
 
+                          Behavior on color { ColorAnimation { duration: 150 } }
                           Behavior on opacity {
                             NumberAnimation { duration: 150; easing.type: Easing.OutQuart }
                           }

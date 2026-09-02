@@ -307,6 +307,11 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("TimeRail.mergeSnapshot(scrubBaseSnapshot, scrubPayload, index)"));
     assert!(panel.contains("property real scrubAnchorMinute: 0"));
     assert!(panel.contains("readonly property bool scrubSourceIsSummary"));
+    assert!(panel.contains("visible: !root.scrubSourceIsSummary"));
+    assert!(
+        !panel.contains("\"PREPARING \""),
+        "fast cross-day reloads must not flash a transient timeline caption"
+    );
     assert!(panel.contains("function clockDayLabel(clock)"));
     assert!(panel.contains("if (root.live && !root.scrubPreviewActive) return liveLabel"));
     assert!(panel.contains("TimeRail.relativeDayLabel(clock, root.clockForScrubSource())"));
@@ -345,8 +350,8 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(solar_arc.contains("daylight.curve_heights"));
     assert!(!panel.contains("id: localSunriseCap"));
     assert!(!panel.contains("id: localSunsetCap"));
-    assert!(panel.contains("clockCell.localDaylight.marker_light"));
-    assert!(solar_arc.contains("Behavior on markerColor { ColorAnimation { duration: 150 } }"));
+    assert!(solar_arc.contains("daylight.marker_light"));
+    assert!(solar_arc.contains("Behavior on solarColor"));
     assert!(!panel.contains("orientation: Gradient.Horizontal"));
     assert!(panel.contains("localMinutes: clockCell.clockData.local_minutes"));
     assert!(solar_arc.contains("TimeRail.localDayPosition(localMinutes)"));
@@ -356,10 +361,15 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
         .and_then(|source| source.split("Button {").next())
         .expect("passive local-day ruler body");
     assert!(!local_day_ruler.contains("MouseArea"));
-    assert!(local_day_ruler.contains("readonly property color nightTint:"));
-    assert!(local_day_ruler.contains("nightTint, clockSurface.color"));
-    assert!(local_day_ruler.contains("markerColor: root.mixColor(nightColor, dayColor, sunlight)"));
-    assert!(local_day_ruler.contains("0.74 + sunlight * 0.18"));
+    assert!(!local_day_ruler.contains("readonly property color nightTint:"));
+    assert!(!solar_arc.contains("property color arcColor:"));
+    assert!(!solar_arc.contains("property color markerColor:"));
+    assert!(solar_arc.contains("root.solarColor, root.curveFillOpacity"));
+    assert!(solar_arc.contains("root.solarColor, root.curveStrokeOpacity"));
+    assert_eq!(solar_arc.matches("color: root.solarColor").count(), 2);
+    assert_eq!(panel.matches("dayColor: root.solarDayColor").count(), 2);
+    assert_eq!(panel.matches("nightColor: root.solarNightColor").count(), 2);
+    assert!(local_day_ruler.contains("0.74 + cardLocalDayRuler.sunlight * 0.18"));
     assert!(local_day_ruler.contains("positionAnimationEnabled: false"));
     assert!(solar_arc.contains("Behavior on x"));
     assert!(solar_arc.contains("Behavior on y"));
@@ -370,6 +380,14 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
         2,
         "both marker axes must honor direct scrub tracking"
     );
+    let scrub_value_bubble = panel
+        .split("id: scrubValueBubble")
+        .nth(1)
+        .and_then(|source| source.split("MouseArea {").next())
+        .expect("selected timeline value bubble body");
+    assert!(scrub_value_bubble.contains("TimeRail.selectionLabelVisible("));
+    assert!(!scrub_value_bubble.contains("visible: root.scrubReady"));
+    assert!(panel.contains("visible: root.scrubReady || scrubValueBubble.visible"));
     assert!(!panel.contains("TimeRail.centeredSlotIndexAt("));
     assert!(!panel.contains("TimeRail.framePosition("));
     assert!(panel.contains("readonly property real scrubViewportMinute:"));
@@ -646,7 +664,8 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("readonly property string currentLocationTitle"));
     assert!(!panel.contains("AlmanacQuotes"));
     assert!(!root.join("quattro/AlmanacQuotes.js").exists());
-    assert!(panel.contains("readonly property color summaryAccentColor"));
+    assert!(panel.contains("readonly property color solarDayColor"));
+    assert!(panel.contains("readonly property color solarNightColor"));
     assert!(panel.contains("readonly property string currentTimezoneMetadata"));
     assert!(panel.contains("spacing: Style.space(root.mode === \"add\" ? 14 : 8)"));
     assert!(panel.contains("visible: root.mode !== \"add\""));

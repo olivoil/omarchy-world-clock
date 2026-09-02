@@ -20,8 +20,9 @@ use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use unicode_normalization::{char::is_combining_mark, UnicodeNormalization};
 
-pub const CONFIG_VERSION: u64 = 7;
+pub const CONFIG_VERSION: u64 = 8;
 pub const LOCAL_TIMEZONE_MIGRATION_VERSION: u64 = 2;
+const ORIGINAL_LABEL_MIGRATION_VERSION: u64 = 8;
 
 const STANDARD_TZ_REGIONS: [&str; 10] = [
     "Africa",
@@ -73,6 +74,8 @@ pub struct TimezoneEntry {
     pub timezone: String,
     #[serde(default)]
     pub label: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub original_label: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub latitude: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -82,10 +85,16 @@ pub struct TimezoneEntry {
 impl TimezoneEntry {
     pub fn display_label(&self) -> String {
         let trimmed = self.label.trim();
-        if trimmed.is_empty() {
-            return friendly_timezone_name(&self.timezone);
+        if !trimmed.is_empty() {
+            return trimmed.to_string();
         }
-        trimmed.to_string()
+
+        let original = self.original_label.trim();
+        if !original.is_empty() {
+            return original.to_string();
+        }
+
+        friendly_timezone_name(&self.timezone)
     }
 
     pub fn read_card_title(&self) -> String {
@@ -270,6 +279,8 @@ enum RawTimezoneEntry {
         timezone: String,
         #[serde(default)]
         label: String,
+        #[serde(default)]
+        original_label: String,
         #[serde(default)]
         latitude: Option<f64>,
         #[serde(default)]
@@ -524,6 +535,7 @@ impl ConfigManager {
 
             config.timezones.push(TimezoneEntry {
                 timezone: timezone_name,
+                original_label: label.clone(),
                 label,
                 latitude,
                 longitude,
@@ -546,7 +558,7 @@ impl ConfigManager {
         let local_timezone = detect_local_timezone();
         let timezone_name = canonical_timezone_name(timezone_name);
         let current_label = current_label.to_string();
-        let new_label = new_label.trim().to_string();
+        let requested_label = new_label.trim().to_string();
         self.mutate_with_local_timezone(&local_timezone, move |config| {
             let matches = config
                 .timezones
@@ -563,6 +575,11 @@ impl ConfigManager {
             }
 
             let index = matches[0];
+            let new_label = if requested_label.is_empty() {
+                config.timezones[index].original_label.clone()
+            } else {
+                requested_label
+            };
             if config.timezones[index].label == new_label {
                 return Ok(false);
             }
@@ -767,7 +784,7 @@ impl ConfigManager {
         let mut entries = Vec::new();
 
         for raw_entry in timezones.unwrap_or_default() {
-            let Some(entry) = self.parse_entry(raw_entry) else {
+            let Some(entry) = self.parse_entry(raw_entry, config_version) else {
                 continue;
             };
             let identity = (
@@ -793,6 +810,7 @@ impl ConfigManager {
                     TimezoneEntry {
                         timezone: local_timezone,
                         label: String::new(),
+                        original_label: String::new(),
                         latitude: None,
                         longitude: None,
                     },
@@ -821,15 +839,22 @@ impl ConfigManager {
         })
     }
 
-    fn parse_entry(&self, raw_entry: RawTimezoneEntry) -> Option<TimezoneEntry> {
-        let (timezone, label, latitude, longitude) = match raw_entry {
-            RawTimezoneEntry::Legacy(timezone) => (timezone, String::new(), None, None),
+    fn parse_entry(
+        &self,
+        raw_entry: RawTimezoneEntry,
+        config_version: u64,
+    ) -> Option<TimezoneEntry> {
+        let (timezone, label, original_label, latitude, longitude) = match raw_entry {
+            RawTimezoneEntry::Legacy(timezone) => {
+                (timezone, String::new(), String::new(), None, None)
+            }
             RawTimezoneEntry::Structured {
                 timezone,
                 label,
+                original_label,
                 latitude,
                 longitude,
-            } => (timezone, label, latitude, longitude),
+            } => (timezone, label, original_label, latitude, longitude),
         };
 
         let timezone = canonical_timezone_name(&timezone);
@@ -837,10 +862,16 @@ impl ConfigManager {
             return None;
         }
         let (latitude, longitude) = sanitize_place_coordinate(latitude, longitude);
+        let label = label.trim().to_string();
+        let mut original_label = original_label.trim().to_string();
+        if config_version < ORIGINAL_LABEL_MIGRATION_VERSION && original_label.is_empty() {
+            original_label.clone_from(&label);
+        }
 
         Some(TimezoneEntry {
             timezone,
-            label: label.trim().to_string(),
+            label,
+            original_label,
             latitude,
             longitude,
         })
@@ -865,6 +896,7 @@ impl ConfigManager {
             let normalized = TimezoneEntry {
                 timezone,
                 label: entry.label.trim().to_string(),
+                original_label: entry.original_label.trim().to_string(),
                 latitude,
                 longitude,
             };
@@ -901,6 +933,7 @@ impl ConfigManager {
             vec![TimezoneEntry {
                 timezone: local_timezone,
                 label: String::new(),
+                original_label: String::new(),
                 latitude: None,
                 longitude: None,
             }]
@@ -1030,6 +1063,7 @@ fn timezone_coordinate(timezone: &str) -> (Option<f64>, Option<f64>) {
     place_coordinate(&TimezoneEntry {
         timezone: canonical_timezone_name(timezone),
         label: String::new(),
+        original_label: String::new(),
         latitude: None,
         longitude: None,
     })
@@ -2123,6 +2157,7 @@ mod tests {
                 timezones: vec![TimezoneEntry {
                     timezone: utc,
                     label: String::new(),
+                    original_label: String::new(),
                     latitude: None,
                     longitude: None,
                 }],
@@ -2148,12 +2183,14 @@ mod tests {
                 TimezoneEntry {
                     timezone: utc,
                     label: String::new(),
+                    original_label: String::new(),
                     latitude: None,
                     longitude: None,
                 },
                 TimezoneEntry {
                     timezone: "Asia/Tokyo".to_string(),
                     label: String::new(),
+                    original_label: String::new(),
                     latitude: None,
                     longitude: None,
                 },
@@ -2203,6 +2240,7 @@ mod tests {
             timezones: vec![TimezoneEntry {
                 timezone: canonical_timezone_name("UTC"),
                 label: String::new(),
+                original_label: String::new(),
                 latitude: None,
                 longitude: None,
             }],
@@ -2254,7 +2292,7 @@ mod tests {
         assert!(!rewritten.contains("\"locked\""));
         assert!(!rewritten.contains("\"sort_mode\""));
         assert!(!rewritten.contains("\"time_format\""));
-        assert!(rewritten.contains("\"version\": 7"));
+        assert!(rewritten.contains("\"version\": 8"));
     }
 
     #[test]
@@ -2471,18 +2509,84 @@ mod tests {
     }
 
     #[test]
-    fn rename_location_can_restore_the_friendly_timezone_name() {
+    fn rename_location_restores_the_original_place_label() {
         let temp_dir = TempDir::new().unwrap();
         let manager = manager_in(&temp_dir);
         manager.load_with_local_timezone("UTC").unwrap();
-        manager.add_timezone("Asia/Tokyo", "Akiko").unwrap();
+        let added = manager
+            .add_timezone_with_coordinate(
+                "Europe/Paris",
+                "Rennes, France",
+                Some(48.1173),
+                Some(-1.6778),
+            )
+            .unwrap();
+        assert_eq!(added.config.timezones[1].original_label, "Rennes, France");
+
+        let custom = manager
+            .rename_location("Europe/Paris", "Rennes, France", "Parents")
+            .unwrap();
+        assert_eq!(custom.timezones[1].original_label, "Rennes, France");
 
         let renamed = manager
-            .rename_location("Asia/Tokyo", "Akiko", "   ")
+            .rename_location("Europe/Paris", "Parents", "   ")
             .unwrap();
 
-        assert_eq!(renamed.timezones[1].label, "");
-        assert_eq!(renamed.timezones[1].display_label(), "Tokyo");
+        assert_eq!(renamed.timezones[1].label, "Rennes, France");
+        assert_eq!(renamed.timezones[1].display_label(), "Rennes, France");
+        assert_eq!(renamed.timezones[1].latitude, Some(48.1173));
+        assert_eq!(renamed.timezones[1].longitude, Some(-1.6778));
+        assert_eq!(manager.load_with_local_timezone("UTC").unwrap(), renamed);
+    }
+
+    #[test]
+    fn timezone_only_location_restores_its_friendly_name_after_reload() {
+        let temp_dir = TempDir::new().unwrap();
+        let manager = manager_in(&temp_dir);
+        manager.load_with_local_timezone("Europe/Paris").unwrap();
+
+        manager
+            .rename_location("Europe/Paris", "Paris", "Parents")
+            .unwrap();
+        let saved = manager.load_with_local_timezone("Europe/Paris").unwrap();
+        assert_eq!(saved.timezones[0].original_label, "");
+
+        let restored = manager
+            .rename_location("Europe/Paris", "Parents", "")
+            .unwrap();
+
+        assert_eq!(restored.timezones[0].label, "");
+        assert_eq!(restored.timezones[0].display_label(), "Paris");
+    }
+
+    #[test]
+    fn version_seven_label_becomes_the_original_label() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("config.json");
+        fs::write(
+            &path,
+            r#"{
+  "version": 7,
+  "timezones": [
+    {
+      "timezone": "Europe/Paris",
+      "label": "Rennes, France",
+      "latitude": 48.1173,
+      "longitude": -1.6778
+    }
+  ]
+}
+"#,
+        )
+        .unwrap();
+        let manager = ConfigManager::new(Some(path.clone()));
+
+        let migrated = manager.load_with_local_timezone("UTC").unwrap();
+
+        assert_eq!(migrated.timezones[0].original_label, "Rennes, France");
+        let stored = fs::read_to_string(path).unwrap();
+        assert!(stored.contains("\"version\": 8"));
+        assert!(stored.contains("\"original_label\": \"Rennes, France\""));
     }
 
     #[test]
@@ -2579,6 +2683,7 @@ mod tests {
                     config.timezones.push(TimezoneEntry {
                         timezone: "Asia/Tokyo".to_string(),
                         label: "Tokyo".to_string(),
+                        original_label: "Tokyo".to_string(),
                         latitude: None,
                         longitude: None,
                     });
@@ -2599,6 +2704,7 @@ mod tests {
                     config.timezones.push(TimezoneEntry {
                         timezone: "Europe/Paris".to_string(),
                         label: "Paris".to_string(),
+                        original_label: "Paris".to_string(),
                         latitude: None,
                         longitude: None,
                     });
@@ -2849,7 +2955,7 @@ mod tests {
             }]
         );
         let stored = fs::read_to_string(path).unwrap();
-        assert!(stored.contains("\"version\": 7"));
+        assert!(stored.contains("\"version\": 8"));
         assert!(stored.contains("\"pinned_locations\""));
         assert!(!stored.contains("\"pinned_location\":"));
     }

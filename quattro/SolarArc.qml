@@ -10,8 +10,8 @@ Item {
   property var daylight: ({ curve_positions: [], curve_heights: [] })
   property real localMinutes: 0
   property color trackColor: Qt.rgba(0, 0, 0, 0)
-  property color arcColor: trackColor
-  property color markerColor: arcColor
+  property color dayColor: trackColor
+  property color nightColor: trackColor
   property real trackOpacity: 0.10
   property real curveFillOpacity: 0.12
   property real curveStrokeOpacity: 0.38
@@ -21,17 +21,34 @@ Item {
   property int motionDuration: 180
   property bool positionAnimationEnabled: true
 
-  Behavior on markerColor { ColorAnimation { duration: 150 } }
-
   readonly property var curvePositions:
     daylight && daylight.curve_positions ? daylight.curve_positions : []
   readonly property var curveHeights:
     daylight && daylight.curve_heights ? daylight.curve_heights : []
+  readonly property real sunlight: {
+    var value = daylight ? Number(daylight.marker_light) : 0.5
+    return isFinite(value) ? Math.max(0, Math.min(1, value)) : 0.5
+  }
+  property color solarColor:
+    root.mixColor(root.nightColor, root.dayColor, root.sunlight)
   readonly property real dayPosition: TimeRail.localDayPosition(localMinutes)
   readonly property real solarHeight:
     root.curveHeightAt(dayPosition, curvePositions, curveHeights)
 
   Accessible.ignored: true
+
+  Behavior on solarColor {
+    ColorAnimation { duration: 150; easing.type: Easing.OutQuart }
+  }
+
+  function mixColor(from, to, amount) {
+    var ratio = Math.max(0, Math.min(1, Number(amount)))
+    return Qt.rgba(
+      from.r + (to.r - from.r) * ratio,
+      from.g + (to.g - from.g) * ratio,
+      from.b + (to.b - from.b) * ratio,
+      from.a + (to.a - from.a) * ratio)
+  }
 
   function curveHeightAt(position, positions, heights) {
     if (!Array.isArray(positions) || !Array.isArray(heights)
@@ -74,7 +91,7 @@ Item {
       function onCurvePositionsChanged() { arcCanvas.requestPaint() }
       function onCurveHeightsChanged() { arcCanvas.requestPaint() }
       function onTrackColorChanged() { arcCanvas.requestPaint() }
-      function onArcColorChanged() { arcCanvas.requestPaint() }
+      function onSolarColorChanged() { arcCanvas.requestPaint() }
       function onTrackOpacityChanged() { arcCanvas.requestPaint() }
       function onCurveFillOpacityChanged() { arcCanvas.requestPaint() }
       function onCurveStrokeOpacityChanged() { arcCanvas.requestPaint() }
@@ -118,9 +135,9 @@ Item {
       context.lineTo(lastX, baseline)
       context.closePath()
       var glow = context.createLinearGradient(0, markerRadius, 0, baseline)
-      glow.addColorStop(0, canvasColor(root.arcColor, 0))
+      glow.addColorStop(0, canvasColor(root.solarColor, 0))
       glow.addColorStop(1,
-        canvasColor(root.arcColor, root.curveFillOpacity))
+        canvasColor(root.solarColor, root.curveFillOpacity))
       context.fillStyle = glow
       context.fill()
       context.restore()
@@ -138,7 +155,7 @@ Item {
         else context.lineTo(lineX, lineY)
       }
       context.strokeStyle = canvasColor(
-        root.arcColor, root.curveStrokeOpacity)
+        root.solarColor, root.curveStrokeOpacity)
       context.lineWidth = Style.spacing.hairline
       context.stroke()
       context.restore()
@@ -160,7 +177,7 @@ Item {
     Rectangle {
       anchors.fill: parent
       radius: width / 2
-      color: root.markerColor
+      color: root.solarColor
       opacity: root.haloOpacity
     }
 
@@ -170,7 +187,7 @@ Item {
         Math.round(parent.width * 0.38))
       height: width
       radius: width / 2
-      color: root.markerColor
+      color: root.solarColor
     }
 
     Behavior on x {

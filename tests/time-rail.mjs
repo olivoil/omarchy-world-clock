@@ -234,6 +234,7 @@ assert.equal(context.payloadMatchesSnapshot({
 }, base), false, "a backend clock with a different identity is rejected")
 const nextDayFrame = {
   day_offset: 1,
+  label: "00:00",
   reference_utc: "2026-08-29T05:00:00Z",
 }
 const scrubPayload = {
@@ -247,6 +248,14 @@ const nextDayPreview = context.mergeSnapshot(base, scrubPayload, 0)
 assert.equal(context.scrubPayloadReady(scrubPayload, nextDayPreview, base,
   "America/Cancun", "America/Cancun\u001fCancun"), true,
 "the rail stays ready against its stable drag-start snapshot across midnight")
+assert.equal(context.scrubPayloadReady(scrubPayload, nextDayPreview, null,
+  "America/Cancun", "America/Cancun\u001fCancun"), false,
+"locking another day temporarily invalidates the old rail payload")
+const retainedNextDayLabel = context.selectionLabel(scrubPayload, nextDayFrame, false)
+assert.equal(context.selectionLabelVisible(true, retainedNextDayLabel), true,
+  "the selected label remains visible while the next day's rail reloads")
+assert.equal(context.selectionLabelVisible(true, ""), false,
+  "an interaction without a selected label does not show an empty bubble")
 const frame = {
   day_offset: 0,
   reference_utc: "2026-08-28T16:00:00Z",

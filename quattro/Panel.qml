@@ -140,15 +140,13 @@ Panel {
   }
   readonly property var summaryDaylight:
     TimeRail.localDaylight(summary, snapshot.reference_utc)
-  readonly property color summaryAccentColor: {
-    var weatherItem = weatherPresentationActive ? root.weatherFor(summary) : null
-    if (weatherItem) return root.weatherGlyphColor(weatherItem)
+  readonly property color solarNightColor: {
     var muted = Qt.darker(root.contentForeground, 1.45)
-    var night = root.mixColor(muted, Qt.rgba(0.43, 0.54, 0.76, 1), 0.56)
-    var day = root.mixColor(muted, Qt.rgba(0.96, 0.72, 0.27, 1), 0.60)
-    var sunlight = Math.max(0, Math.min(1,
-      Number(summaryDaylight.marker_light || 0)))
-    return root.mixColor(night, day, sunlight)
+    return root.mixColor(muted, Qt.rgba(0.43, 0.54, 0.76, 1), 0.56)
+  }
+  readonly property color solarDayColor: {
+    var muted = Qt.darker(root.contentForeground, 1.45)
+    return root.mixColor(muted, Qt.rgba(0.96, 0.72, 0.27, 1), 0.60)
   }
   readonly property string currentTimezoneMetadata: {
     var timezone = String(summary.timezone || "").trim()
@@ -261,8 +259,6 @@ Panel {
       return Number(scrubSelectedFrame.minute || 0)
     return scrubAnchorMinute
   }
-  readonly property bool scrubLoading: scrubProcess.running
-    && scrubActiveTimezone === scrubSourceTimezone
   readonly property bool scrubReady: {
     return TimeRail.scrubPayloadReady(scrubPayload, snapshot,
       scrubBaseSnapshot, scrubSourceTimezone, scrubSourceKey)
@@ -2007,8 +2003,8 @@ Panel {
                 daylight: summaryClock.daylightData
                 localMinutes: root.summary.local_minutes
                 trackColor: root.contentForeground
-                arcColor: root.summaryAccentColor
-                markerColor: root.summaryAccentColor
+                dayColor: root.solarDayColor
+                nightColor: root.solarNightColor
                 trackOpacity: 0.08
                 curveFillOpacity: 0.09
                 curveStrokeOpacity: 0.34
@@ -2129,16 +2125,15 @@ Panel {
 
               Text {
                 textFormat: Text.PlainText
-                visible: root.scrubLoading || !root.scrubSourceIsSummary
+                visible: !root.scrubSourceIsSummary
                 anchors.left: parent.left
                 anchors.leftMargin: timelineView.railInset
                 anchors.right: parent.right
                 anchors.rightMargin: timelineView.railInset
                 anchors.top: parent.top
                 elide: Text.ElideRight
-                text: root.scrubLoading
-                  ? "PREPARING " + String(root.scrubSourceTitle || "TIME RAIL").toUpperCase()
-                  : "FROM " + String(root.scrubSourceTitle || root.currentLocationTitle).toUpperCase()
+                text: "FROM "
+                  + String(root.scrubSourceTitle || root.currentLocationTitle).toUpperCase()
                 color: Qt.darker(root.contentForeground, 1.55)
                 font.family: root.contentFontFamily
                 font.pixelSize: Style.font.caption
@@ -2312,7 +2307,7 @@ Panel {
 
               Rectangle {
                 id: scrubPlayhead
-                visible: root.scrubReady
+                visible: root.scrubReady || scrubValueBubble.visible
                 readonly property bool linkedHovered: timelineView.sourceMarkerHovered
                 readonly property real connectorBottom:
                   timelineView.railY + Style.space(32)
@@ -2346,8 +2341,8 @@ Panel {
 
               Rectangle {
                 id: scrubValueBubble
-                visible: root.scrubReady
-                  && timelineView.interacting
+                visible: TimeRail.selectionLabelVisible(
+                  timelineView.interacting, scrubValueText.text)
                 x: Math.max(0, Math.min(timelineView.width - width,
                   timelineView.selectedX - width / 2))
                 y: Style.space(17)
@@ -2944,25 +2939,15 @@ Panel {
                         anchors.rightMargin: Style.space(root.compactDensity ? 8 : 10)
                         height: Style.space(root.compactDensity ? 10 : 14)
                         opacity: root.localDayRulersVisible ? 1 : 0
-                        readonly property real sunlight: Math.max(0, Math.min(1,
-                          Number(clockCell.localDaylight.marker_light)))
-                        readonly property color nightTint: root.mixColor(
-                          root.contentForeground,
-                          Qt.rgba(0.43, 0.54, 0.76, 1), 0.48)
-                        readonly property color nightColor: root.mixColor(
-                          nightTint, clockSurface.color, 0.30)
-                        readonly property color dayColor: root.mixColor(
-                          root.contentForeground,
-                          Qt.rgba(0.96, 0.72, 0.27, 1), 0.36)
                         daylight: clockCell.localDaylight
                         localMinutes: clockCell.clockData.local_minutes
                         trackColor: root.contentForeground
-                        arcColor: dayColor
-                        markerColor: root.mixColor(nightColor, dayColor, sunlight)
+                        dayColor: root.solarDayColor
+                        nightColor: root.solarNightColor
                         markerDiameter: Style.space(root.compactDensity ? 5 : 7)
                         markerOpacity: clockCell.hasKeyboardCursor
                             || clockCell.linkedHovered
-                          ? 0.96 : 0.74 + sunlight * 0.18
+                          ? 0.96 : 0.74 + cardLocalDayRuler.sunlight * 0.18
                         trackOpacity: 0.06
                         curveFillOpacity: 0.07
                         curveStrokeOpacity: 0.26

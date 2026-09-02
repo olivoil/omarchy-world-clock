@@ -468,6 +468,7 @@ fn local_entry(config: &AppConfig, local_timezone: &str) -> (Option<usize>, Time
         .unwrap_or_else(|| TimezoneEntry {
             timezone: local_timezone.to_string(),
             label: friendly_timezone_name(local_timezone),
+            original_label: String::new(),
             latitude: None,
             longitude: None,
         });
@@ -699,6 +700,7 @@ mod tests {
         TimezoneEntry {
             timezone: timezone.to_string(),
             label: label.to_string(),
+            original_label: label.to_string(),
             latitude: None,
             longitude: None,
         }

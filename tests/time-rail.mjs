@@ -326,6 +326,27 @@ assert.equal(context.payloadMatchesSnapshot({
 assert.equal(context.payloadMatchesSnapshot({
   locations: [matchingLocations.locations[0], { timezone: "Asia/Tokyo", label: "Osaka" }],
 }, base), false, "a backend clock with a different identity is rejected")
+const duplicateCardSnapshot = {
+  summary: { id: 1, timezone: "UTC", label: "Home" },
+  clocks: [
+    { id: 7, timezone: "America/New_York", label: "Office" },
+    { id: 8, timezone: "America/New_York", label: "Office" },
+  ],
+}
+const duplicateCardPayload = {
+  locations: [
+    { id: 1, timezone: "UTC", label: "Home", states: [{}] },
+    { id: 7, timezone: "America/New_York", label: "Office", states: [{}] },
+    { id: 8, timezone: "America/New_York", label: "Office", states: [{}] },
+  ],
+}
+assert.equal(context.payloadMatchesSnapshot(duplicateCardPayload, duplicateCardSnapshot), true,
+  "stable IDs distinguish duplicate places with equal labels")
+assert.equal(context.payloadMatchesSnapshot({
+  locations: [duplicateCardPayload.locations[0], duplicateCardPayload.locations[2],
+    duplicateCardPayload.locations[1]],
+}, duplicateCardSnapshot), false,
+"reordering otherwise identical cards is rejected by stable ID")
 const nextDayFrame = {
   day_offset: 1,
   reference_utc: "2026-08-29T05:00:00Z",

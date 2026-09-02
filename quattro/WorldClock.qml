@@ -13,16 +13,21 @@ BarWidget {
   id: root
   moduleName: "io.github.olivoil.world-clock"
 
+  // Local review wrappers override these without modifying the production
+  // plugin identity or sharing a config file with another branch build.
+  property string buildLabel: ""
+  property color iconForeground: bar ? bar.foreground : Color.foreground
+  property string backendExecutableName: "omarchy-world-clock-backend"
   property bool backendChecked: false
   property bool backendAvailable: false
-  property string clockTooltip: "World Clock"
+  property string clockTooltip: withBuildLabel("World Clock")
   property var pinnedClocks: []
   property bool moduleRefreshPending: false
   property string backendFailureDetail: "The bundled backend could not be started"
 
-  readonly property int supportedBackendProtocol: 5
+  readonly property int supportedBackendProtocol: 6
   readonly property string backendCommand:
-    String(Qt.resolvedUrl("../bin/omarchy-world-clock-backend")).replace(/^file:\/\//, "")
+    String(Qt.resolvedUrl("../bin/" + backendExecutableName)).replace(/^file:\/\//, "")
   readonly property bool opened: panelLoader.item ? panelLoader.item.opened === true : false
   readonly property bool popoutSwitchClosing: panelLoader.item
     ? panelLoader.item.popoutSwitchClosing === true : false
@@ -41,10 +46,16 @@ BarWidget {
     ? pinnedContent.implicitWidth
     : Math.max(Style.space(10), Math.round(activeButton.implicitWidth * 0.55))
   readonly property string unavailableTooltip:
-    "World Clock unavailable\n" + backendFailureDetail
+    withBuildLabel("World Clock unavailable\n" + backendFailureDetail)
 
   implicitWidth: activeButton.implicitWidth
   implicitHeight: activeButton.implicitHeight
+
+  function withBuildLabel(value) {
+    var label = String(buildLabel || "").trim()
+    var detail = String(value || "").trim()
+    return label ? label + (detail ? "\n" + detail : "") : detail
+  }
 
   function injectPanel() {
     var target = panelLoader.item
@@ -167,7 +178,7 @@ BarWidget {
     backendChecked = true
     backendAvailable = true
     backendFailureDetail = ""
-    clockTooltip = tooltip || "World Clock"
+    clockTooltip = withBuildLabel(tooltip || "World Clock")
     pinnedClocks = nextPinnedClocks
     injectPanel()
   }
@@ -235,6 +246,7 @@ BarWidget {
     visible: !root.hasPinnedClocks || root.vertical
     text: "\uf017"
     slotSize: Style.bar.statusSlot
+    foreground: root.iconForeground
     useActiveColor: false
     dimmed: root.backendChecked && !root.backendAvailable
     tooltipText: root.backendChecked && !root.backendAvailable
@@ -250,6 +262,7 @@ BarWidget {
     labelVisible: false
     hasVisualContent: visible
     useActiveColor: false
+    foreground: root.iconForeground
     fixedWidth: pinnedContent.implicitWidth + Style.space(11)
     dimmed: root.backendChecked && !root.backendAvailable
     tooltipText: root.backendChecked && !root.backendAvailable

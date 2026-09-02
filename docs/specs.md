@@ -40,8 +40,10 @@ AUR package, `PATH` lookup, user-configured backend command, or install hook.
   names use their first three alphanumeric characters (`Tokyo` becomes `TOK`).
 - Pinned times update on minute boundaries. A vertical bar stays icon-only.
 - Its tooltip is a compact, time-sorted table of up to twelve visible non-local
-  places; it omits both a title row and the local summary place, then appends a
-  `+N more locations` line when more places exist.
+  places. A personal label is paired with its actual place using the same
+  `Label · Place` treatment as the cards. It omits both a title row and the
+  local summary place, then appends a `+N more locations` line when more places
+  exist.
 - With no additional places, the tooltip says `No additional timezones yet.`
 - If the bundled backend cannot start, returns invalid output, or has an
   incompatible protocol, the widget is dimmed and its tooltip gives the
@@ -73,8 +75,10 @@ AUR package, `PATH` lookup, user-configured backend command, or install hook.
 - Live read mode shows current temperature and conditions as secondary context
   for every visible location with a known coordinate.
 - Edit mode preserves the read layout and exposes pin/unpin and remove actions.
-  Location names retain their read-mode styling until clicked or selected with
-  the keyboard, then become inline inputs; `Enter` saves and `Escape` cancels.
+  Personal labels retain their read-mode styling until clicked or selected
+  with the keyboard, then become inline inputs; `Enter` saves and `Escape`
+  cancels. A card with a personal label also keeps its actual place visible as
+  quieter context.
 - Add mode is a map-first surface. The rotating globe fills the panel, with
   compact Back and Search controls floating above it.
 
@@ -84,33 +88,36 @@ State lives in `~/.config/omarchy-world-clock/config.json`.
 
 ```json
 {
-  "version": 7,
+  "version": 8,
   "pinned_locations": [
     {
-      "timezone": "Europe/Paris",
-      "label": "Rennes"
+      "id": 2
     },
     {
-      "timezone": "Asia/Tokyo",
-      "label": "Tokyo"
+      "id": 3
     }
   ],
   "timezones": [
     {
+      "id": 1,
       "timezone": "America/Cancun",
+      "place": "Cancun",
       "label": "Home",
       "latitude": 21.1619,
       "longitude": -86.8515
     },
     {
+      "id": 2,
       "timezone": "Europe/Paris",
-      "label": "Rennes",
+      "place": "Rennes",
       "latitude": 48.1173,
       "longitude": -1.6778
     },
     {
+      "id": 3,
       "timezone": "Asia/Tokyo",
-      "label": "Tokyo",
+      "place": "Tokyo",
+      "label": "Akiko",
       "latitude": 35.6764,
       "longitude": 139.65
     }
@@ -121,18 +128,25 @@ State lives in `~/.config/omarchy-world-clock/config.json`.
 Persistence rules:
 
 - writes use a temporary file and atomic replacement
-- supported older config shapes migrate on load
+- supported older config shapes migrate on load; pre-v8 `label` values become
+  actual `place` values so existing cards retain their visible names
 - timezone names are canonicalized before storage
 - distinct named places may share a timezone
-- duplicate places are identified by canonical timezone and normalized label
+- every saved card has a stable positive ID
+- `place` records the actual geographic name and optional `label` records only
+  the user's personal name for that card
+- the exact same place may be saved more than once; every copy receives its own
+  ID and remains independently editable, pinnable, and removable
+- personal labels do not need to be unique
 - saved order is preserved
 - pin order is preserved and duplicate pins are discarded
-- an empty label displays as a friendly timezone name
+- pins refer to stable card IDs rather than mutable display text
+- an empty personal label displays the saved place name, falling back to a
+  friendly timezone name only when no place name exists
 - submitting an empty inline name removes the custom label and restores that
-  friendly timezone name
-- renaming a location preserves its timezone and saved coordinates
-- renaming a pinned location updates its matching pin to the new label
-- a rename cannot duplicate another normalized label in the same timezone
+  saved place name
+- renaming a location preserves its ID, actual place, timezone, coordinates,
+  and pin state
 - invalid coordinates are discarded
 - every pin must match one configured location
 - removing a pinned location clears only its matching pin
@@ -258,6 +272,8 @@ No separate World Clock 12/24-hour preference is stored.
   an asynchronous response never changes its geometry.
 - Visible coordinates are fetched in bounded batches when the panel opens, so
   long location lists do not create an unbounded request URL or response.
+- Cards with identical coordinates share one weather request, then receive
+  separate results keyed by their stable card IDs.
 - A successful response is reused for 15 minutes. While the panel remains
   open, a lightweight freshness check runs every 30 seconds so reopening the
   panel cannot restart the full cache interval.
@@ -332,7 +348,9 @@ Rules:
   type-to-search handler
 - a successful addition returns to the main clock view, where the new clock is
   visible as confirmation
-- a duplicate place produces an inline error
+- selecting an already-saved place identifies it in the detail card, changes
+  the action to `Add another`, and offers an optional personal label for the
+  new card; it does not produce an error
 - remote failure leaves local search usable
 
 ## Globe and map lookup
@@ -360,7 +378,9 @@ Rules:
 - Up to 48 configured places and a ranked catalogue of more than 300 capitals
   and major cities appear as front-hemisphere markers with live local times.
   The local summary and pinned places take priority in that saved-marker cap;
-  every saved place remains available as a card and excluded from add targets.
+  every saved card remains available in the clock view. Cards for one actual
+  place share a single configured globe marker, while search can still select
+  that place for the explicit `Add another` flow.
 - Major world cities remain visible at regional scale. More capitals and
   agglomerations fade in as the globe zooms closer, using Natural Earth's
   label priority and zoom guidance.
@@ -387,14 +407,15 @@ Rules:
 
 ## Rename, pin, and remove
 
-- In edit mode, every configured location label is editable inline. `Enter`
-  saves the trimmed label and `Escape` cancels the draft. Clearing a label
-  restores the friendly timezone name.
+- In edit mode, every configured card's optional personal label is editable
+  inline. `Enter` saves the trimmed label and `Escape` cancels the draft.
+  Clearing it restores the saved place name. When a personal label is present,
+  the saved place remains visible beside it in a quieter style.
 - Edit mode exposes `PIN` for non-local locations.
 - Any number of configured locations can be pinned; pinning another appends it
   without disturbing earlier pins, and pinning the same location is idempotent.
-- Each pin records timezone and label so two places sharing a timezone remain
-  independently addressable.
+- Each pin records a stable card ID so cards remain independently addressable
+  even when their timezone, actual place, or personal label is identical.
 - `UNPIN` removes only the selected location. Removal or config normalization
   also discards only pins that no longer match configured locations.
 - The bar returns to icon-only display after the final pin is removed.
@@ -424,6 +445,8 @@ Rules:
   the bar and any remainder appears as a `+N` summary.
 - Renaming persists, including for a pinned location and places that share a
   timezone.
+- The same actual place can be added twice, given two personal labels, and each
+  card can then be renamed, pinned, or removed without changing the other.
 - Time conversion works from the summary and every visible location.
 - More than nine saved places remain visible; automatic compact density keeps
   typical long lists together and the panel scrolls when compact rows still do

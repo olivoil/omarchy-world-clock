@@ -1,7 +1,7 @@
 use std::fs;
 use std::process::Command;
 
-const BACKEND_PROTOCOL_VERSION: u64 = 5;
+const BACKEND_PROTOCOL_VERSION: u64 = 6;
 
 #[test]
 fn package_exposes_only_the_quattro_backend_binary() {
@@ -114,8 +114,9 @@ fn bundled_backend_supports_the_complete_quattro_command_protocol() {
     assert!(snapshot.status.success());
     let snapshot: serde_json::Value =
         serde_json::from_slice(&snapshot.stdout).expect("parse snapshot");
-    assert_eq!(snapshot["schema_version"], 1);
+    assert_eq!(snapshot["schema_version"], 2);
     assert_eq!(snapshot["pinned_timezone"], "Asia/Tokyo");
+    assert_eq!(snapshot["pinned_location"]["id"], 2);
     assert_eq!(snapshot["pinned_location"]["timezone"], "Asia/Tokyo");
     assert_eq!(snapshot["pinned_location"]["label"], "Tokyo");
     assert_eq!(snapshot["configured_count"], 2);
@@ -154,7 +155,7 @@ fn bundled_backend_supports_the_complete_quattro_command_protocol() {
         .expect("render scrub day");
     assert!(scrub.status.success());
     let scrub: serde_json::Value = serde_json::from_slice(&scrub.stdout).expect("parse scrub day");
-    assert_eq!(scrub["schema_version"], 1);
+    assert_eq!(scrub["schema_version"], 2);
     assert_eq!(scrub["source_timezone"], "UTC");
     assert_eq!(scrub["date"], "2026-08-11");
     assert_eq!(scrub["time_format"], "24h");
@@ -166,6 +167,7 @@ fn bundled_backend_supports_the_complete_quattro_command_protocol() {
         snapshot["clocks"].as_array().unwrap().len() + 1
     );
     for (scrub_location, snapshot_location) in scrub_locations.iter().zip(snapshot_locations) {
+        assert_eq!(scrub_location["id"], snapshot_location["id"]);
         assert_eq!(scrub_location["timezone"], snapshot_location["timezone"]);
         assert_eq!(scrub_location["label"], snapshot_location["label"]);
         assert!(scrub_location["states"]
@@ -249,7 +251,7 @@ fn bundled_backend_supports_the_complete_quattro_command_protocol() {
         .args([
             "add",
             "America/New_York",
-            "--label",
+            "--place-label",
             "Boston",
             "--latitude",
             "42.3601",
@@ -262,8 +264,27 @@ fn bundled_backend_supports_the_complete_quattro_command_protocol() {
         .expect("add location");
     assert!(add.success());
 
+    let add_duplicate = Command::new(backend)
+        .args([
+            "add",
+            "America/New_York",
+            "--place-label",
+            "Boston",
+            "--custom-label",
+            "Sister",
+            "--latitude",
+            "42.3601",
+            "--longitude",
+            "-71.0589",
+        ])
+        .env("HOME", &home)
+        .env("OMARCHY_WORLD_CLOCK_CONFIG", &config_path)
+        .status()
+        .expect("add the same place as a separate card");
+    assert!(add_duplicate.success());
+
     let pin_boston = Command::new(backend)
-        .args(["pin", "America/New_York", "--label", "Boston"])
+        .args(["pin", "America/New_York", "--id", "4"])
         .env("HOME", &home)
         .env("OMARCHY_WORLD_CLOCK_CONFIG", &config_path)
         .status()
@@ -285,7 +306,7 @@ fn bundled_backend_supports_the_complete_quattro_command_protocol() {
         .iter()
         .map(|clock| clock["code"].as_str().expect("pin code"))
         .collect::<Vec<_>>();
-    assert_eq!(pin_codes, vec!["TOK", "BOS"]);
+    assert_eq!(pin_codes, vec!["TOK", "SIS"]);
 
     let add_flag_named_label = Command::new(backend)
         .args(["add", "Europe/London", "--label", "--new-label"])
@@ -332,8 +353,8 @@ fn bundled_backend_supports_the_complete_quattro_command_protocol() {
         .args([
             "rename",
             "America/New_York",
-            "--label",
-            "Boston",
+            "--id",
+            "3",
             "--new-label",
             "Sam",
         ])
@@ -344,14 +365,7 @@ fn bundled_backend_supports_the_complete_quattro_command_protocol() {
     assert!(rename.success());
 
     let reset_label = Command::new(backend)
-        .args([
-            "rename",
-            "America/New_York",
-            "--label",
-            "Sam",
-            "--new-label",
-            "",
-        ])
+        .args(["rename", "America/New_York", "--id", "3", "--new-label", ""])
         .env("HOME", &home)
         .env("OMARCHY_WORLD_CLOCK_CONFIG", &config_path)
         .status()
@@ -371,18 +385,53 @@ fn bundled_backend_supports_the_complete_quattro_command_protocol() {
         .as_array()
         .expect("snapshot clocks")
         .iter()
-        .find(|clock| clock["timezone"] == "America/New_York")
+        .find(|clock| clock["id"] == 3)
         .expect("reset location clock");
-    assert_eq!(reset_clock["label"], "New York");
-    assert_eq!(reset_clock["title"], "New York");
+    assert_eq!(reset_clock["label"], "Boston");
+    assert_eq!(reset_clock["title"], "Boston");
+    assert_eq!(reset_clock["place"], "Boston");
+    assert_eq!(reset_clock["place_title"], "Boston");
+    assert_eq!(reset_clock["custom_label"], "");
+
+    let sister_clock = reset_snapshot["clocks"]
+        .as_array()
+        .expect("snapshot clocks")
+        .iter()
+        .find(|clock| clock["id"] == 4)
+        .expect("duplicate location card");
+    assert_eq!(sister_clock["label"], "Sister");
+    assert_eq!(sister_clock["title"], "Sister");
+    assert_eq!(sister_clock["place"], "Boston");
+    assert_eq!(sister_clock["place_title"], "Boston");
+    assert_eq!(sister_clock["custom_label"], "Sister");
 
     let remove = Command::new(backend)
-        .args(["remove", "America/New_York", "--label", "New York"])
+        .args(["remove", "America/New_York", "--id", "3"])
         .env("HOME", &home)
         .env("OMARCHY_WORLD_CLOCK_CONFIG", &config_path)
         .status()
         .expect("remove location");
     assert!(remove.success());
+
+    let after_remove = Command::new(backend)
+        .args(["snapshot", "--at", "2026-08-11T11:05:00Z"])
+        .env("HOME", &home)
+        .env("OMARCHY_WORLD_CLOCK_CONFIG", &config_path)
+        .output()
+        .expect("render snapshot after removing one duplicate");
+    assert!(after_remove.status.success());
+    let after_remove: serde_json::Value =
+        serde_json::from_slice(&after_remove.stdout).expect("parse post-remove snapshot");
+    assert!(!after_remove["clocks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|clock| clock["id"] == 3));
+    assert!(after_remove["clocks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|clock| clock["id"] == 4 && clock["title"] == "Sister"));
 
     let unpin = Command::new(backend)
         .args(["unpin", "Asia/Tokyo", "--label", "Tokyo"])
@@ -392,11 +441,26 @@ fn bundled_backend_supports_the_complete_quattro_command_protocol() {
         .expect("unpin remaining timezone");
     assert!(unpin.success());
 
+    let unpin_sister = Command::new(backend)
+        .args(["unpin", "America/New_York", "--id", "4"])
+        .env("HOME", &home)
+        .env("OMARCHY_WORLD_CLOCK_CONFIG", &config_path)
+        .status()
+        .expect("unpin duplicate location");
+    assert!(unpin_sister.success());
+
     let saved: serde_json::Value = serde_json::from_str(
         &fs::read_to_string(&config_path).expect("read config after unpinning"),
     )
     .expect("parse config after unpinning");
     assert!(saved.get("pinned_locations").is_none());
+    assert_eq!(saved["version"], 8);
+    assert!(saved["timezones"].as_array().unwrap().iter().all(|entry| {
+        entry["id"].as_u64().is_some_and(|id| id > 0)
+            && entry["place"]
+                .as_str()
+                .is_some_and(|place| !place.is_empty())
+    }));
 }
 
 #[test]

@@ -47,7 +47,11 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     let qml = fs::read_to_string(&qml_path).expect("read QML entry point");
     assert_text_items_are_plain_text(&qml, "quattro/WorldClock.qml");
     assert!(qml.contains("moduleName: \"io.github.olivoil.world-clock\""));
-    assert!(qml.contains("Qt.resolvedUrl(\"../bin/omarchy-world-clock-backend\")"));
+    assert!(qml.contains("property string backendExecutableName: \"omarchy-world-clock-backend\""));
+    assert!(qml.contains("Qt.resolvedUrl(\"../bin/\" + backendExecutableName)"));
+    assert!(qml.contains("property string buildLabel: \"\""));
+    assert!(qml.contains("property color iconForeground:"));
+    assert!(qml.contains("withBuildLabel(tooltip || \"World Clock\")"));
     assert!(!qml.contains("setting(\"command\""));
     assert!(!qml.contains("Install omarchy-world-clock-bin"));
     let backend_path = root.join("bin/omarchy-world-clock-backend");
@@ -74,7 +78,7 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(qml.contains("property var pinnedClocks: []"));
     assert!(qml.contains("readonly property bool hasPinnedClocks:"));
     assert!(qml.contains("property bool moduleRefreshPending: false"));
-    assert!(qml.contains("readonly property int supportedBackendProtocol: 5"));
+    assert!(qml.contains("readonly property int supportedBackendProtocol: 6"));
     assert!(qml.contains("function markBackendUnavailable(detail)"));
     assert!(qml.contains("function validPinnedClocks(value)"));
     assert!(qml.contains("!payload || typeof payload !== \"object\" || Array.isArray(payload)"));
@@ -203,7 +207,10 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("selectMapLocation(searchResults[0])"));
     assert!(panel.contains("root.selectMapLocation(root.searchResults[0])"));
     assert!(panel.contains("root.runAction(\"add\", root.mapSelection.timezone,"));
-    assert!(panel.contains("message = \"That location is already added.\""));
+    assert!(!panel.contains("That location is already added."));
+    assert!(panel.contains("Already added as "));
+    assert!(panel.contains("Label this clock (optional)"));
+    assert!(panel.contains("Add another"));
     assert!(!panel.contains("root.runAction(\"add\", mapMarker.location.timezone"));
     assert!(!panel.contains("root.runAction(\"add\", payload.timezone, payload)"));
     assert!(panel.contains("if (root.mapSelection !== null) root.dismissMapSelection()"));
@@ -231,6 +238,8 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("name === \"pin\" || name === \"unpin\" || name === \"remove\""));
     assert!(panel.contains("command.push(String(timezone || \"\"))"));
     assert!(panel.contains("name === \"rename\""));
+    assert!(panel.contains("result.id"));
+    assert!(panel.contains("command.push(\"--id\", String(resultId))"));
     assert!(panel.contains("result.label !== null && result.label !== undefined"));
     assert!(panel.contains("command.push(\"--new-label\", String(value || \"\"))"));
     assert!(panel.contains("function renameClock(clock, label)"));
@@ -238,6 +247,14 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("cell.focusLabelEditor(Qt.ShortcutFocusReason)"));
     assert!(panel.contains("id: summaryLabelInput"));
     assert!(panel.contains("id: cardLabelInput"));
+    assert!(panel.contains("text = String(root.summary.custom_label || \"\")"));
+    assert!(panel.contains("text = String(clockCell.clockData.custom_label || \"\")"));
+    assert!(!panel.contains("text = String(root.summary.label || root.currentLocationTitle)"));
+    assert!(!panel.contains("text = String(clockCell.clockData.label"));
+    assert_eq!(
+        panel.matches("Accessible.name: \"Custom label\"").count(),
+        2
+    );
     assert!(panel.contains("id: editModeButton"));
     assert!(panel.contains("property bool labelEditing: false"));
     assert!(panel.contains("id: summaryLabelMouse"));
@@ -366,7 +383,7 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
         .nth(1)
         .and_then(|source| source.split("Button {").next())
         .expect("local-day ruler marker body");
-    assert!(local_day_marker.contains("height: Math.round(parent.height * 0.5)"));
+    assert!(local_day_marker.contains("height: Math.round(cardLocalDayRuler.height * 0.5)"));
     assert!(local_day_marker.contains("readonly property color nightTint:"));
     assert!(local_day_marker.contains("nightTint, clockSurface.color"));
     assert!(local_day_marker.contains("readonly property real restingOpacity:"));
@@ -475,6 +492,7 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(clock_rows.contains("QQC.ScrollBar.vertical: QQC.ScrollBar"));
     assert!(panel.contains("ListView.onPooled: clockRow.resetRecycledState()"));
     assert!(panel.contains("ListView.onReused: clockRow.resetRecycledState()"));
+    assert!(panel.contains("root.clocks[clockRow.startIndex + index] || ({})"));
     assert!(panel.contains("keyCatcher.forceActiveFocus(Qt.OtherFocusReason)"));
     assert!(panel.contains("cardTimeInput.text = String(clockData.time || \"\")"));
     assert!(panel.contains("readonly property real clockViewportHeight:"));
@@ -1091,4 +1109,16 @@ fn escape_unwinds_preview_and_locked_time_before_closing() {
     assert!(rail_escape.contains("wheelSlotRemainder = 0"));
     assert!(rail_escape.contains("wheelMovedSelection = false"));
     assert!(rail_escape.contains("root.dismissTransientTime()"));
+}
+
+#[test]
+fn review_installer_stages_outside_the_watched_plugin_directory() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let installer = fs::read_to_string(root.join("scripts/install-review-preview.sh"))
+        .expect("read review installer");
+
+    assert!(installer.contains("staging_root=\"$config_home/omarchy/.plugin-review-installs\""));
+    assert!(installer.contains("work_dir=$(mktemp -d \"$staging_root/${slug}.XXXXXX\")"));
+    assert!(!installer.contains("mktemp -d \"$plugins_dir/"));
+    assert!(!installer.contains("${destination}.replace"));
 }

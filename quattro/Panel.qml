@@ -21,7 +21,7 @@ Panel {
   property string backendCommand:
     String(Qt.resolvedUrl("../bin/omarchy-world-clock-backend")).replace(/^file:\/\//, "")
   property var snapshot: ({
-    schema_version: 1,
+    schema_version: 2,
     reference_utc: "",
     local_timezone: "",
     time_format: "24h",
@@ -30,7 +30,7 @@ Panel {
     local_configured: false,
     pinned_timezone: null,
     pinned_location: null,
-    summary: ({ timezone: "", label: "", title: "", time: "--:--", date: "", day: "", notation: "", local_minutes: 0, relative_minutes: 0, relative_label: "Same time" }),
+    summary: ({ id: 0, timezone: "", label: "", title: "", place: "", place_title: "", custom_label: "", time: "--:--", date: "", day: "", notation: "", local_minutes: 0, relative_minutes: 0, relative_label: "Same time" }),
     clocks: [],
     timeline: [],
     featured_cities: []
@@ -62,6 +62,7 @@ Panel {
   property string searchSubmitQuery: ""
   property var searchResults: []
   property var mapSelection: null
+  property string mapSelectionLabelDraft: ""
   property real mapRequestedLatitude: 0
   property real mapRequestedLongitude: 0
   property real mapLookupLatitude: 0
@@ -144,9 +145,12 @@ Panel {
   }
   readonly property string currentTimezoneMetadata: {
     var timezone = String(summary.timezone || "").trim()
+    var place = String(summary.place_title || summary.place || "").trim()
+    var customLabel = String(summary.custom_label || "").trim()
     var notation = String(summary.notation || "").trim().toUpperCase()
-    if (timezone && notation) return timezone + "  ·  " + notation
-    return timezone || notation
+    var context = customLabel && place ? place : timezone
+    if (context && notation) return context + "  ·  " + notation
+    return context || notation
   }
   readonly property bool scrubSourceIsSummary: !scrubSourceKey
     || scrubSourceKey === root.conversionSource(root.summary)
@@ -211,6 +215,7 @@ Panel {
     for (var savedIndex = 0; savedIndex < mapClocks.length; savedIndex++) {
       var saved = mapClocks[savedIndex]
       var savedKey = root.mapLocationKey(saved)
+      if (savedKey && seenPlaces[savedKey]) continue
       if (savedKey) seenPlaces[savedKey] = true
       var wrapper = { location: saved, configured: true }
       if (root.conversionSource(saved) === summaryIdentity || saved.pinned === true)
@@ -266,6 +271,8 @@ Panel {
     if (keyboardClockIndex >= clocks.length)
       keyboardClockIndex = clocks.length - 1
   }
+
+  onMapSelectionChanged: mapSelectionLabelDraft = ""
 
   FontMetrics {
     id: searchResultTitleMetrics
@@ -670,6 +677,8 @@ Panel {
 
   function conversionSource(clock) {
     if (!clock) return ""
+    var id = Number(clock.id)
+    if (isFinite(id) && id > 0) return "id:" + String(id)
     var label = clock.label !== null && clock.label !== undefined
       ? clock.label : clock.title
     return String(clock.timezone || "") + "\u001f" + String(label || "")
@@ -1044,7 +1053,7 @@ Panel {
   function applySnapshot(raw, manual) {
     try {
       var payload = JSON.parse(String(raw || ""))
-      if (!payload || Number(payload.schema_version) !== 1 || !payload.summary)
+      if (!payload || Number(payload.schema_version) !== 2 || !payload.summary)
         throw new Error("Unsupported snapshot")
       snapshot = payload
       snapshotLoaded = true
@@ -1176,17 +1185,26 @@ Panel {
     actionName = name
     var command = [backendCommand, name]
     command.push(String(timezone || ""))
-    if ((name === "add" || name === "pin" || name === "unpin" || name === "remove"
-        || name === "rename") && result) {
-      var actionLabel = result.label !== null && result.label !== undefined
-        ? result.label : result.title
-      command.push("--label", String(actionLabel || ""))
-      if (name === "rename") command.push("--new-label", String(value || ""))
-      if (name === "add" && result.latitude !== null && result.latitude !== undefined
+    if (name === "add" && result) {
+      var placeLabel = result.place !== null && result.place !== undefined
+        ? result.place : result.title
+      command.push("--place-label", String(placeLabel || ""))
+      var customLabel = String(value || "").trim()
+      if (customLabel) command.push("--custom-label", customLabel)
+      if (result.latitude !== null && result.latitude !== undefined
           && result.longitude !== null && result.longitude !== undefined) {
         command.push("--latitude", String(result.latitude))
         command.push("--longitude", String(result.longitude))
       }
+    } else if ((name === "pin" || name === "unpin" || name === "remove"
+        || name === "rename") && result) {
+      var resultId = Number(result.id)
+      if (isFinite(resultId) && resultId > 0)
+        command.push("--id", String(resultId))
+      var actionLabel = result.label !== null && result.label !== undefined
+        ? result.label : result.title
+      command.push("--label", String(actionLabel || ""))
+      if (name === "rename") command.push("--new-label", String(value || ""))
     }
     actionProcess.command = command
     actionProcess.running = true
@@ -1290,8 +1308,31 @@ Panel {
   function mapLocationKey(location) {
     if (!location) return ""
     var timezone = String(location.timezone || "").trim().toLowerCase()
-    var title = String(location.title || location.label || "").trim().toLowerCase()
-    return timezone && title ? timezone + "\u001f" + title : ""
+    var place = String(location.place || location.title || location.label || "")
+      .trim().toLowerCase()
+    return timezone && place ? timezone + "\u001f" + place : ""
+  }
+
+  function savedLocationsForPlace(location) {
+    var key = mapLocationKey(location)
+    if (!key) return []
+    var entries = [summary].concat(clocks)
+    var matches = []
+    for (var index = 0; index < entries.length; index++) {
+      var entry = entries[index]
+      if (Number(entry.id) > 0 && mapLocationKey(entry) === key) matches.push(entry)
+    }
+    return matches
+  }
+
+  function duplicateLocationNotice(location) {
+    var matches = savedLocationsForPlace(location)
+    if (matches.length === 0) return ""
+    if (matches.length > 1) return "Already added " + matches.length + " times"
+    var existing = String(matches[0].title || matches[0].label || "").trim()
+    var selected = String(location && location.title || "").split(",")[0].trim()
+    return existing && existing.toLowerCase() !== selected.toLowerCase()
+      ? "Already added as " + existing : "Already added"
   }
 
   function mapLocationSelected(location) {
@@ -1547,7 +1588,7 @@ Panel {
       if (exitCode === 0 && current) {
         try {
           var payload = JSON.parse(String(scrubOutput.text || ""))
-          if (!payload || Number(payload.schema_version) !== 1
+          if (!payload || Number(payload.schema_version) !== 2
               || payload.source_timezone !== root.scrubActiveTimezone
               || (payload.time_format !== "24h" && payload.time_format !== "ampm")
               || !TimeRail.payloadMatchesSnapshot(payload, root.snapshot)
@@ -1639,8 +1680,6 @@ Panel {
     onExited: function(exitCode) {
       if (exitCode !== 0) {
         var message = String(actionError.text || "Could not update World Clock.").trim()
-        if (root.actionName === "add" && message.indexOf("already configured") >= 0)
-          message = "That location is already added."
         root.setStatus(message, true)
         return
       }
@@ -1650,6 +1689,7 @@ Panel {
         root.searchResultsQuery = ""
         root.searchSubmitQuery = ""
         root.mapSelection = null
+        root.mapSelectionLabelDraft = ""
         root.mapClickPending = false
         root.mode = "read"
         root.editorActive = false
@@ -1950,7 +1990,7 @@ Panel {
               TextInput {
                 id: summaryLabelInput
                 function resetText() {
-                  text = String(root.summary.label || root.currentLocationTitle)
+                  text = String(root.summary.custom_label || "")
                 }
                 visible: headerTitle.editable && headerTitle.labelEditing
                 anchors.fill: parent
@@ -1964,7 +2004,7 @@ Panel {
                 selectByMouse: true
                 clip: true
                 enabled: visible && root.snapshotLoaded && !actionProcess.running
-                Accessible.name: "Location name"
+                Accessible.name: "Custom label"
                 Accessible.description: "Press Enter to save or Escape to cancel"
                 Component.onCompleted: resetText()
                 onVisibleChanged: if (visible && !activeFocus) resetText()
@@ -2659,7 +2699,7 @@ Panel {
                       id: clockCell
                       required property int index
                       readonly property var clockData:
-                        root.clocks[clockRow.startIndex + index]
+                        root.clocks[clockRow.startIndex + index] || ({})
                       readonly property var weatherData: root.weatherFor(clockData)
                       readonly property bool showWeather: root.weatherPresentationActive
                         && (weatherData !== null || root.weatherLoading)
@@ -2714,8 +2754,9 @@ Panel {
                         if (cardHoverHandler.hovered)
                           root.updateTimelineHover(hoverOwner, clockData, true)
                       }
-                      Component.onDestruction:
-                        root.updateTimelineHover(hoverOwner, null, false)
+                      Component.onDestruction: {
+                        if (root) root.updateTimelineHover(hoverOwner, null, false)
+                      }
                       width: clockRow.cellWidth
                       height: clockRow.height
                       clip: true
@@ -2756,8 +2797,7 @@ Panel {
                           height: Math.max(cardTitle.implicitHeight,
                             cardLabelInput.implicitHeight, cardControls.implicitHeight)
 
-                          Text {
-                            textFormat: Text.PlainText
+                          Item {
                             id: cardTitle
                             visible: !clockCell.labelEditing
                             anchors.left: parent.left
@@ -2765,21 +2805,72 @@ Panel {
                               ? cardControls.left : cardNotation.left
                             anchors.rightMargin: Style.space(6)
                             anchors.verticalCenter: parent.verticalCenter
-                            text: String(clockCell.clockData.title || "").toUpperCase()
-                            color: root.contentForeground
-                            font.family: root.contentFontFamily
-                            font.pixelSize: root.compactDensity
-                              ? Style.font.caption : Style.font.bodySmall
-                            font.bold: true
-                            font.letterSpacing: 1
-                            elide: Text.ElideRight
+                            readonly property string primaryTitle:
+                              String(clockCell.clockData.title || "").toUpperCase()
+                            readonly property string placeTitle:
+                              String(clockCell.clockData.place_title
+                                || clockCell.clockData.place || "").toUpperCase()
+                            readonly property bool showsPlace:
+                              String(clockCell.clockData.custom_label || "").trim() !== ""
+                                && placeTitle !== "" && placeTitle !== primaryTitle
+                            implicitHeight: cardPrimaryTitle.implicitHeight
+
+                            Text {
+                              textFormat: Text.PlainText
+                              id: cardPrimaryTitle
+                              anchors.left: parent.left
+                              anchors.verticalCenter: parent.verticalCenter
+                              width: cardTitle.showsPlace
+                                ? Math.min(implicitWidth, parent.width * 0.56)
+                                : parent.width
+                              text: cardTitle.primaryTitle
+                              color: root.contentForeground
+                              font.family: root.contentFontFamily
+                              font.pixelSize: root.compactDensity
+                                ? Style.font.caption : Style.font.bodySmall
+                              font.bold: true
+                              font.letterSpacing: 1
+                              elide: Text.ElideRight
+                            }
+
+                            Text {
+                              textFormat: Text.PlainText
+                              id: cardPlaceSeparator
+                              visible: cardTitle.showsPlace
+                              anchors.left: cardPrimaryTitle.right
+                              anchors.leftMargin: Style.space(4)
+                              anchors.baseline: cardPrimaryTitle.baseline
+                              text: "·"
+                              color: root.contentForeground
+                              opacity: 0.42
+                              font.family: root.contentFontFamily
+                              font.pixelSize: root.compactDensity
+                                ? Style.font.caption : Style.font.bodySmall
+                            }
+
+                            Text {
+                              textFormat: Text.PlainText
+                              visible: cardTitle.showsPlace
+                              anchors.left: cardPlaceSeparator.right
+                              anchors.leftMargin: Style.space(4)
+                              anchors.right: parent.right
+                              anchors.baseline: cardPrimaryTitle.baseline
+                              text: cardTitle.placeTitle
+                              color: root.contentForeground
+                              opacity: 0.62
+                              font.family: root.contentFontFamily
+                              font.pixelSize: root.compactDensity
+                                ? Style.font.caption : Style.font.bodySmall
+                              font.bold: false
+                              font.letterSpacing: 0.8
+                              elide: Text.ElideRight
+                            }
                           }
 
                           TextInput {
                             id: cardLabelInput
                             function resetText() {
-                              text = String(clockCell.clockData.label
-                                || clockCell.clockData.title || "")
+                              text = String(clockCell.clockData.custom_label || "")
                             }
                             visible: root.mode === "edit" && clockCell.labelEditing
                             anchors.left: parent.left
@@ -2797,7 +2888,7 @@ Panel {
                             selectByMouse: true
                             clip: true
                             enabled: visible && root.snapshotLoaded && !actionProcess.running
-                            Accessible.name: "Location name"
+                            Accessible.name: "Custom label"
                             Accessible.description: "Press Enter to save or Escape to cancel"
                             Component.onCompleted: resetText()
                             onVisibleChanged: if (visible && !activeFocus) resetText()
@@ -3104,10 +3195,10 @@ Panel {
                             readonly property real endPosition: Math.max(0,
                               Math.min(1, Number(modelData.end)))
                             visible: endPosition > startPosition
-                            x: Math.round(startPosition * parent.width)
-                            anchors.bottom: parent.bottom
+                            x: Math.round(startPosition * cardLocalDayRuler.width)
+                            y: cardLocalDayRuler.height - height
                             width: Math.max(0,
-                              Math.round(endPosition * parent.width) - x)
+                              Math.round(endPosition * cardLocalDayRuler.width) - x)
                             height: Style.spacing.hairline
                             color: root.contentForeground
                             opacity: 0.14
@@ -3131,10 +3222,10 @@ Panel {
                           readonly property real restingOpacity:
                             0.68 + sunlight * 0.26
                           x: Math.round(dayPosition * Math.max(0,
-                            parent.width - width))
-                          anchors.bottom: parent.bottom
+                            cardLocalDayRuler.width - width))
+                          y: cardLocalDayRuler.height - height
                           width: Style.spacing.hairline
-                          height: Math.round(parent.height * 0.5)
+                          height: Math.round(cardLocalDayRuler.height * 0.5)
                           color: root.mixColor(nightColor, dayColor, sunlight)
                           opacity: clockCell.hasKeyboardCursor || clockCell.linkedHovered
                             ? 0.96 : restingOpacity
@@ -3617,6 +3708,11 @@ Panel {
                   : ({ x: mapCanvas.width / 2, y: mapCanvas.height / 2, visible: false })
                 readonly property real preferredX: root.mapSelectionCardOnRight
                   ? projection.x + pointGap : projection.x - width - pointGap
+                readonly property var existingLocations:
+                  root.savedLocationsForPlace(root.mapSelection)
+                readonly property bool alreadyAdded: existingLocations.length > 0
+                readonly property string duplicateNotice:
+                  root.duplicateLocationNotice(root.mapSelection)
                 visible: root.mode === "add" && root.mapSelection !== null
                   && !mapProcess.running
                 z: 32
@@ -3720,6 +3816,32 @@ Panel {
                     elide: Text.ElideMiddle
                   }
 
+                  Text {
+                    textFormat: Text.PlainText
+                    visible: mapSelectionCard.alreadyAdded
+                    width: parent.width
+                    text: mapSelectionCard.duplicateNotice
+                    color: root.contentForeground
+                    opacity: 0.72
+                    font.family: root.contentFontFamily
+                    font.pixelSize: Style.font.caption
+                    elide: Text.ElideRight
+                  }
+
+                  TextField {
+                    id: mapSelectionLabelField
+                    visible: mapSelectionCard.alreadyAdded
+                    width: parent.width
+                    text: root.mapSelectionLabelDraft
+                    placeholderText: "Label this clock (optional)"
+                    foreground: root.contentForeground
+                    enabled: visible && !actionProcess.running
+                    onTextEdited: root.mapSelectionLabelDraft = text
+                    onAccepted: root.runAction("add", root.mapSelection.timezone,
+                      root.mapSelection, root.mapSelectionLabelDraft)
+                    onActiveFocusChanged: root.editorActive = activeFocus
+                  }
+
                   Rectangle {
                     width: parent.width
                     height: Style.spacing.hairline
@@ -3731,7 +3853,7 @@ Panel {
                     id: mapSelectionAddButton
                     width: parent.width
                     text: actionProcess.running && root.actionName === "add"
-                      ? "Adding…" : "Add"
+                      ? "Adding…" : (mapSelectionCard.alreadyAdded ? "Add another" : "Add")
                     enabled: root.mapSelection !== null && !actionProcess.running
                     active: true
                     bordered: true
@@ -3742,7 +3864,7 @@ Panel {
                     horizontalPadding: Style.space(12)
                     verticalPadding: Style.space(8)
                     onClicked: root.runAction("add", root.mapSelection.timezone,
-                      root.mapSelection)
+                      root.mapSelection, root.mapSelectionLabelDraft)
                   }
                 }
               }

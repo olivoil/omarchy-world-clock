@@ -78,16 +78,21 @@ The executable exposes a deliberately small command/JSON boundary:
 | `weather` | fetch current conditions for visible coordinates at now or `--at` | JSON |
 | `search` | local search with optional remote fallback and live display context | JSON array |
 | `locate` | map coordinate to a timezone and display model | JSON/null |
-| `add` | persist a location | no output |
-| `rename` | change a matching location label | no output |
-| `remove` | remove a matching location | no output |
-| `pin` / `unpin` | add or remove one pinned location | no output |
+| `add` | persist a new card with an actual place and optional personal label | no output |
+| `rename` | change one card's personal label by stable ID | no output |
+| `remove` | remove one card by stable ID | no output |
+| `pin` / `unpin` | add or remove one pinned card by stable ID | no output |
 | `version` | report the source/package version | text |
 
 `module.protocol_version` lets QML reject an incompatible executable before
 using it. Snapshot payloads have their own `schema_version`. Protocol changes
 must be implemented in backend tests and QML together, then shipped in the
 same commit.
+
+Snapshot clocks carry a stable card ID, timezone, actual place, and optional
+personal label as separate fields. The frontend uses the ID for actions and
+transient identity, so equal places and equal labels do not merge. Weather
+requests are de-duplicated by exact coordinate and fanned back out by card ID.
 
 Weather is deliberately outside the snapshot path. Clock refreshes remain
 local and deterministic, while the panel requests all current conditions in a

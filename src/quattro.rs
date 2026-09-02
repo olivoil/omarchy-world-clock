@@ -11,8 +11,8 @@ use chrono::{DateTime, Duration, LocalResult, NaiveDate, Offset, TimeZone, Timel
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, sync::OnceLock};
 
-pub const SNAPSHOT_SCHEMA_VERSION: u64 = 1;
-pub const BACKEND_PROTOCOL_VERSION: u64 = 5;
+pub const SNAPSHOT_SCHEMA_VERSION: u64 = 2;
+pub const BACKEND_PROTOCOL_VERSION: u64 = 6;
 pub const SCRUB_STEP_MINUTES: u32 = 15;
 const MODULE_TOOLTIP_LOCATION_LIMIT: usize = 12;
 
@@ -85,6 +85,20 @@ fn location_short_code(entry: &TimezoneEntry) -> String {
     }
 }
 
+fn tooltip_location_label(entry: &TimezoneEntry) -> String {
+    let label = entry.read_card_title();
+    if !entry.has_custom_label() {
+        return label;
+    }
+
+    let place = entry.read_place_title();
+    if place.is_empty() || label.to_uppercase() == place.to_uppercase() {
+        label
+    } else {
+        format!("{label} · {place}")
+    }
+}
+
 fn pad_right(value: &str, width: usize) -> String {
     let padding = width.saturating_sub(value.chars().count());
     format!("{value}{}", " ".repeat(padding))
@@ -134,7 +148,7 @@ pub fn build_module_payload(
         .take(MODULE_TOOLTIP_LOCATION_LIMIT)
         .map(|entry| {
             let time = format_display_time(&zoned_datetime(now, &entry.timezone), time_format);
-            (entry.read_card_title(), time)
+            (tooltip_location_label(&entry), time)
         })
         .collect::<Vec<_>>();
     let hidden_location_count = additional_location_count.saturating_sub(tooltip_rows.len());
@@ -175,9 +189,13 @@ pub struct QuattroUtcOffsetState {
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct QuattroClock {
+    pub id: u64,
     pub timezone: String,
     pub label: String,
     pub title: String,
+    pub place: String,
+    pub place_title: String,
+    pub custom_label: String,
     pub time: String,
     pub date: String,
     pub day: String,
@@ -211,6 +229,7 @@ pub struct QuattroScrubZoneState {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct QuattroScrubLocation {
+    pub id: u64,
     pub timezone: String,
     pub label: String,
     pub states: Vec<QuattroScrubZoneState>,
@@ -241,6 +260,7 @@ pub struct QuattroTimelineItem {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct QuattroPinnedLocation {
+    pub id: u64,
     pub timezone: String,
     pub label: String,
 }
@@ -397,9 +417,13 @@ fn clock_from_entry(
         .map(|(latitude, longitude)| (Some(latitude), Some(longitude)))
         .unwrap_or((None, None));
     QuattroClock {
+        id: entry.id,
         timezone: entry.timezone.clone(),
         label: entry.display_label(),
         title: entry.read_card_title(),
+        place: entry.place_label(),
+        place_title: entry.read_place_title(),
+        custom_label: entry.label.clone(),
         time: format_display_time(&zoned, time_format),
         date: zoned.format("%Y-%m-%d").to_string(),
         day: day_label(reference_utc, local_timezone, &entry.timezone),
@@ -503,6 +527,7 @@ pub fn build_scrub_payload(
                 previous = Some(state);
             }
             QuattroScrubLocation {
+                id: entry.id,
                 timezone: entry.timezone.clone(),
                 label: entry.display_label(),
                 states,
@@ -532,8 +557,10 @@ fn local_entry(config: &AppConfig, local_timezone: &str) -> (Option<usize>, Time
     let entry = index
         .map(|index| config.timezones[index].clone())
         .unwrap_or_else(|| TimezoneEntry {
+            id: 0,
             timezone: local_timezone.to_string(),
-            label: friendly_timezone_name(local_timezone),
+            place: friendly_timezone_name(local_timezone),
+            label: String::new(),
             latitude: None,
             longitude: None,
         });
@@ -677,7 +704,7 @@ fn build_featured_cities(
                 || config
                     .timezones
                     .iter()
-                    .any(|entry| entry.matches_location(&timezone, &city.title))
+                    .any(|entry| entry.matches_place(&timezone, &city.title))
             {
                 return None;
             }
@@ -740,6 +767,7 @@ pub fn build_snapshot(
         pinned_locations
             .first_pinned_entry()
             .map(|entry| QuattroPinnedLocation {
+                id: entry.id,
                 timezone: entry.timezone.clone(),
                 label: entry.display_label(),
             });
@@ -769,10 +797,21 @@ mod tests {
     use crate::config::{AppConfig, LocationKey, TimezoneEntry};
     use chrono::{TimeZone, Utc};
 
-    fn entry(timezone: &str, label: &str) -> TimezoneEntry {
+    fn entry_id(timezone: &str, place: &str) -> u64 {
+        timezone
+            .bytes()
+            .chain(place.bytes())
+            .fold(1_u64, |value, byte| {
+                value.wrapping_mul(131).wrapping_add(u64::from(byte))
+            })
+    }
+
+    fn entry(timezone: &str, place: &str) -> TimezoneEntry {
         TimezoneEntry {
+            id: entry_id(timezone, place),
             timezone: timezone.to_string(),
-            label: label.to_string(),
+            place: place.to_string(),
+            label: String::new(),
             latitude: None,
             longitude: None,
         }
@@ -780,11 +819,13 @@ mod tests {
 
     #[test]
     fn module_tooltip_lists_non_local_locations_in_popup_order() {
+        let mut vancouver = entry("America/Vancouver", "Vancouver");
+        vancouver.label = "Sister".to_string();
         let config = AppConfig {
             timezones: vec![
                 entry("Europe/Paris", "Rennes, Brittany, France"),
                 entry("America/Cancun", "Home"),
-                entry("America/Vancouver", "Vancouver"),
+                vancouver,
             ],
             pinned_locations: vec![],
             disable_open_meteo_geolocation: false,
@@ -793,9 +834,29 @@ mod tests {
 
         let payload = build_module_payload(&config, now, "America/Cancun", "24h");
 
-        assert_eq!(payload.tooltip, "Vancouver  04:05\nRennes     13:05");
+        let lines = payload.tooltip.lines().collect::<Vec<_>>();
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0], "Sister · Vancouver  04:05");
+        assert!(lines[1].starts_with("Rennes"));
+        assert!(lines[1].ends_with("13:05"));
         assert!(!payload.tooltip.contains("Home"));
         assert!(!payload.tooltip.contains("World Clock"));
+    }
+
+    #[test]
+    fn module_tooltip_does_not_repeat_a_custom_label_that_matches_its_place() {
+        let mut boston = entry("America/New_York", "Boston");
+        boston.label = "boston".to_string();
+        let config = AppConfig {
+            timezones: vec![entry("America/Cancun", "Home"), boston],
+            pinned_locations: vec![],
+            disable_open_meteo_geolocation: false,
+        };
+        let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
+
+        let payload = build_module_payload(&config, now, "America/Cancun", "24h");
+
+        assert_eq!(payload.tooltip, "boston  07:05");
     }
 
     #[test]
@@ -847,10 +908,12 @@ mod tests {
             ],
             pinned_locations: vec![
                 LocationKey {
+                    id: entry_id("Asia/Tokyo", "Tokyo"),
                     timezone: "Asia/Tokyo".to_string(),
                     label: "Tokyo".to_string(),
                 },
                 LocationKey {
+                    id: entry_id("America/New_York", "New York"),
                     timezone: "America/New_York".to_string(),
                     label: "New York".to_string(),
                 },
@@ -880,6 +943,7 @@ mod tests {
             pinned_locations: (0..LOCATION_COUNT)
                 .rev()
                 .map(|index| LocationKey {
+                    id: entry_id("UTC", &format!("Zone {index:03}")),
                     timezone: "UTC".to_string(),
                     label: format!("Zone {index:03}"),
                 })
@@ -909,6 +973,7 @@ mod tests {
                 entry("America/Vancouver", "Vancouver"),
             ],
             pinned_locations: vec![LocationKey {
+                id: entry_id("Europe/Paris", "Rennes"),
                 timezone: "Europe/Paris".to_string(),
                 label: "Rennes".to_string(),
             }],
@@ -935,6 +1000,7 @@ mod tests {
                 entry("Europe/Paris", "Rennes"),
             ],
             pinned_locations: vec![LocationKey {
+                id: entry_id("Europe/Paris", "Rennes"),
                 timezone: "Europe/Paris".to_string(),
                 label: "Rennes".to_string(),
             }],
@@ -953,6 +1019,40 @@ mod tests {
             .expect("first pinned location identity");
         assert_eq!(pinned_location.timezone, "Europe/Paris");
         assert_eq!(pinned_location.label, "Rennes");
+    }
+
+    #[test]
+    fn snapshot_keeps_actual_place_separate_from_each_cards_personal_label() {
+        let home = entry("UTC", "Home");
+        let mut sister = entry("America/New_York", "Boston");
+        sister.id = 2;
+        sister.label = "Sister".to_string();
+        let mut office = entry("America/New_York", "Boston");
+        office.id = 3;
+        office.label = "Office".to_string();
+        let config = AppConfig {
+            timezones: vec![home, sister, office],
+            pinned_locations: vec![LocationKey {
+                id: 3,
+                timezone: String::new(),
+                label: String::new(),
+            }],
+            disable_open_meteo_geolocation: false,
+        };
+        let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
+
+        let snapshot = build_snapshot(&config, now, "UTC", "24h");
+        let sister = snapshot.clocks.iter().find(|clock| clock.id == 2).unwrap();
+        let office = snapshot.clocks.iter().find(|clock| clock.id == 3).unwrap();
+
+        assert_eq!(sister.title, "Sister");
+        assert_eq!(sister.place_title, "Boston");
+        assert_eq!(sister.custom_label, "Sister");
+        assert!(!sister.pinned);
+        assert_eq!(office.title, "Office");
+        assert_eq!(office.place_title, "Boston");
+        assert_eq!(office.custom_label, "Office");
+        assert!(office.pinned);
     }
 
     #[test]
@@ -1144,6 +1244,7 @@ mod tests {
                 entry("America/New_York", "Boston"),
             ],
             pinned_locations: vec![LocationKey {
+                id: entry_id("America/New_York", "Boston"),
                 timezone: "America/New_York".to_string(),
                 label: "Boston".to_string(),
             }],
@@ -1164,6 +1265,7 @@ mod tests {
         let config = AppConfig {
             timezones: vec![entry("America/Cancun", "Cancun")],
             pinned_locations: vec![LocationKey {
+                id: entry_id("America/Cancun", "Cancun"),
                 timezone: "America/Cancun".to_string(),
                 label: "Cancun".to_string(),
             }],

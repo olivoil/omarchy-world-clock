@@ -29,6 +29,7 @@ Panel {
     configured_count: 0,
     local_configured: false,
     pinned_timezone: null,
+    pinned_location: null,
     summary: ({ timezone: "", label: "", title: "", time: "--:--", date: "", day: "", notation: "", local_minutes: 0, relative_minutes: 0, relative_label: "Same time" }),
     clocks: [],
     timeline: [],
@@ -488,11 +489,12 @@ Panel {
           && hasMapCoordinate(featured)) return featured
     }
 
-    var pinnedTimezone = String(snapshot.pinned_timezone || "")
-    if (pinnedTimezone) {
+    var pinnedIdentity = root.conversionSource(snapshot.pinned_location)
+    if (pinnedIdentity) {
       for (var pinnedIndex = 0; pinnedIndex < mapClocks.length; pinnedIndex++) {
         var pinned = mapClocks[pinnedIndex]
-        if (String(pinned.timezone || "") === pinnedTimezone
+        if (pinned.pinned === true
+            && root.conversionSource(pinned) === pinnedIdentity
             && hasMapCoordinate(pinned)) return pinned
       }
     }
@@ -3518,7 +3520,7 @@ Panel {
                     MouseArea {
                       id: cityMouse
                       anchors.fill: parent
-                      enabled: true
+                      enabled: !mapCanvas.openingFlightRunning
                       hoverEnabled: mapMarker.selectable
                       cursorShape: mapMarker.selectable
                         ? Qt.PointingHandCursor : Qt.ArrowCursor

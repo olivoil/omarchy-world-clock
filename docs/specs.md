@@ -353,8 +353,8 @@ Rules:
   still instead, avoiding a competing camera move before results appear. The
   opening target prefers the local summary's
   saved coordinate, then its timezone representative, followed by the first
-  pinned or configured place; UTC-only setups use Greenwich as their visual
-  anchor.
+  pinned location by its full place identity, or otherwise the first configured
+  place; UTC-only setups use Greenwich as their visual anchor.
 - Drag rotates it. Mouse-wheel angle deltas and trackpad pixel deltas both
   zoom it across an extended range; zooming out reveals the complete sphere.
 - Up to 48 configured places and a ranked catalogue of more than 300 capitals

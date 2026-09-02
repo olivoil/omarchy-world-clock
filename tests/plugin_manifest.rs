@@ -160,12 +160,21 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("model: root.mapLocations"));
     assert!(panel.contains("modelData.searchResult === true"));
     assert!(panel.contains("opacity: mapCanvas.openingFlightRunning ? 0 : 1"));
+    let city_mouse = panel
+        .split("id: cityMouse")
+        .nth(1)
+        .and_then(|source| source.split("onClicked:").next())
+        .expect("city label mouse area");
+    assert!(city_mouse.contains("enabled: !mapCanvas.openingFlightRunning"));
     assert!(panel.contains("readonly property bool selectable: !configured"));
     assert_eq!(panel.matches("if (mapMarker.selectable)").count(), 2);
     assert!(panel.contains("hoverEnabled: mapMarker.selectable"));
     assert!(panel.contains("property bool globeDetailRequested: false"));
     assert!(panel.contains("function globeOpeningTarget()"));
-    assert!(panel.contains("String(snapshot.pinned_timezone || \"\")"));
+    assert!(panel.contains("root.conversionSource(snapshot.pinned_location)"));
+    assert!(panel.contains("pinned.pinned === true"));
+    assert!(panel.contains("root.conversionSource(pinned) === pinnedIdentity"));
+    assert!(!panel.contains("String(snapshot.pinned_timezone || \"\")"));
     assert!(panel.contains("|| !mapCanvas.previewReady) return"));
     assert!(panel.contains("mapCanvas.settleOn(target.latitude, target.longitude)"));
     assert!(panel.contains("mapCanvas.stopMotion()"));
@@ -808,7 +817,10 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("enterAddMode(true)\n    openSearch(initialText)"));
     assert!(panel.contains("var skipOpeningFlight = skipNextGlobeOpeningFlight"));
     assert!(panel.contains("mapCanvas.showOpeningOverview(target.latitude, target.longitude)"));
-    assert_eq!(panel.matches("onClicked: root.enterAddMode(false)").count(), 2);
+    assert_eq!(
+        panel.matches("onClicked: root.enterAddMode(false)").count(),
+        2
+    );
 
     let action_process = panel
         .split("id: actionProcess")

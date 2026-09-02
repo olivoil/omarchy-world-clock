@@ -1171,3 +1171,21 @@ fn time_editors_can_be_cancelled_with_escape() {
     );
     assert!(panel.contains("Keys.onEscapePressed: function(event)"));
 }
+
+#[test]
+fn editor_focus_keeps_non_text_shortcuts_reachable() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let panel =
+        fs::read_to_string(root.join("quattro/Panel.qml")).expect("read native panel source");
+
+    let shortcuts = panel
+        .split("id: editorShortcutLayer")
+        .nth(1)
+        .expect("focus-independent editor shortcuts");
+    assert!(shortcuts.contains("sequence: \"F2\""));
+    assert!(shortcuts.contains("sequence: \"Ctrl+T\""));
+    assert!(shortcuts.contains("sequence: \"Home\""));
+    assert!(shortcuts.contains("root.editorActive"));
+    assert!(shortcuts.contains("!root.live || root.scrubPreviewActive"));
+    assert!(!shortcuts.contains("sequence: \"Delete\""));
+}

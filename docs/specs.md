@@ -247,6 +247,10 @@ Core clock management remains reachable without moving through toolbar buttons:
 - `Escape` unwinds the active detail, search, edit, or time-preview state before
   closing the panel
 
+F2, Ctrl+T, and an applicable Home command remain active while an inline editor
+owns focus. Delete retains its normal text-editing behavior there; Escape first
+cancels the editor and returns focus to panel navigation.
+
 ## Time format
 
 The only user-facing format is the system format. Detection order is:

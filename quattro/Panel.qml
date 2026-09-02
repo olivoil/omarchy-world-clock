@@ -1910,6 +1910,39 @@ Panel {
     onTriggered: root.requestWeather(false)
   }
 
+  // Text inputs temporarily own active focus, so their key events do not
+  // reach the sibling panel dispatcher. Keep non-text panel commands active
+  // in that state without stealing editing keys such as Delete or Home while
+  // the clocks are already live.
+  Item {
+    id: editorShortcutLayer
+
+    Shortcut {
+      sequence: "F2"
+      context: Qt.WindowShortcut
+      enabled: root.opened && root.editorActive
+        && (root.mode === "read" || root.mode === "edit")
+        && !actionProcess.running
+      onActivated: root.toggleEditMode()
+    }
+
+    Shortcut {
+      sequence: "Ctrl+T"
+      context: Qt.WindowShortcut
+      enabled: root.opened && root.editorActive && root.mode === "read"
+        && root.scrubReady
+      onActivated: root.focusTimeRail()
+    }
+
+    Shortcut {
+      sequence: "Home"
+      context: Qt.WindowShortcut
+      enabled: root.opened && root.editorActive && root.mode === "read"
+        && (!root.live || root.scrubPreviewActive)
+      onActivated: root.returnToLive()
+    }
+  }
+
   KeyboardPanel {
     id: panel
     anchorItem: root.anchorItem

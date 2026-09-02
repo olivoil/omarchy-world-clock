@@ -138,9 +138,19 @@ Panel {
   readonly property bool weatherDetailOpen: weatherDetailKey !== ""
   readonly property var weatherDetailClock: root.clockForWeatherDetail()
   readonly property var weatherDetailData: root.weatherFor(weatherDetailClock)
-  readonly property var weatherDetailHourlyForecast:
-    weatherDetailData && Array.isArray(weatherDetailData.hourly_forecast)
+  readonly property var weatherDetailHourlyForecast: {
+    var forecast = weatherDetailData
+      && Array.isArray(weatherDetailData.hourly_forecast)
       ? weatherDetailData.hourly_forecast : []
+    var currentHour = root.weatherCurrentHourKey()
+    if (!currentHour) return forecast
+    var currentAndFuture = []
+    for (var i = 0; i < forecast.length; i++) {
+      if (String(forecast[i].time || "") >= currentHour)
+        currentAndFuture.push(forecast[i])
+    }
+    return currentAndFuture
+  }
   readonly property var weatherDetailDailyForecast: {
     var days = []
     if (!weatherDetailData) return days
@@ -977,10 +987,13 @@ Panel {
     var signatures = []
     for (var i = 0; i < entries.length; i++) {
       var entry = entries[i]
+      var localMinutes = weatherNumber(entry.local_minutes)
+      var localHour = isFinite(localMinutes) ? Math.floor(localMinutes / 60) : ""
       signatures.push(conversionSource(entry)
         + "\u001f" + String(entry.latitude)
         + "\u001f" + String(entry.longitude)
-        + "\u001f" + String(entry.date || ""))
+        + "\u001f" + String(entry.date || "")
+        + "\u001f" + String(localHour))
     }
     signatures.sort()
     return signatures.join("\u001e")

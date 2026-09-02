@@ -865,7 +865,7 @@ Item {
         visible: detail.forecast.length > 0
         width: parent.width
         height: visible ? Style.space(213) : 0
-        readonly property real left: detail.sectionInset
+        readonly property real contentLeft: detail.sectionInset
         readonly property real usableWidth: width - detail.sectionInset * 2
         readonly property real conditionX: Style.space(66)
         readonly property real rainX: Style.space(244)
@@ -874,7 +874,7 @@ Item {
 
         Text {
           textFormat: Text.PlainText
-          x: outlookSection.left
+          x: outlookSection.contentLeft
           y: Style.space(14)
           text: "4-DAY OUTLOOK"
           color: detail.muted
@@ -886,7 +886,7 @@ Item {
 
         Text {
           textFormat: Text.PlainText
-          x: outlookSection.left
+          x: outlookSection.contentLeft
           y: Style.space(14)
           width: outlookSection.usableWidth
           horizontalAlignment: Text.AlignRight
@@ -901,7 +901,7 @@ Item {
 
         Item {
           id: outlookHeader
-          x: outlookSection.left
+          x: outlookSection.contentLeft
           y: Style.space(39)
           width: outlookSection.usableWidth
           height: Style.space(20)
@@ -944,7 +944,7 @@ Item {
 
         Column {
           id: outlookRows
-          x: outlookSection.left
+          x: outlookSection.contentLeft
           y: Style.space(59)
           width: outlookSection.usableWidth
 

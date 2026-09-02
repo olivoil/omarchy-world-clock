@@ -3504,23 +3504,31 @@ Panel {
 
             Item {
               width: parent.width
-              height: Style.space(14)
+              height: Style.space(18)
             }
 
             Item {
               id: weatherDetailHero
               width: parent.width
-              height: Style.space(88)
+              height: Style.space(100)
 
-              Row {
+              Item {
                 id: weatherDetailHeroRow
-                anchors.centerIn: parent
-                spacing: Style.space(panelScroll.width >= Style.space(760) ? 34 : 22)
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.verticalCenter: parent.verticalCenter
+                width: Math.max(0, parent.width
+                  - root.weatherDetailSectionInset * 2)
+                height: Math.max(weatherDetailReading.implicitHeight,
+                  weatherDetailContext.implicitHeight)
+                readonly property real columnGap: Style.space(
+                  panelScroll.width >= Style.space(760) ? 44 : 28)
+                readonly property real leadingWidth: Math.round(
+                  (width - columnGap) * 0.36)
 
                 Row {
                   id: weatherDetailReading
-                  anchors.top: parent.top
-                  anchors.topMargin: Style.space(2)
+                  x: weatherDetailHeroRow.leadingWidth - implicitWidth
+                  anchors.verticalCenter: parent.verticalCenter
                   spacing: Style.space(12)
 
                   Text {
@@ -3565,11 +3573,16 @@ Panel {
 
                 Column {
                   id: weatherDetailContext
-                  anchors.top: parent.top
-                  spacing: Style.space(6)
+                  x: weatherDetailHeroRow.leadingWidth
+                    + weatherDetailHeroRow.columnGap
+                  width: Math.max(0, parent.width - x)
+                  anchors.verticalCenter: parent.verticalCenter
+                  spacing: Style.space(8)
 
                   Text {
                     textFormat: Text.PlainText
+                    width: parent.width
+                    elide: Text.ElideRight
                     text: root.weatherDetailData
                       ? String(root.weatherDetailData.condition || "Current conditions")
                         + (root.weatherDetailToday
@@ -3587,6 +3600,8 @@ Panel {
 
                   Text {
                     textFormat: Text.PlainText
+                    width: parent.width
+                    elide: Text.ElideRight
                     text: root.weatherDetailClock
                       ? String(root.weatherDetailClock.time || "")
                         + "  ·  "
@@ -3604,7 +3619,7 @@ Panel {
 
                   Row {
                     id: weatherDetailStats
-                    spacing: Style.space(18)
+                    spacing: Style.space(20)
 
                     Row {
                       spacing: Style.space(5)
@@ -3698,7 +3713,7 @@ Panel {
               x: root.weatherDetailSectionInset
               width: Math.max(0, parent.width
                 - root.weatherDetailSectionInset * 2)
-              height: Style.space(31)
+              height: Style.space(35)
 
               Rectangle {
                 anchors.left: parent.left

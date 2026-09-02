@@ -36,6 +36,8 @@ Panel {
   })
   property bool snapshotLoaded: false
   property bool summaryFocusPending: false
+  property bool summaryFocusScheduled: false
+  property string summaryFocusSeed: ""
   property string mode: "read"
   property bool live: true
   property bool editorActive: false
@@ -297,9 +299,13 @@ Panel {
     controller.show()
   }
 
-  function focusSummaryEditor() {
+  function focusSummaryEditor(initialText) {
+    if (initialText !== undefined)
+      summaryFocusSeed += String(initialText || "")
     if (mode !== "read") {
       summaryFocusPending = false
+      summaryFocusScheduled = false
+      summaryFocusSeed = ""
       return
     }
     if (!snapshotLoaded) {
@@ -307,14 +313,39 @@ Panel {
       return
     }
     summaryFocusPending = false
+    if (summaryFocusScheduled) return
+    summaryFocusScheduled = true
     // Return is emitted while PanelKeyCatcher is still dispatching the key.
     // Hand focus over on the next event-loop turn so the catcher cannot take
     // it straight back, then select the live time for immediate replacement.
+    // A digit typed into the unfocused panel has already been consumed by the
+    // catcher, so apply it after focus moves to preserve that first character.
     Qt.callLater(function() {
-      if (!opened || mode !== "read") return
+      summaryFocusScheduled = false
+      if (!opened || mode !== "read") {
+        summaryFocusSeed = ""
+        return
+      }
+      var seed = summaryFocusSeed
+      summaryFocusSeed = ""
       summaryInput.forceActiveFocus(Qt.ShortcutFocusReason)
       summaryInput.selectAll()
+      if (seed) {
+        summaryInput.text = seed
+        summaryInput.cursorPosition = summaryInput.text.length
+        root.timeInputEdited(summaryInput.conversionSource)
+      }
     })
+  }
+
+  function restoreReadModeFocus() {
+    if (opened && mode === "read")
+      keyCatcher.forceActiveFocus(Qt.ShortcutFocusReason)
+  }
+
+  function isLetterKey(text) {
+    var value = String(text || "")
+    return value.length === 1 && value.toLowerCase() !== value.toUpperCase()
   }
 
   function openEditor() {
@@ -376,6 +407,8 @@ Panel {
     mode = "read"
     globeDetailRequested = false
     summaryFocusPending = false
+    summaryFocusScheduled = false
+    summaryFocusSeed = ""
     searchResults = []
     searchResultsQuery = ""
     searchSubmitQuery = ""
@@ -1419,6 +1452,7 @@ Panel {
       searchSubmitQuery = ""
       mapSelection = null
       mapClickPending = false
+      if (mode === "read") Qt.callLater(root.restoreReadModeFocus)
     }
   }
   Process {
@@ -1559,6 +1593,11 @@ Panel {
         root.mapSelection = null
         root.mapClickPending = false
         root.mode = "read"
+        root.editorActive = false
+        // The search field owned focus when Add was submitted. It disappears
+        // with the mode change, so explicitly return focus to the read-mode
+        // dispatcher before the user begins another quick entry.
+        Qt.callLater(root.restoreReadModeFocus)
       }
       root.invalidateSnapshotRequests()
       root.requestSnapshot(root.live ? "" : String(root.snapshot.reference_utc || ""))
@@ -1686,7 +1725,8 @@ Panel {
       id: keyCatcher
       anchors.fill: parent
       blocked: root.editorActive || addField.activeFocus
-      directTextInput: root.mode === "add" && !addField.activeFocus
+      directTextInput: (root.mode === "read" || root.mode === "add")
+        && !addField.activeFocus
       onMoveRequested: function(dx, dy) { root.moveKeyboardCursor(dx, dy) }
       onActivateRequested: root.activateKeyboardCursor()
       onDeleteRequested: root.deleteKeyboardCursor()
@@ -1706,6 +1746,15 @@ Panel {
             addField.text += text
             root.focusAddField(false)
           }
+          return
+        }
+        if (root.mode === "read" && /^[0-9]$/.test(text)) {
+          root.focusSummaryEditor(text)
+          return
+        }
+        if (root.mode === "read" && root.isLetterKey(text)) {
+          root.mode = "add"
+          root.openSearch(text)
           return
         }
         if (text === "a" || text === "A") root.mode = "add"

@@ -527,9 +527,16 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
         !mode_changed.starts_with("\n    clearTimelineHover()"),
         "switching between read and edit mode must preserve active hover state"
     );
-    assert!(panel.contains("function focusSummaryEditor()"));
+    assert!(
+        mode_changed.contains("if (mode === \"read\") Qt.callLater(root.restoreReadModeFocus)"),
+        "every transition back to read mode must restore quick-entry focus"
+    );
+    assert!(panel.contains("function focusSummaryEditor(initialText)"));
     assert!(panel.contains("property bool snapshotLoaded: false"));
     assert!(panel.contains("property bool summaryFocusPending: false"));
+    assert!(panel.contains("property bool summaryFocusScheduled: false"));
+    assert!(panel.contains("summaryFocusSeed += String(initialText || \"\")"));
+    assert!(panel.contains("if (summaryFocusScheduled) return"));
     assert!(panel.contains("if (!snapshotLoaded)"));
     assert!(panel.contains("if (summaryFocusPending) Qt.callLater(root.focusSummaryEditor)"));
     assert!(panel.contains("if (clocks.length === 0 && mode !== \"add\" && !summaryFocusPending)"));
@@ -766,10 +773,11 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     );
     let key_catcher = fs::read_to_string(key_catcher_path).expect("read panel key catcher");
     assert!(key_catcher.contains("property bool directTextInput: false"));
-    assert!(key_catcher.contains("event.text.trim() !== \"\""));
+    assert!(key_catcher.contains("typedText.trim() !== \"\""));
+    assert!(key_catcher.contains("event.key >= Qt.Key_0 && event.key <= Qt.Key_9"));
     assert!(key_catcher.contains("Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier"));
     assert!(panel.contains("WorldClockKeyCatcher {"));
-    assert!(panel.contains("directTextInput: root.mode === \"add\" && !addField.activeFocus"));
+    assert!(panel.contains("directTextInput: (root.mode === \"read\" || root.mode === \"add\")"));
     assert!(panel.contains("onMoveRequested: function(dx, dy)"));
     assert!(panel.contains("onActivateRequested: root.activateKeyboardCursor()"));
     assert!(panel.contains("onDeleteRequested: root.deleteKeyboardCursor()"));
@@ -778,6 +786,28 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("function deleteKeyboardCursor()"));
     assert!(panel.contains("readonly property bool hasKeyboardCursor:"));
     assert!(panel.contains("if (!root.searchVisible) root.openSearch(text)"));
+    assert!(panel.contains("property string summaryFocusSeed: \"\""));
+    assert!(panel.contains("function focusSummaryEditor(initialText)"));
+    assert!(panel.contains("if (root.mode === \"read\" && /^[0-9]$/.test(text))"));
+    assert!(panel.contains("root.focusSummaryEditor(text)"));
+    assert!(panel.contains("function isLetterKey(text)"));
+    assert!(panel.contains("value.toLowerCase() !== value.toUpperCase()"));
+    assert!(panel.contains("if (root.mode === \"read\" && root.isLetterKey(text))"));
+    assert!(panel.contains("root.mode = \"add\"\n          root.openSearch(text)"));
+
+    let action_process = panel
+        .split("id: actionProcess")
+        .nth(1)
+        .and_then(|source| source.split("id: searchProcess").next())
+        .expect("action process body");
+    let successful_add = action_process
+        .split("if (root.actionName === \"add\")")
+        .nth(1)
+        .expect("successful add branch");
+    assert!(
+        successful_add.contains("Qt.callLater(root.restoreReadModeFocus)"),
+        "a successful add must return keyboard focus to the read-mode dispatcher"
+    );
 
     let globe_path = qml_path.parent().unwrap().join("Globe.qml");
     assert!(globe_path.is_file(), "missing {}", globe_path.display());

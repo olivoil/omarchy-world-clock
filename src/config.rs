@@ -1037,6 +1037,24 @@ fn timezone_coordinate(timezone: &str) -> (Option<f64>, Option<f64>) {
     .unwrap_or((None, None))
 }
 
+fn verified_colocated_timezone_link_coordinate(
+    alias: &str,
+    timezone_name: &str,
+) -> Option<(f64, f64)> {
+    // Most tzdb links only share clock rules and cannot safely inherit the
+    // canonical zone's geography. Keep the small set of true city renames
+    // explicit so those aliases can still focus the globe offline.
+    let colocated = matches!((alias, timezone_name), ("Asia/Saigon", "Asia/Ho_Chi_Minh"));
+    if !colocated {
+        return None;
+    }
+
+    let (Some(latitude), Some(longitude)) = timezone_coordinate(timezone_name) else {
+        return None;
+    };
+    Some((latitude, longitude))
+}
+
 fn is_false(value: &bool) -> bool {
     !*value
 }
@@ -1699,7 +1717,8 @@ impl TimezoneResolver {
         let mut aliases = HashMap::new();
 
         for (alias, timezone_name) in timezone_link_aliases() {
-            self.add_alias_record(&mut aliases, alias, timezone_name, None);
+            let coordinate = verified_colocated_timezone_link_coordinate(alias, timezone_name);
+            self.add_alias_record(&mut aliases, alias, timezone_name, coordinate);
 
             let mut alias_parts = alias.split('/');
             let alias_region = alias_parts.next().unwrap_or_default();
@@ -1715,7 +1734,7 @@ impl TimezoneResolver {
                     &mut aliases,
                     &alias_city.replace('_', " "),
                     timezone_name,
-                    None,
+                    coordinate,
                 );
             }
         }
@@ -2377,6 +2396,22 @@ mod tests {
         assert_eq!(result.title, "Johnston");
         assert_eq!(result.latitude, None);
         assert_eq!(result.longitude, None);
+    }
+
+    #[test]
+    fn colocated_city_rename_alias_keeps_coordinates_for_globe_focus() {
+        let canonical = canonical_timezone_name("Asia/Saigon");
+        let resolver = TimezoneResolver::new(Some(vec![canonical.clone()]));
+
+        let result = resolver
+            .search("Saigon", 8)
+            .into_iter()
+            .find(|result| result.timezone == canonical)
+            .expect("Saigon alias should remain searchable");
+
+        assert_eq!(result.title, "Saigon");
+        assert!(result.latitude.is_some());
+        assert!(result.longitude.is_some());
     }
 
     #[test]

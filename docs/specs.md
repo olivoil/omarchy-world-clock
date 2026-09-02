@@ -136,6 +136,8 @@ Persistence rules:
   custom label
 - submitting an empty inline name restores the selected place's original label
 - an entry that never had a place label falls back to a friendly timezone name
+- an empty current label with a saved original label is normalized back to that
+  original label, including its pin identity
 - version 7 entries use their current saved label as the original-label baseline
 - renaming a location preserves its timezone and saved coordinates
 - renaming a pinned location updates its matching pin to the new label

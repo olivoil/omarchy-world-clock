@@ -60,6 +60,7 @@ Panel {
   property string searchResultsQuery: ""
   property string searchSubmitQuery: ""
   property var searchResults: []
+  property int searchResultIndex: -1
   property var mapSelection: null
   property real mapRequestedLatitude: 0
   property real mapRequestedLongitude: 0
@@ -384,6 +385,7 @@ Panel {
     searchResults = []
     searchResultsQuery = ""
     searchSubmitQuery = ""
+    searchResultIndex = -1
     addField.text = ""
     mapSelection = null
     mapClickPending = false
@@ -412,6 +414,7 @@ Panel {
     searchResults = []
     searchResultsQuery = ""
     searchSubmitQuery = ""
+    searchResultIndex = -1
     searchVisible = false
     mapSelection = null
     mapClickPending = false
@@ -1174,6 +1177,7 @@ Panel {
   function searchTextChanged() {
     mapSelection = null
     mapClickPending = false
+    searchResultIndex = -1
     if (!searchVisible) {
       searchDebounce.stop()
       searchResults = []
@@ -1204,13 +1208,39 @@ Panel {
     searchProcess.running = true
   }
 
-  function selectFirstResult() {
+  function focusSearchResult(index) {
+    if (mode !== "add" || !searchVisible || searchResults.length === 0)
+      return false
+    var boundedIndex = Math.max(0, Math.min(searchResults.length - 1,
+      Math.round(Number(index))))
+    if (!isFinite(boundedIndex)) boundedIndex = 0
+    searchResultIndex = boundedIndex
+    mapSelection = null
+    var result = searchResults[searchResultIndex]
+    if (hasMapCoordinate(result)) mapCanvas.focusOnLocations([result])
+    Qt.callLater(function() {
+      if (root.searchVisible && root.searchResultIndex === boundedIndex)
+        searchResultList.positionViewAtIndex(boundedIndex, ListView.Contain)
+    })
+    return true
+  }
+
+  function moveSearchResultSelection(direction) {
+    if (searchResults.length === 0) return false
+    var currentIndex = searchResultIndex >= 0 ? searchResultIndex : 0
+    return focusSearchResult(currentIndex + Number(direction || 0))
+  }
+
+  function acceptSearchResult() {
     var query = String(addField.text || "").trim()
     if (mode !== "add" || !searchVisible || !query
         || actionProcess.running) return
     if (searchResultsQuery === query) {
-      if (searchResults.length > 0)
-        selectMapLocation(searchResults[0])
+      if (searchResults.length > 0) {
+        var activeIndex = searchResultIndex >= 0 ? searchResultIndex : 0
+        focusSearchResult(activeIndex)
+        selectMapLocation(searchResults[activeIndex])
+      }
       return
     }
     searchSubmitQuery = query
@@ -1640,7 +1670,7 @@ Panel {
           root.setStatus("No matching location.", false)
         } else {
           root.clearStatus()
-          mapCanvas.focusOnLocations(root.searchResults)
+          root.focusSearchResult(0)
           if (root.mode === "add"
               && root.searchSubmitQuery === root.searchResultsQuery) {
             root.searchSubmitQuery = ""
@@ -3143,9 +3173,16 @@ Panel {
                 placeholderText: "Search for a city or timezone"
                 foreground: root.contentForeground
                 enabled: root.searchVisible && !actionProcess.running
+                Keys.priority: Keys.BeforeItem
                 onTextChanged: root.searchTextChanged()
-                onAccepted: root.selectFirstResult()
+                onAccepted: root.acceptSearchResult()
                 onActiveFocusChanged: root.editorActive = activeFocus
+                Keys.onDownPressed: function(event) {
+                  event.accepted = root.moveSearchResultSelection(1)
+                }
+                Keys.onUpPressed: function(event) {
+                  event.accepted = root.moveSearchResultSelection(-1)
+                }
                 Keys.onEscapePressed: function(event) {
                   if (root.mapSelection !== null) root.dismissMapSelection()
                   else root.closeSearch()
@@ -3301,13 +3338,19 @@ Panel {
 
                   delegate: Button {
                     id: resultButton
+                    required property int index
                     required property var modelData
                     width: searchResultList.width
                     height: Style.space(48)
                     enabled: !actionProcess.running
+                    selected: resultButton.index === root.searchResultIndex
+                    hasCursor: selected
                     leftAlign: true
                     text: ""
-                    onClicked: root.selectMapLocation(resultButton.modelData)
+                    onClicked: {
+                      root.focusSearchResult(resultButton.index)
+                      root.selectMapLocation(resultButton.modelData)
+                    }
 
                     Column {
                       anchors.left: parent.left

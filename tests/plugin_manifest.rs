@@ -180,10 +180,22 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("id: mapSelectionCard"));
     assert!(panel.contains("id: mapSelectionAddButton"));
     assert!(panel.contains("root.selectMapLocation(mapMarker.location)"));
-    assert!(panel.contains("onClicked: root.selectMapLocation(resultButton.modelData)"));
-    assert!(panel.contains("function selectFirstResult()"));
-    assert!(panel.contains("onAccepted: root.selectFirstResult()"));
-    assert!(panel.contains("selectMapLocation(searchResults[0])"));
+    assert!(panel.contains("property int searchResultIndex: -1"));
+    assert!(panel.contains("function focusSearchResult(index)"));
+    assert!(panel.contains("function moveSearchResultSelection(direction)"));
+    assert!(panel.contains("function acceptSearchResult()"));
+    assert!(panel.contains("onAccepted: root.acceptSearchResult()"));
+    assert!(panel.contains("Keys.priority: Keys.BeforeItem"));
+    assert!(panel.contains("Keys.onDownPressed: function(event)"));
+    assert!(panel.contains("Keys.onUpPressed: function(event)"));
+    assert!(panel.contains("root.moveSearchResultSelection(1)"));
+    assert!(panel.contains("root.moveSearchResultSelection(-1)"));
+    assert!(panel.contains("searchResultList.positionViewAtIndex(boundedIndex, ListView.Contain)"));
+    assert!(panel.contains("selected: resultButton.index === root.searchResultIndex"));
+    assert!(panel.contains("hasCursor: selected"));
+    assert!(panel.contains("root.focusSearchResult(resultButton.index)"));
+    assert!(panel.contains("root.selectMapLocation(resultButton.modelData)"));
+    assert!(panel.contains("selectMapLocation(searchResults[activeIndex])"));
     assert!(panel.contains("root.selectMapLocation(root.searchResults[0])"));
     assert!(panel.contains("root.runAction(\"add\", root.mapSelection.timezone,"));
     assert!(panel.contains("message = \"That location is already added.\""));
@@ -609,7 +621,8 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(!panel
         .contains("tooltipText: root.searchVisible ? \"Close search\" : \"Search locations\""));
     assert!(panel.contains("diameterRatio: 0.63"));
-    assert!(panel.contains("mapCanvas.focusOnLocations(root.searchResults)"));
+    assert!(panel.contains("root.focusSearchResult(0)"));
+    assert!(!panel.contains("mapCanvas.focusOnLocations(root.searchResults)"));
     assert!(panel.contains("mapCanvas.focusOnLocations([result])"));
     assert!(panel.contains("command.push(\"--at\", String(snapshot.reference_utc))"));
     assert!(panel.contains("root.mode = \"read\""));

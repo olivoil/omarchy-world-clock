@@ -312,14 +312,16 @@ Rules:
 - the close action lives inside the search field; closing it restores the
   standalone Search control
 - while a query is present, the result coordinates replace every configured
-  and featured marker; the camera fits the full result set instead of chasing
-  a single hovered result
+  and featured marker; the first result is selected and focused instead of
+  fitting distant matches into one globe view
+- `Up` and `Down` move the selected dropdown row, keep it visible when the list
+  scrolls, and move the globe to that result without moving focus from search
 - search results include live time, day, notation, and relative-offset context;
   locally resolved places also include bundled coordinates, allowing the globe
   to focus the result set without a remote request
 - Open-Meteo results show one quiet, clickable attribution in the lower-left
   map corner while those remote results are visible
-- selecting a dropdown result, or pressing Enter to choose the first valid
+- selecting a dropdown result, or pressing Enter to choose the selected
   result, centers it and opens an anchored detail card with an explicit `Add`
   action instead of mutating configuration
 - selecting the same result from its map marker follows the identical preview
@@ -362,8 +364,8 @@ Rules:
   only a subtle horizon fade.
 - Clicking a featured or search marker centers it and opens a compact detail
   card with its local time, day/relative offset, timezone, and `Add` action.
-- Focusing one place may zoom closer when needed but never zooms out from the
-  user's current view; fitting multiple search results may change either way.
+- Focusing a search result may zoom closer when needed but never zooms out from
+  the user's current view.
 - Saved coordinates are preferred for marker placement. Bundled timezone
   coordinates are used when saved coordinates are absent.
 - If the shader package cannot load, the viewport falls back to the bundled

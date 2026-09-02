@@ -36,6 +36,8 @@ Panel {
   })
   property bool snapshotLoaded: false
   property bool summaryFocusPending: false
+  property bool summaryFocusScheduled: false
+  property string summaryFocusSeed: ""
   property string mode: "read"
   property bool live: true
   property bool editorActive: false
@@ -311,9 +313,13 @@ Panel {
     controller.show()
   }
 
-  function focusSummaryEditor() {
+  function focusSummaryEditor(initialText) {
+    if (initialText !== undefined)
+      summaryFocusSeed += String(initialText || "")
     if (mode !== "read") {
       summaryFocusPending = false
+      summaryFocusScheduled = false
+      summaryFocusSeed = ""
       return
     }
     if (!snapshotLoaded) {
@@ -321,14 +327,39 @@ Panel {
       return
     }
     summaryFocusPending = false
+    if (summaryFocusScheduled) return
+    summaryFocusScheduled = true
     // Return is emitted while PanelKeyCatcher is still dispatching the key.
     // Hand focus over on the next event-loop turn so the catcher cannot take
     // it straight back, then select the live time for immediate replacement.
+    // A digit typed into the unfocused panel has already been consumed by the
+    // catcher, so apply it after focus moves to preserve that first character.
     Qt.callLater(function() {
-      if (!opened || mode !== "read") return
+      summaryFocusScheduled = false
+      if (!opened || mode !== "read") {
+        summaryFocusSeed = ""
+        return
+      }
+      var seed = summaryFocusSeed
+      summaryFocusSeed = ""
       summaryInput.forceActiveFocus(Qt.ShortcutFocusReason)
       summaryInput.selectAll()
+      if (seed) {
+        summaryInput.text = seed
+        summaryInput.cursorPosition = summaryInput.text.length
+        root.timeInputEdited(summaryInput.conversionSource)
+      }
     })
+  }
+
+  function restoreReadModeFocus() {
+    if (opened && mode === "read")
+      keyCatcher.forceActiveFocus(Qt.ShortcutFocusReason)
+  }
+
+  function isLetterKey(text) {
+    var value = String(text || "")
+    return value.length === 1 && value.toLowerCase() !== value.toUpperCase()
   }
 
   function openEditor() {
@@ -392,6 +423,8 @@ Panel {
     weatherDetailKey = ""
     globeDetailRequested = false
     summaryFocusPending = false
+    summaryFocusScheduled = false
+    summaryFocusSeed = ""
     searchResults = []
     searchResultsQuery = ""
     searchSubmitQuery = ""
@@ -958,13 +991,6 @@ Panel {
     return result + (weatherUseImperial ? " mph" : " km/h")
   }
 
-  function weatherPrecipitation(value) {
-    var millimeters = weatherNumber(value)
-    if (!isFinite(millimeters)) return ""
-    if (weatherUseImperial) return (millimeters / 25.4).toFixed(2) + " in"
-    return millimeters.toFixed(1) + " mm"
-  }
-
   function weatherPressure(value) {
     var pressure = weatherNumber(value)
     if (!isFinite(pressure)) return "—"
@@ -997,8 +1023,23 @@ Panel {
     return String(displayHour) + ":" + minute + " " + suffix
   }
 
-  function weatherHourlyTime(value, index) {
-    if (index === 0) return "NOW"
+  function weatherCurrentHourKey() {
+    if (!weatherDetailClock) return ""
+    var date = String(weatherDetailClock.date || "")
+    var minutes = weatherNumber(weatherDetailClock.local_minutes)
+    if (!date || !isFinite(minutes)) return ""
+    var normalizedMinutes = ((minutes % 1440) + 1440) % 1440
+    var hour = Math.floor(normalizedMinutes / 60)
+    return date + "T" + (hour < 10 ? "0" : "") + String(hour) + ":00"
+  }
+
+  function weatherHourlyIsCurrent(value) {
+    var currentHour = weatherCurrentHourKey()
+    return currentHour !== "" && String(value || "") === currentHour
+  }
+
+  function weatherHourlyTime(value) {
+    if (weatherHourlyIsCurrent(value)) return "NOW"
     var formatted = weatherLocalTime(value)
     if (formatted === "—") return formatted
     return formatted.replace(":00", "")
@@ -1014,15 +1055,20 @@ Panel {
     return String(rounded) + "  " + level
   }
 
+  function weatherNextHourForecast() {
+    var currentHour = weatherCurrentHourKey()
+    if (!currentHour) return null
+    for (var i = 0; i < weatherDetailHourlyForecast.length - 1; i++) {
+      if (String(weatherDetailHourlyForecast[i].time || "") === currentHour)
+        return weatherDetailHourlyForecast[i + 1]
+    }
+    return null
+  }
+
   function weatherNextHourProbability() {
-    if (weatherDetailHourlyForecast.length === 0) return "—"
-    var chance = weatherProbability(
-      weatherDetailHourlyForecast[0].precipitation_probability_percent)
-    var amount = root.weatherDetailData
-      ? weatherNumber(root.weatherDetailData.precipitation_mm) : NaN
-    if (isFinite(amount) && amount > 0)
-      return chance + "  ·  " + weatherPrecipitation(amount)
-    return chance
+    var nextHour = weatherNextHourForecast()
+    return nextHour
+      ? weatherProbability(nextHour.precipitation_probability_percent) : "—"
   }
 
   function weatherForecastDay(dateValue) {
@@ -1609,6 +1655,7 @@ Panel {
       searchSubmitQuery = ""
       mapSelection = null
       mapClickPending = false
+      if (mode === "read") Qt.callLater(root.restoreReadModeFocus)
     }
   }
   Process {
@@ -1749,6 +1796,11 @@ Panel {
         root.mapSelection = null
         root.mapClickPending = false
         root.mode = "read"
+        root.editorActive = false
+        // The search field owned focus when Add was submitted. It disappears
+        // with the mode change, so explicitly return focus to the read-mode
+        // dispatcher before the user begins another quick entry.
+        Qt.callLater(root.restoreReadModeFocus)
       }
       root.invalidateSnapshotRequests()
       root.requestSnapshot(root.live ? "" : String(root.snapshot.reference_utc || ""))
@@ -1878,7 +1930,8 @@ Panel {
       id: keyCatcher
       anchors.fill: parent
       blocked: root.editorActive || addField.activeFocus
-      directTextInput: root.mode === "add" && !addField.activeFocus
+      directTextInput: (root.mode === "read" || root.mode === "add")
+        && !addField.activeFocus
       onMoveRequested: function(dx, dy) { root.moveKeyboardCursor(dx, dy) }
       onActivateRequested: root.activateKeyboardCursor()
       onDeleteRequested: root.deleteKeyboardCursor()
@@ -1900,6 +1953,15 @@ Panel {
             addField.text += text
             root.focusAddField(false)
           }
+          return
+        }
+        if (root.mode === "read" && /^[0-9]$/.test(text)) {
+          root.focusSummaryEditor(text)
+          return
+        }
+        if (root.mode === "read" && root.isLetterKey(text)) {
+          root.mode = "add"
+          root.openSearch(text)
           return
         }
         if (text === "a" || text === "A") root.mode = "add"
@@ -3706,7 +3768,7 @@ Panel {
                         ? (weatherDetailHourlyRow.width - width) / 2
                         : index * (weatherDetailHourlyRow.width - width)
                           / (weatherDetailHourlyRepeater.count - 1)
-                      Accessible.name: root.weatherHourlyTime(modelData.time, index)
+                      Accessible.name: root.weatherHourlyTime(modelData.time)
                         + ", " + String(modelData.condition || "")
                         + ", " + root.weatherTemperature(modelData.temperature_celsius)
                         + ", " + root.weatherProbability(
@@ -3727,14 +3789,15 @@ Panel {
                           textFormat: Text.PlainText
                           anchors.horizontalCenter: parent.horizontalCenter
                           text: root.weatherHourlyTime(
-                            weatherDetailHourlyCell.modelData.time,
-                            weatherDetailHourlyCell.index)
-                          color: weatherDetailHourlyCell.index === 0
+                            weatherDetailHourlyCell.modelData.time)
+                          color: root.weatherHourlyIsCurrent(
+                            weatherDetailHourlyCell.modelData.time)
                             ? root.contentForeground
                             : Qt.darker(root.contentForeground, 1.45)
                           font.family: root.contentFontFamily
                           font.pixelSize: Style.font.caption
-                          font.bold: weatherDetailHourlyCell.index === 0
+                          font.bold: root.weatherHourlyIsCurrent(
+                            weatherDetailHourlyCell.modelData.time)
                           font.letterSpacing: 0.35
                         }
 

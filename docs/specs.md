@@ -230,7 +230,10 @@ and do not label or imply availability. They are not an additional
 time-scrubbing target.
 
 Pressing `Enter` in read mode focuses and selects the summary time for direct
-replacement.
+replacement. Typing a decimal digit while no field has focus does the same and
+uses that digit as the first character. Typing an alphabetic character instead
+opens Add mode, focuses location search, and preserves that character as the
+start of the query.
 
 ## Time format
 
@@ -436,9 +439,8 @@ Rules:
   the grabbed direction; trackpad and mouse-wheel scrubbing use the same
   earlier/later model, and hovering or pressing without dragging does not
   change the clocks.
-- `S` moves keyboard focus from the panel dispatcher to the time rail, where
-  Left/Right previews a time, Enter keeps it, Home returns live, and Escape
-  unwinds the current preview or locked selection.
+- With no field focused in read mode, a decimal digit starts editing the local
+  summary time and an alphabetic character starts an Add-mode location search.
 - Preparing the time rail keeps its 288 source-time slots independent of the
   location count. Each location contributes only compact UTC-offset states,
   including any DST transition in the rail window; the panel derives visible

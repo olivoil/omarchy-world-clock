@@ -116,6 +116,8 @@ fn bundled_backend_supports_the_complete_quattro_command_protocol() {
         serde_json::from_slice(&snapshot.stdout).expect("parse snapshot");
     assert_eq!(snapshot["schema_version"], 1);
     assert_eq!(snapshot["pinned_timezone"], "Asia/Tokyo");
+    assert_eq!(snapshot["pinned_location"]["timezone"], "Asia/Tokyo");
+    assert_eq!(snapshot["pinned_location"]["label"], "Tokyo");
     assert_eq!(snapshot["configured_count"], 2);
     assert_eq!(snapshot["weather_unit"], "metric");
     assert!(snapshot["summary"]["utc_offset_seconds"].is_number());

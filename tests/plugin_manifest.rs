@@ -714,7 +714,8 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(!panel.contains("weatherDetailRetainedPanelHeight"));
     assert!(panel.contains("readonly property bool weatherDetailOpen:"));
     assert!(panel.contains("readonly property var weatherDetailHourlyForecast:"));
-    assert!(panel.contains("root.weatherUtcHour(forecast[i].reference_utc)"));
+    assert!(panel.contains("root.weatherUtcMoment(forecast[i].reference_utc)"));
+    assert!(panel.contains("forecastStart + 3600000 > currentMoment"));
     assert!(panel.contains("currentAndFuture.push(forecast[i])"));
     assert!(panel.contains("readonly property var weatherDetailDailyForecast:"));
     assert!(panel.contains("readonly property string weatherDetailLocalDate:"));
@@ -748,8 +749,9 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
         .and_then(|source| source.split("function weatherFor(clock)").next())
         .expect("weather signature body");
     assert!(weather_signature.contains("String(entry.date || \"\")"));
-    assert!(weather_signature.contains("weatherUtcHour(snapshot.reference_utc)"));
-    assert!(panel.contains("function weatherUtcHour(value)"));
+    assert!(weather_signature.contains("Math.floor(localMinutes / 60)"));
+    assert!(weather_signature.contains("entry.utc_offset_seconds"));
+    assert!(panel.contains("function weatherUtcMoment(value)"));
     assert!(panel.contains("function weatherHourlyIsCurrent(item)"));
     assert!(panel.contains("item ? item.reference_utc : \"\""));
     assert!(panel.contains("function weatherNextHourForecast()"));

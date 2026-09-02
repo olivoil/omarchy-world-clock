@@ -142,12 +142,12 @@ Panel {
     var forecast = weatherDetailData
       && Array.isArray(weatherDetailData.hourly_forecast)
       ? weatherDetailData.hourly_forecast : []
-    var currentHour = root.weatherUtcHour(snapshot.reference_utc)
-    if (!isFinite(currentHour)) return forecast
+    var currentMoment = root.weatherUtcMoment(snapshot.reference_utc)
+    if (!isFinite(currentMoment)) return forecast
     var currentAndFuture = []
     for (var i = 0; i < forecast.length; i++) {
-      var forecastHour = root.weatherUtcHour(forecast[i].reference_utc)
-      if (isFinite(forecastHour) && forecastHour >= currentHour)
+      var forecastStart = root.weatherUtcMoment(forecast[i].reference_utc)
+      if (isFinite(forecastStart) && forecastStart + 3600000 > currentMoment)
         currentAndFuture.push(forecast[i])
     }
     return currentAndFuture
@@ -986,14 +986,17 @@ Panel {
     if (!snapshotLoaded) return ""
     var entries = [summary].concat(clocks)
     var signatures = []
-    var currentUtcHour = weatherUtcHour(snapshot.reference_utc)
     for (var i = 0; i < entries.length; i++) {
       var entry = entries[i]
+      var localMinutes = weatherNumber(entry.local_minutes)
+      var localHour = isFinite(localMinutes) ? Math.floor(localMinutes / 60) : ""
+      var utcOffset = weatherNumber(entry.utc_offset_seconds)
       signatures.push(conversionSource(entry)
         + "\u001f" + String(entry.latitude)
         + "\u001f" + String(entry.longitude)
         + "\u001f" + String(entry.date || "")
-        + "\u001f" + String(currentUtcHour))
+        + "\u001f" + String(localHour)
+        + "\u001f" + String(isFinite(utcOffset) ? utcOffset : ""))
     }
     signatures.sort()
     return signatures.join("\u001e")
@@ -1099,15 +1102,17 @@ Panel {
     return String(displayHour) + ":" + minute + " " + suffix
   }
 
-  function weatherUtcHour(value) {
+  function weatherUtcMoment(value) {
     var milliseconds = Date.parse(String(value || ""))
-    return isFinite(milliseconds) ? Math.floor(milliseconds / 3600000) : NaN
+    return isFinite(milliseconds) ? milliseconds : NaN
   }
 
   function weatherHourlyIsCurrent(item) {
-    var currentHour = weatherUtcHour(snapshot.reference_utc)
-    var forecastHour = weatherUtcHour(item ? item.reference_utc : "")
-    return isFinite(currentHour) && forecastHour === currentHour
+    var currentMoment = weatherUtcMoment(snapshot.reference_utc)
+    var forecastStart = weatherUtcMoment(item ? item.reference_utc : "")
+    return isFinite(currentMoment) && isFinite(forecastStart)
+      && currentMoment >= forecastStart
+      && currentMoment < forecastStart + 3600000
   }
 
   function weatherHourlyTime(item) {
@@ -1128,11 +1133,8 @@ Panel {
   }
 
   function weatherNextHourForecast() {
-    var currentHour = weatherUtcHour(snapshot.reference_utc)
-    if (!isFinite(currentHour)) return null
     for (var i = 0; i < weatherDetailHourlyForecast.length - 1; i++) {
-      if (weatherUtcHour(weatherDetailHourlyForecast[i].reference_utc)
-          === currentHour)
+      if (weatherHourlyIsCurrent(weatherDetailHourlyForecast[i]))
         return weatherDetailHourlyForecast[i + 1]
     }
     return null

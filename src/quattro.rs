@@ -239,6 +239,12 @@ pub struct QuattroTimelineItem {
     pub lane: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct QuattroPinnedLocation {
+    pub timezone: String,
+    pub label: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct QuattroSnapshot {
     pub schema_version: u64,
@@ -250,6 +256,8 @@ pub struct QuattroSnapshot {
     pub configured_count: usize,
     pub local_configured: bool,
     pub pinned_timezone: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pinned_location: Option<QuattroPinnedLocation>,
     pub summary: QuattroClock,
     pub clocks: Vec<QuattroClock>,
     pub timeline: Vec<QuattroTimelineItem>,
@@ -728,6 +736,13 @@ pub fn build_snapshot(
         .collect::<Vec<_>>();
     let timeline = timeline_items(&summary, &clocks);
     let featured_cities = build_featured_cities(config, reference_utc, local_timezone, time_format);
+    let pinned_location =
+        pinned_locations
+            .first_pinned_entry()
+            .map(|entry| QuattroPinnedLocation {
+                timezone: entry.timezone.clone(),
+                label: entry.display_label(),
+            });
 
     QuattroSnapshot {
         schema_version: SNAPSHOT_SCHEMA_VERSION,
@@ -737,9 +752,10 @@ pub fn build_snapshot(
         weather_unit: None,
         configured_count: config.timezones.len(),
         local_configured,
-        pinned_timezone: pinned_locations
-            .first_pinned_entry()
-            .map(|entry| entry.timezone.clone()),
+        pinned_timezone: pinned_location
+            .as_ref()
+            .map(|location| location.timezone.clone()),
+        pinned_location,
         summary,
         clocks,
         timeline,
@@ -909,6 +925,34 @@ mod tests {
         assert_eq!(snapshot.clocks[1].time, "13:05");
         assert!(snapshot.clocks[1].pinned);
         assert_eq!(snapshot.pinned_timezone.as_deref(), Some("Europe/Paris"));
+    }
+
+    #[test]
+    fn snapshot_preserves_the_first_pin_identity_when_locations_share_a_timezone() {
+        let config = AppConfig {
+            timezones: vec![
+                entry("Europe/Paris", "Amiens"),
+                entry("Europe/Paris", "Rennes"),
+            ],
+            pinned_locations: vec![LocationKey {
+                timezone: "Europe/Paris".to_string(),
+                label: "Rennes".to_string(),
+            }],
+            disable_open_meteo_geolocation: false,
+        };
+        let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
+
+        let snapshot = build_snapshot(&config, now, "UTC", "24h");
+
+        assert_eq!(snapshot.clocks[0].label, "Amiens");
+        assert!(!snapshot.clocks[0].pinned);
+        assert_eq!(snapshot.clocks[1].label, "Rennes");
+        assert!(snapshot.clocks[1].pinned);
+        let pinned_location = snapshot
+            .pinned_location
+            .expect("first pinned location identity");
+        assert_eq!(pinned_location.timezone, "Europe/Paris");
+        assert_eq!(pinned_location.label, "Rennes");
     }
 
     #[test]

@@ -12,19 +12,22 @@ Item {
   property color landColor: "transparent"
   property color boundaryColor: "transparent"
   property color rimColor: "transparent"
-  property real longitude: 0
-  property real latitude: 18
-  property real openingZoom: 2.18
-  property real zoom: openingZoom
+  property real longitude: -105
+  property real latitude: 14
+  property real openingZoom: 2.2
+  property real openingOverviewZoom: 0.94
+  property real openingSpinDegrees: 104
+  property int openingFlightDuration: 1080
+  property real zoom: openingOverviewZoom
   property real minimumZoom: 0.94
   property real maximumZoom: 4.8
-  property real diameterRatio: 0.57
+  property real diameterRatio: 0.86
   property bool interactive: true
   property bool highResolutionEnabled: true
   property bool previewReady: false
 
   readonly property real baseDiameter: Math.max(1,
-    Math.min(height - 2, width * diameterRatio))
+    Math.min(width, height) * diameterRatio)
   readonly property real sphereDiameter: baseDiameter * zoom
   readonly property real sphereRadius: sphereDiameter / 2
   readonly property real centerX: width / 2
@@ -32,6 +35,7 @@ Item {
   readonly property bool shaderAvailable: globeEffect.status !== ShaderEffect.Error
   readonly property string shaderLog: globeEffect.log
   readonly property bool dragging: globeDrag.active
+  readonly property bool openingFlightRunning: openingMotion.running
   readonly property url previewTextureSource:
     Qt.resolvedUrl("../assets/world-map-preview.png")
   readonly property url textureSource: highResolutionEnabled
@@ -165,6 +169,7 @@ Item {
   }
 
   function setView(latitudeDegrees, longitudeDegrees, zoomValue) {
+    openingMotion.stop()
     focusMotion.stop()
     inertiaMotion.stop()
     latitude = clampLatitude(latitudeDegrees)
@@ -173,6 +178,7 @@ Item {
   }
 
   function focusOn(latitudeDegrees, longitudeDegrees, zoomValue) {
+    openingMotion.stop()
     inertiaMotion.stop()
     latitudeFocus.from = latitude
     latitudeFocus.to = clampLatitude(latitudeDegrees)
@@ -357,10 +363,41 @@ Item {
     focusOn(view.latitude, view.longitude, targetZoom)
   }
 
+  function showOpeningOverview(latitudeDegrees, longitudeDegrees) {
+    var targetLatitude = Math.max(-82, Math.min(82, Number(latitudeDegrees)))
+    var targetLongitude = Number(longitudeDegrees)
+    if (!isFinite(targetLatitude) || !isFinite(targetLongitude)) return false
+
+    stopMotion()
+    latitude = Math.max(-10, Math.min(10, targetLatitude * 0.16))
+    longitude = targetLongitude - openingSpinDegrees
+    zoom = clampZoom(openingOverviewZoom)
+    return true
+  }
+
   function settleOn(latitudeDegrees, longitudeDegrees) {
-    setView(clampLatitude(Number(latitudeDegrees) + 1.5), Number(longitudeDegrees) - 7,
-      openingZoom * 1.06)
-    focusOn(latitudeDegrees, longitudeDegrees, openingZoom)
+    // Match Hurricane Tracker's opening-flight contract exactly: a complete
+    // globe, 104 degrees of travel, and a comfortable 2.2x regional landing.
+    var targetLatitude = Math.max(-82, Math.min(82, Number(latitudeDegrees)))
+    var targetLongitude = Number(longitudeDegrees)
+    if (!showOpeningOverview(targetLatitude, targetLongitude)) return
+
+    // Treat rotation and zoom as one camera flight. Matching their duration
+    // and curve keeps the destination on one continuous approach instead of
+    // making the zoom read as a second movement.
+    openingLatitude.from = latitude
+    openingLatitude.to = targetLatitude
+    openingLongitude.from = longitude
+    openingLongitude.to = targetLongitude
+    openingZoomMotion.from = zoom
+    openingZoomMotion.to = clampZoom(openingZoom)
+    openingMotion.restart()
+  }
+
+  function stopMotion() {
+    openingMotion.stop()
+    focusMotion.stop()
+    inertiaMotion.stop()
   }
 
   function zoomBy(wheelDelta) {
@@ -459,6 +496,7 @@ Item {
 
     onActiveChanged: {
       if (active) {
+        openingMotion.stop()
         focusMotion.stop()
         inertiaMotion.stop()
         startLongitude = root.longitude
@@ -500,10 +538,36 @@ Item {
     onWheel: function(event) {
       var delta = root.normalizedWheelDelta(event.angleDelta.y, event.pixelDelta.y)
       if (delta === 0) return
+      openingMotion.stop()
       focusMotion.stop()
       inertiaMotion.stop()
       root.zoomBy(delta)
       event.accepted = true
+    }
+  }
+
+  ParallelAnimation {
+    id: openingMotion
+    NumberAnimation {
+      id: openingLatitude
+      target: root
+      property: "latitude"
+      duration: root.openingFlightDuration
+      easing.type: Easing.InOutSine
+    }
+    NumberAnimation {
+      id: openingLongitude
+      target: root
+      property: "longitude"
+      duration: root.openingFlightDuration
+      easing.type: Easing.InOutSine
+    }
+    NumberAnimation {
+      id: openingZoomMotion
+      target: root
+      property: "zoom"
+      duration: root.openingFlightDuration
+      easing.type: Easing.InOutSine
     }
   }
 

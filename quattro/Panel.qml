@@ -29,6 +29,7 @@ Panel {
     configured_count: 0,
     local_configured: false,
     pinned_timezone: null,
+    pinned_location: null,
     summary: ({ timezone: "", label: "", title: "", time: "--:--", date: "", day: "", notation: "", local_minutes: 0, relative_minutes: 0, relative_label: "Same time" }),
     clocks: [],
     timeline: [],
@@ -84,6 +85,7 @@ Panel {
   property double weatherLastAttemptAt: 0
   property string weatherDetailKey: ""
   property bool globeInitialized: false
+  property bool skipNextGlobeOpeningFlight: false
   property bool globeDetailRequested: false
   property bool searchVisible: false
   property bool keyboardCursorActive: false
@@ -392,6 +394,17 @@ Panel {
     focusAddField(seed === "")
   }
 
+  function enterAddMode(skipOpeningFlight) {
+    skipNextGlobeOpeningFlight = skipOpeningFlight === true
+    mode = "add"
+  }
+
+  function openSearchFromRead(initialText) {
+    if (mode !== "read") return
+    enterAddMode(true)
+    openSearch(initialText)
+  }
+
   function closeSearch() {
     searchVisible = false
     searchDebounce.stop()
@@ -410,7 +423,7 @@ Panel {
 
   function openAdd() {
     weatherDetailKey = ""
-    mode = "add"
+    enterAddMode(false)
     searchVisible = false
     var alreadyOpened = opened
     controller.show()
@@ -432,6 +445,7 @@ Panel {
     mapSelection = null
     mapClickPending = false
     globeInitialized = false
+    skipNextGlobeOpeningFlight = false
     keyboardCursorActive = false
     keyboardClockIndex = -1
     controller.hide()
@@ -488,13 +502,42 @@ Panel {
       base.a * (1 - ratio) + tint.a * ratio)
   }
 
+  function globeOpeningTarget() {
+    // The summary carries a saved place coordinate when one is known and the
+    // system timezone's representative coordinate otherwise.
+    if (hasMapCoordinate(summary)) return summary
+
+    var summaryTimezone = String(summary.timezone || snapshot.local_timezone || "")
+    for (var featuredIndex = 0; featuredIndex < featuredCities.length; featuredIndex++) {
+      var featured = featuredCities[featuredIndex]
+      if (String(featured.timezone || "") === summaryTimezone
+          && hasMapCoordinate(featured)) return featured
+    }
+
+    var pinnedIdentity = root.conversionSource(snapshot.pinned_location)
+    if (pinnedIdentity) {
+      for (var pinnedIndex = 0; pinnedIndex < mapClocks.length; pinnedIndex++) {
+        var pinned = mapClocks[pinnedIndex]
+        if (pinned.pinned === true
+            && root.conversionSource(pinned) === pinnedIdentity
+            && hasMapCoordinate(pinned)) return pinned
+      }
+    }
+
+    for (var clockIndex = 0; clockIndex < clocks.length; clockIndex++)
+      if (hasMapCoordinate(clocks[clockIndex])) return clocks[clockIndex]
+
+    // UTC has no geographic extent. Greenwich is the least surprising visual
+    // anchor when neither a place nor a configured timezone has a coordinate.
+    return ({ latitude: 51.4779, longitude: 0 })
+  }
+
   function initializeGlobe() {
-    if (globeInitialized || mode !== "add" || !snapshotLoaded) return
+    if (globeInitialized || !opened || mode !== "add" || !snapshotLoaded
+        || !mapCanvas.previewReady) return
+    var target = globeOpeningTarget()
     globeInitialized = true
-    if (hasMapCoordinate(summary))
-      mapCanvas.settleOn(summary.latitude, summary.longitude)
-    else
-      mapCanvas.settleOn(18, 0)
+    mapCanvas.settleOn(target.latitude, target.longitude)
   }
 
   function requestGlobeDetailWhenReady() {
@@ -1618,7 +1661,10 @@ Panel {
       clearTimelineHover()
       return
     }
-    if (mode === "add") Qt.callLater(root.requestGlobeDetailWhenReady)
+    if (mode === "add") {
+      Qt.callLater(root.initializeGlobe)
+      Qt.callLater(root.requestGlobeDetailWhenReady)
+    }
     refresh()
     requestWeather(false)
   }
@@ -1643,10 +1689,23 @@ Panel {
       cancelScrubPreview()
       clearTimelineHover()
       weatherDetailKey = ""
+      var skipOpeningFlight = skipNextGlobeOpeningFlight
+      skipNextGlobeOpeningFlight = false
       searchVisible = false
-      Qt.callLater(root.initializeGlobe)
+      globeInitialized = false
+      if (skipOpeningFlight) {
+        var target = globeOpeningTarget()
+        mapCanvas.showOpeningOverview(target.latitude, target.longitude)
+        globeInitialized = true
+      } else {
+        root.initializeGlobe()
+        Qt.callLater(root.initializeGlobe)
+      }
       Qt.callLater(root.requestGlobeDetailWhenReady)
     } else {
+      mapCanvas.stopMotion()
+      globeInitialized = false
+      skipNextGlobeOpeningFlight = false
       searchVisible = false
       addField.text = ""
       searchDebounce.stop()
@@ -1960,8 +2019,7 @@ Panel {
           return
         }
         if (root.mode === "read" && root.isLetterKey(text)) {
-          root.mode = "add"
-          root.openSearch(text)
+          root.openSearchFromRead(text)
           return
         }
         if (text === "a" || text === "A") root.mode = "add"
@@ -2162,7 +2220,7 @@ Panel {
                 tooltipText: "Add a location"
                 horizontalPadding: Style.space(8)
                 verticalPadding: Style.space(5)
-                onClicked: root.mode = "add"
+                onClicked: root.enterAddMode(false)
               }
 
               Button {
@@ -3341,7 +3399,7 @@ Panel {
               text: "Add a location"
               iconText: "󰐕"
               bordered: true
-              onClicked: root.mode = "add"
+              onClicked: root.enterAddMode(false)
             }
           }
 
@@ -4191,13 +4249,15 @@ Panel {
               interactive: !actionProcess.running
               highResolutionEnabled: root.opened && root.globeDetailRequested
               property var markerLayouts: root.globeLabelLayouts(width, height)
-              diameterRatio: 0.63
               oceanColor: root.mixColor(Color.background, root.contentForeground, 0.07)
               landColor: root.mixColor(Color.background, root.contentForeground, 0.68)
               boundaryColor: root.mixColor(Color.background, root.contentForeground, 0.40)
               rimColor: root.mixColor(Color.background, root.contentForeground, 0.28)
               onPreviewReadyChanged: {
-                if (previewReady) root.requestGlobeDetailWhenReady()
+                if (previewReady) {
+                  root.initializeGlobe()
+                  root.requestGlobeDetailWhenReady()
+                }
               }
               onLocationPicked: function(latitude, longitude, viewX, viewY) {
                 root.requestMapLocation(latitude, longitude, viewX, viewY)
@@ -4329,6 +4389,7 @@ Panel {
                   Rectangle {
                     id: cityLabel
                     visible: mapMarker.layout.labelVisible && !mapMarker.selected
+                    opacity: mapCanvas.openingFlightRunning ? 0 : 1
                     x: mapMarker.layout.x
                     y: mapMarker.layout.y
                     width: mapMarker.layout.width
@@ -4339,6 +4400,10 @@ Panel {
                       : cityMouse.containsMouse && mapMarker.selectable
                       ? Style.hoverFillFor(root.contentForeground, Color.accent)
                       : "transparent"
+
+                    Behavior on opacity {
+                      NumberAnimation { duration: 160; easing.type: Easing.OutQuint }
+                    }
 
                     Column {
                       anchors.leftMargin: Style.space(6)
@@ -4383,7 +4448,7 @@ Panel {
                     MouseArea {
                       id: cityMouse
                       anchors.fill: parent
-                      enabled: true
+                      enabled: !mapCanvas.openingFlightRunning
                       hoverEnabled: mapMarker.selectable
                       cursorShape: mapMarker.selectable
                         ? Qt.PointingHandCursor : Qt.ArrowCursor

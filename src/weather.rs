@@ -18,8 +18,8 @@ const OPEN_METEO_ATTRIBUTION_URL: &str = "https://open-meteo.com/";
 // shared 64 KiB response ceiling at this batch size. Keeping the batch bounded
 // also prevents one unusually verbose upstream response from discarding every
 // visible location at once.
-const OPEN_METEO_BATCH_SIZE: usize = 20;
-const HOURLY_FORECAST_COUNT: usize = 8;
+const OPEN_METEO_BATCH_SIZE: usize = 16;
+const HOURLY_FORECAST_COUNT: usize = 24;
 const DAILY_FORECAST_COUNT: usize = 4;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -57,6 +57,12 @@ pub struct HourlyWeather {
     pub is_day: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub precipitation_probability_percent: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub precipitation_mm: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub uv_index: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wind_speed_kmh: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -122,6 +128,12 @@ struct OpenMeteoHourly {
     is_day: Vec<i64>,
     #[serde(default)]
     precipitation_probability: Vec<Option<f64>>,
+    #[serde(default)]
+    precipitation: Vec<Option<f64>>,
+    #[serde(default)]
+    uv_index: Vec<Option<f64>>,
+    #[serde(default)]
+    wind_speed_10m: Vec<Option<f64>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -218,7 +230,7 @@ fn fetch_weather_response(
             ),
             (
                 "hourly",
-                "temperature_2m,precipitation_probability,weather_code,is_day",
+                "temperature_2m,precipitation_probability,precipitation,uv_index,wind_speed_10m,weather_code,is_day",
             ),
             (
                 "daily",
@@ -226,7 +238,7 @@ fn fetch_weather_response(
             ),
             ("temperature_unit", "celsius"),
             ("wind_speed_unit", "kmh"),
-            ("forecast_hours", "8"),
+            ("forecast_hours", "24"),
             ("forecast_days", "5"),
             ("timezone", "auto"),
         ])
@@ -439,6 +451,9 @@ fn hourly_weather_at(
             &hourly.precipitation_probability,
             index,
         ),
+        precipitation_mm: optional_finite(&hourly.precipitation, index),
+        uv_index: optional_finite(&hourly.uv_index, index),
+        wind_speed_kmh: optional_finite(&hourly.wind_speed_10m, index),
     })
 }
 
@@ -557,6 +572,9 @@ mod tests {
                 ],
                 "temperature_2m": [29.4, 30.1, 30.8, 31.0],
                 "precipitation_probability": [8, 12, 20, 18],
+                "precipitation": [0, 0.1, 1.2, 0.2],
+                "uv_index": [8.1, 7.5, 6.0, 4.0],
+                "wind_speed_10m": [14.8, 16.2, 18.1, 15.4],
                 "weather_code": [1, 2, 61, 2],
                 "is_day": [1, 1, 1, 1]
               },
@@ -606,6 +624,9 @@ mod tests {
             weather[0].hourly_forecast[2].precipitation_probability_percent,
             Some(20.0)
         );
+        assert_eq!(weather[0].hourly_forecast[2].precipitation_mm, Some(1.2));
+        assert_eq!(weather[0].hourly_forecast[2].uv_index, Some(6.0));
+        assert_eq!(weather[0].hourly_forecast[2].wind_speed_kmh, Some(18.1));
         assert_eq!(weather[0].hourly_forecast[2].condition, "Rain");
         assert_eq!(weather[0].forecast.len(), 4);
         assert_eq!(weather[0].forecast[0].date, "2026-08-22");

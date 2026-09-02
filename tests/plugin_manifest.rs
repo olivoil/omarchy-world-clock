@@ -104,6 +104,24 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel_path.is_file(), "missing {}", panel_path.display());
     let panel = fs::read_to_string(panel_path).expect("read native panel");
     assert_text_items_are_plain_text(&panel, "quattro/Panel.qml");
+    let weather_detail_path = qml_path.parent().unwrap().join("WeatherDetail.qml");
+    assert!(
+        weather_detail_path.is_file(),
+        "missing {}",
+        weather_detail_path.display()
+    );
+    let weather_detail =
+        fs::read_to_string(weather_detail_path).expect("read weather detail component");
+    assert_text_items_are_plain_text(&weather_detail, "quattro/WeatherDetail.qml");
+    let weather_graph_path = qml_path.parent().unwrap().join("WeatherMetricGraph.qml");
+    assert!(
+        weather_graph_path.is_file(),
+        "missing {}",
+        weather_graph_path.display()
+    );
+    let weather_graph =
+        fs::read_to_string(weather_graph_path).expect("read weather graph component");
+    assert_text_items_are_plain_text(&weather_graph, "quattro/WeatherMetricGraph.qml");
     assert!(!panel.contains("omarchy-world-clock-bin"));
     assert!(panel.contains("KeyboardPanel"));
     assert!(panel.contains("owner: root.barIdentity"));
@@ -746,22 +764,31 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("contentHeight: panel.fittedContentHeight("));
     assert!(panel.contains("if (root.weatherDetailOpen) root.dismissWeatherDetail()"));
     assert!(panel.contains("id: weatherDetailPage"));
-    assert!(panel.contains("id: weatherDetailBack"));
-    assert!(panel.contains("id: weatherDetailStats"));
-    assert!(panel.contains("id: weatherDetailFacts"));
-    assert!(panel.contains("id: weatherDetailFactGrid"));
-    assert!(panel.contains("id: weatherDetailHourlyRow"));
-    assert!(panel.contains("id: weatherDetailForecastRow"));
-    assert!(panel.contains("text: \"Hourly\""));
-    assert!(panel.contains("text: \"4-day forecast\""));
-    assert!(panel.contains("root.weatherDetailData.apparent_temperature_celsius"));
-    assert!(panel.contains("root.weatherDetailData.wind_speed_kmh"));
-    assert!(panel.contains("root.weatherDetailData.wind_direction_degrees"));
-    assert!(panel.contains("root.weatherDetailData.wind_gusts_kmh"));
-    assert!(panel.contains("root.weatherDetailData.relative_humidity_percent"));
-    assert!(panel.contains("root.weatherDetailData.pressure_hpa"));
-    assert!(panel.contains("root.weatherDetailData.visibility_meters"));
+    assert!(panel.contains("WeatherDetail {"));
+    assert!(weather_detail.contains("id: detailScroll"));
+    assert!(weather_detail.contains("id: hero"));
+    assert!(weather_detail.contains("id: phaseSection"));
+    assert!(weather_detail.contains("id: outlookSection"));
+    assert!(weather_detail.contains("id: graphSection"));
+    assert!(weather_detail.contains("text: \"TODAY BY PHASE\""));
+    assert!(weather_detail.contains("text: \"4-DAY OUTLOOK\""));
+    assert!(weather_detail.contains("text: \"24-HOUR DETAIL\""));
+    assert!(weather_detail.contains("text: \"SUN AND ATMOSPHERE\""));
+    assert!(weather_detail.contains("detail.weatherData.apparent_temperature_celsius"));
+    assert!(weather_detail.contains("detail.weatherData.wind_speed_kmh"));
+    assert!(weather_detail.contains("detail.weatherData.wind_direction_degrees"));
+    assert!(weather_detail.contains("detail.weatherData.wind_gusts_kmh"));
+    assert!(weather_detail.contains("detail.weatherData.relative_humidity_percent"));
+    assert!(weather_detail.contains("detail.weatherData.pressure_hpa"));
+    assert!(weather_detail.contains("detail.weatherData.visibility_meters"));
+    assert!(weather_detail.contains("hasHourlyField(\"uv_index\")"));
+    assert!(weather_detail.contains("hasHourlyField(\"wind_speed_kmh\")"));
+    assert!(weather_detail.contains("function precipitationRelevant()"));
+    assert!(weather_detail.contains("WeatherMetricGraph {"));
+    assert!(weather_graph.contains("item.precipitation_mm"));
+    assert!(weather_graph.contains("item.precipitation_probability_percent"));
     assert!(panel.contains("function weatherProbability(value)"));
+    assert!(panel.contains("function weatherPrecipitation(value)"));
     let weather_signature = panel
         .split("function weatherSignature()")
         .nth(1)

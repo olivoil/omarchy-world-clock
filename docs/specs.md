@@ -294,15 +294,18 @@ No separate World Clock 12/24-hour preference is stored.
   subtler fill so the local weather affordance remains distinct without
   competing with the time.
 - Activating that weather control replaces the clock surface in the same panel
-  with a compact current-conditions hero, feels-like temperature, directional
-  wind, humidity, rain chance, pressure, visibility, sunrise, sunset, UV,
-  eight hourly forecast points, and the next four local forecast days. This is
-  an inline panel state, not a nested popup or modal. The back action and
-  `Escape` restore the clock surface.
-- Weather detail uses a modestly narrower, content-fitted panel instead of
-  inheriting empty space from a long clock grid. It may resize once when
+  with the Field Notes forecast. Its opening view pairs current conditions with
+  a concise local narrative, then groups the next 12 hours into three phases.
+  A shared-scale four-day outlook aligns conditions, rain, low-to-high ranges,
+  and daily UV. Interactive 24-hour graphs cover temperature, relevant rain,
+  hourly UV, and wind before a final sun and atmosphere section. This is an
+  inline panel state, not a nested popup or modal. The back action and `Escape`
+  restore the clock surface.
+- Weather detail uses a modestly narrower, fixed-height frame with a stationary
+  location header and an internal scroll surface. It may resize once when
   entering or leaving detail, remains bounded by the shell's normal height cap,
-  and must not leave a large blank region below the forecast.
+  and preserves the approved spacing instead of compressing later sections to
+  avoid scrolling.
 - The summary timezone metadata, weather icon, and temperature share one
   centered row beneath the primary time.
 - Weather remains secondary to the clock and does not change card ordering.

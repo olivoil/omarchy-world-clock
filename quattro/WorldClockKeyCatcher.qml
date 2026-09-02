@@ -13,6 +13,9 @@ Item {
   signal activateRequested()
   signal closeRequested()
   signal deleteRequested()
+  signal editRequested()
+  signal liveRequested()
+  signal timelineRequested()
   signal tabRequested(int direction)
   signal textKey(string text)
 
@@ -31,6 +34,7 @@ Item {
     if (blocked) return
 
     var typedText = root.textForEvent(event)
+    var commandModifiers = Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier
 
     if (event.key === Qt.Key_Escape) {
       closeRequested(); event.accepted = true; return
@@ -42,7 +46,21 @@ Item {
       return
     }
 
-    var commandModifiers = Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier
+    if (event.key === Qt.Key_F2) {
+      editRequested(); event.accepted = true; return
+    }
+    if (event.key === Qt.Key_Home) {
+      liveRequested(); event.accepted = true; return
+    }
+    if (event.key === Qt.Key_Delete) {
+      deleteRequested(); event.accepted = true; return
+    }
+    if ((event.modifiers & Qt.ControlModifier)
+        && !(event.modifiers & (Qt.AltModifier | Qt.MetaModifier))
+        && event.key === Qt.Key_T) {
+      timelineRequested(); event.accepted = true; return
+    }
+
     if (directTextInput && typedText.length === 1
         && typedText.trim() !== ""
         && !(event.modifiers & commandModifiers)) {

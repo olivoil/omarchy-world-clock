@@ -61,7 +61,9 @@ Panel {
   property string searchResultsQuery: ""
   property string searchSubmitQuery: ""
   property var searchResults: []
+  property int searchResultIndex: -1
   property var mapSelection: null
+  property bool mapSelectionActionFocusPending: false
   property real mapRequestedLatitude: 0
   property real mapRequestedLongitude: 0
   property real mapLookupLatitude: 0
@@ -236,8 +238,10 @@ Panel {
     var entries = []
     for (var resultIndex = 0; resultIndex < searchResults.length; resultIndex++) {
       var result = searchResults[resultIndex]
-      if (root.hasMapCoordinate(result))
-        entries.push({ location: result, configured: false, searchResult: true })
+      var focusLocation = mapFocusLocation(result)
+      if (focusLocation)
+        entries.push({ location: focusLocation, selection: result,
+          configured: false, searchResult: true })
     }
     return entries
   }
@@ -397,8 +401,10 @@ Panel {
     searchResults = []
     searchResultsQuery = ""
     searchSubmitQuery = ""
+    searchResultIndex = -1
     addField.text = ""
     mapSelection = null
+    mapSelectionActionFocusPending = false
     mapClickPending = false
     editorActive = false
     keyCatcher.forceActiveFocus(Qt.ShortcutFocusReason)
@@ -425,8 +431,10 @@ Panel {
     searchResults = []
     searchResultsQuery = ""
     searchSubmitQuery = ""
+    searchResultIndex = -1
     searchVisible = false
     mapSelection = null
+    mapSelectionActionFocusPending = false
     mapClickPending = false
     globeInitialized = false
     skipNextGlobeOpeningFlight = false
@@ -618,9 +626,41 @@ Panel {
     headerTitle.beginLabelEdit(Qt.ShortcutFocusReason)
   }
 
+  function toggleEditMode() {
+    if (mode === "add" || actionProcess.running) return false
+    keyCatcher.forceActiveFocus(Qt.ShortcutFocusReason)
+    if (mode === "edit") {
+      mode = "read"
+      return true
+    }
+    var hadCursor = keyboardCursorActive
+    mode = "edit"
+    keyboardCursorActive = true
+    if (!hadCursor || keyboardClockIndex < -1 || keyboardClockIndex >= clocks.length)
+      keyboardClockIndex = -1
+    Qt.callLater(root.ensureKeyboardCursorVisible)
+    return true
+  }
+
+  function toggleKeyboardCursorPin() {
+    if (mode !== "edit" || !keyboardCursorActive || actionProcess.running)
+      return false
+    var clock = null
+    if (keyboardClockIndex < 0) {
+      if (!localTimezoneConfigured) return false
+      clock = summary
+    } else if (keyboardClockIndex < clocks.length) {
+      clock = clocks[keyboardClockIndex]
+    }
+    if (!clock) return false
+    togglePin(clock)
+    return true
+  }
+
   function activateKeyboardCursor() {
     if (mode === "add") {
-      openSearch()
+      if (mapSelection !== null) addMapSelection()
+      else openSearch()
       return
     }
     if (!keyboardCursorActive) {
@@ -1036,6 +1076,13 @@ Panel {
     if (convertProcess.running) convertActiveGeneration = -1
   }
 
+  function cancelTimeEditor(input, currentTime, source) {
+    if (!input) return
+    input.text = String(currentTime || "--:--")
+    timeInputEdited(source)
+    keyCatcher.forceActiveFocus(Qt.ShortcutFocusReason)
+  }
+
   function notifyHost() {
     if (hostWidget && typeof hostWidget.broadcast === "function")
       hostWidget.broadcast("refresh")
@@ -1171,8 +1218,9 @@ Panel {
 
   function runAction(name, timezone, result, value) {
     if (actionProcess.running) return false
-    if (name === "add" && result && hasMapCoordinate(result))
-      mapCanvas.focusOnLocations([result])
+    var focusLocation = mapFocusLocation(result)
+    if (name === "add" && focusLocation)
+      mapCanvas.focusOnLocations([focusLocation])
     actionName = name
     var command = [backendCommand, name]
     command.push(String(timezone || ""))
@@ -1216,7 +1264,9 @@ Panel {
 
   function searchTextChanged() {
     mapSelection = null
+    mapSelectionActionFocusPending = false
     mapClickPending = false
+    searchResultIndex = -1
     if (!searchVisible) {
       searchDebounce.stop()
       searchResults = []
@@ -1247,13 +1297,69 @@ Panel {
     searchProcess.running = true
   }
 
-  function selectFirstResult() {
+  function focusSearchResult(index) {
+    if (mode !== "add" || !searchVisible || searchResults.length === 0)
+      return false
+    var boundedIndex = Math.max(0, Math.min(searchResults.length - 1,
+      Math.round(Number(index))))
+    if (!isFinite(boundedIndex)) boundedIndex = 0
+    searchResultIndex = boundedIndex
+    mapSelection = null
+    mapSelectionActionFocusPending = false
+    var result = searchResults[searchResultIndex]
+    var focusLocation = mapFocusLocation(result)
+    if (focusLocation) mapCanvas.focusOnLocations([focusLocation])
+    Qt.callLater(function() {
+      if (root.searchVisible && root.searchResultIndex === boundedIndex)
+        searchResultList.positionViewAtIndex(boundedIndex, ListView.Contain)
+    })
+    return true
+  }
+
+  function moveSearchResultSelection(direction) {
+    if (searchResults.length === 0) return false
+    var currentIndex = searchResultIndex >= 0 ? searchResultIndex : 0
+    return focusSearchResult(currentIndex + Number(direction || 0))
+  }
+
+  function addMapSelection() {
+    if (mode !== "add" || mapSelection === null || actionProcess.running)
+      return false
+    return root.runAction("add", root.mapSelection.timezone,
+      root.mapSelection)
+  }
+
+  function completeMapSelectionActionFocus() {
+    if (!mapSelectionActionFocusPending) return
+    if (!opened || mode !== "add" || mapSelection === null) {
+      mapSelectionActionFocusPending = false
+      return
+    }
+    if (!mapSelectionCard.visible || !mapSelectionAddButton.enabled) return
+    mapSelectionActionFocusPending = false
+    mapSelectionAddButton.forceActiveFocus(Qt.ShortcutFocusReason)
+  }
+
+  function focusMapSelectionAction() {
+    mapSelectionActionFocusPending = true
+    Qt.callLater(root.completeMapSelectionActionFocus)
+  }
+
+  function acceptSearchResult() {
     var query = String(addField.text || "").trim()
     if (mode !== "add" || !searchVisible || !query
         || actionProcess.running) return
+    if (mapSelection !== null) {
+      addMapSelection()
+      return
+    }
     if (searchResultsQuery === query) {
-      if (searchResults.length > 0)
-        selectMapLocation(searchResults[0])
+      if (searchResults.length > 0) {
+        var activeIndex = searchResultIndex >= 0 ? searchResultIndex : 0
+        focusSearchResult(activeIndex)
+        selectMapLocation(searchResults[activeIndex])
+        focusMapSelectionAction()
+      }
       return
     }
     searchSubmitQuery = query
@@ -1269,6 +1375,33 @@ Panel {
     return isFinite(latitude) && isFinite(longitude)
       && latitude >= -90 && latitude <= 90
       && longitude >= -180 && longitude <= 180
+  }
+
+  function mapFocusLocation(entry) {
+    if (!entry) return null
+    var usePrimaryCoordinate = hasMapCoordinate(entry)
+    var latitudeValue = usePrimaryCoordinate
+      ? entry.latitude : entry.focus_latitude
+    var longitudeValue = usePrimaryCoordinate
+      ? entry.longitude : entry.focus_longitude
+    if (latitudeValue === null || latitudeValue === undefined
+        || longitudeValue === null || longitudeValue === undefined) return null
+    var latitude = Number(latitudeValue)
+    var longitude = Number(longitudeValue)
+    if (!isFinite(latitude) || !isFinite(longitude)
+        || latitude < -90 || latitude > 90
+        || longitude < -180 || longitude > 180) return null
+    return {
+      timezone: entry.timezone,
+      title: entry.title,
+      subtitle: entry.subtitle,
+      latitude: latitude,
+      longitude: longitude,
+      time: entry.time,
+      day: entry.day,
+      notation: entry.notation,
+      relative_label: entry.relative_label
+    }
   }
 
   function mapRectsOverlap(left, right) {
@@ -1301,19 +1434,23 @@ Panel {
 
   function selectMapLocation(location) {
     if (!location) return
-    if (hasMapCoordinate(location)) {
-      var projection = mapCanvas.project(location.latitude, location.longitude)
+    mapSelectionActionFocusPending = false
+    var focusLocation = mapFocusLocation(location)
+    if (focusLocation) {
+      var projection = mapCanvas.project(focusLocation.latitude,
+        focusLocation.longitude)
       mapSelectionCardOnRight = projection.x < mapCanvas.width / 2
     }
     mapClickPending = false
     mapSelection = location
     clearStatus()
-    if (hasMapCoordinate(location)) mapCanvas.focusOnLocations([location])
+    if (focusLocation) mapCanvas.focusOnLocations([focusLocation])
   }
 
   function dismissMapSelection() {
     if (mapSelection === null) return
     mapSelection = null
+    mapSelectionActionFocusPending = false
     mapClickPending = false
     if (searchVisible) {
       closeSearch()
@@ -1642,6 +1779,8 @@ Panel {
         if (root.actionName === "add" && message.indexOf("already configured") >= 0)
           message = "That location is already added."
         root.setStatus(message, true)
+        if (root.actionName === "add" && root.mapSelection !== null)
+          root.focusMapSelectionAction()
         return
       }
       if (root.actionName === "add") {
@@ -1650,6 +1789,7 @@ Panel {
         root.searchResultsQuery = ""
         root.searchSubmitQuery = ""
         root.mapSelection = null
+        root.mapSelectionActionFocusPending = false
         root.mapClickPending = false
         root.mode = "read"
         root.editorActive = false
@@ -1699,11 +1839,12 @@ Panel {
           root.setStatus("No matching location.", false)
         } else {
           root.clearStatus()
-          mapCanvas.focusOnLocations(root.searchResults)
+          root.focusSearchResult(0)
           if (root.mode === "add"
               && root.searchSubmitQuery === root.searchResultsQuery) {
             root.searchSubmitQuery = ""
             root.selectMapLocation(root.searchResults[0])
+            root.focusMapSelectionAction()
           }
         }
       } catch (error) {
@@ -1769,6 +1910,39 @@ Panel {
     onTriggered: root.requestWeather(false)
   }
 
+  // Text inputs temporarily own active focus, so their key events do not
+  // reach the sibling panel dispatcher. Keep non-text panel commands active
+  // in that state without stealing editing keys such as Delete or Home while
+  // the clocks are already live.
+  Item {
+    id: editorShortcutLayer
+
+    Shortcut {
+      sequence: "F2"
+      context: Qt.WindowShortcut
+      enabled: root.opened && root.editorActive
+        && (root.mode === "read" || root.mode === "edit")
+        && !actionProcess.running
+      onActivated: root.toggleEditMode()
+    }
+
+    Shortcut {
+      sequence: "Ctrl+T"
+      context: Qt.WindowShortcut
+      enabled: root.opened && root.editorActive && root.mode === "read"
+        && root.scrubReady
+      onActivated: root.focusTimeRail()
+    }
+
+    Shortcut {
+      sequence: "Home"
+      context: Qt.WindowShortcut
+      enabled: root.opened && root.editorActive && root.mode === "read"
+        && (!root.live || root.scrubPreviewActive)
+      onActivated: root.returnToLive()
+    }
+  }
+
   KeyboardPanel {
     id: panel
     anchorItem: root.anchorItem
@@ -1789,6 +1963,9 @@ Panel {
       onMoveRequested: function(dx, dy) { root.moveKeyboardCursor(dx, dy) }
       onActivateRequested: root.activateKeyboardCursor()
       onDeleteRequested: root.deleteKeyboardCursor()
+      onEditRequested: root.toggleEditMode()
+      onLiveRequested: root.returnToLive()
+      onTimelineRequested: root.focusTimeRail()
       onCloseRequested: {
         if (root.mapSelection !== null) root.dismissMapSelection()
         else if (root.mode === "add" && root.searchVisible) root.closeSearch()
@@ -1807,6 +1984,11 @@ Panel {
           }
           return
         }
+        if (root.mode === "edit") {
+          if (text === "p" || text === "P") root.toggleKeyboardCursorPin()
+          else if (text === "e" || text === "E") root.toggleEditMode()
+          return
+        }
         if (root.mode === "read" && /^[0-9]$/.test(text)) {
           root.focusSummaryEditor(text)
           return
@@ -1815,10 +1997,6 @@ Panel {
           root.openSearchFromRead(text)
           return
         }
-        if (text === "a" || text === "A") root.mode = "add"
-        else if (text === "e" || text === "E") root.mode = root.mode === "edit" ? "read" : "edit"
-        else if (text === "r" || text === "R") root.returnToLive()
-        else if (text === "s" || text === "S") root.focusTimeRail()
       }
 
       // Observe pointer taps without covering the controls below. Empty
@@ -1866,7 +2044,7 @@ Panel {
                 iconText: "󰑐"
                 active: !root.live || root.scrubPreviewActive
                 enabled: !actionProcess.running
-                tooltipText: "Return to live time"
+                tooltipText: "Return to live time (Home)"
                 horizontalPadding: Style.space(8)
                 verticalPadding: Style.space(5)
                 onClicked: root.returnToLive()
@@ -1898,7 +2076,7 @@ Panel {
                 enabled: !actionProcess.running
                 text: "UNPIN"
                 selected: true
-                tooltipText: "Remove this time from the bar"
+                tooltipText: "Remove this time from the bar (P in edit mode)"
                 fontSize: Style.font.caption
                 horizontalPadding: Style.space(6)
                 verticalPadding: Style.space(4)
@@ -2021,13 +2199,10 @@ Panel {
                 active: root.mode === "edit"
                 enabled: !actionProcess.running
                 tooltipText: root.mode === "edit"
-                  ? "Finish editing" : "Rename, pin, or remove locations"
+                  ? "Finish editing (F2)" : "Rename, pin, or remove locations (F2)"
                 horizontalPadding: Style.space(8)
                 verticalPadding: Style.space(5)
-                onClicked: {
-                  keyCatcher.forceActiveFocus(Qt.ShortcutFocusReason)
-                  root.mode = root.mode === "edit" ? "read" : "edit"
-                }
+                onClicked: root.toggleEditMode()
               }
             }
           }
@@ -2064,6 +2239,11 @@ Panel {
                 readOnly: convertProcess.running
                 onAccepted: root.convertFrom(root.summary.timezone, text, conversionSource)
                 onTextEdited: root.timeInputEdited(conversionSource)
+                Keys.onEscapePressed: function(event) {
+                  root.cancelTimeEditor(summaryInput, root.summary.time,
+                    conversionSource)
+                  event.accepted = true
+                }
                 onActiveFocusChanged: {
                   root.editorActive = activeFocus
                   root.timeEditorActive = activeFocus
@@ -2453,7 +2633,7 @@ Panel {
                 Accessible.role: Accessible.Slider
                 Accessible.name: "Compare times across the day"
                 Accessible.description:
-                  "Press S to focus, then use Left and Right. Press Enter to set the time, or drag or scroll the ruler."
+                  "Press Ctrl+T to focus, then use Left and Right. Press Enter to set the time, or drag or scroll the ruler."
                 property real pressX: 0
                 property int pressSlotIndex: -1
                 property bool dragged: false
@@ -2860,8 +3040,8 @@ Panel {
                               selected: clockCell.clockData.pinned === true
                               enabled: !actionProcess.running
                               tooltipText: clockCell.clockData.pinned
-                                ? "Remove this time from the bar"
-                                : "Keep this time visible in the bar"
+                                ? "Remove this time from the bar (P)"
+                                : "Keep this time visible in the bar (P)"
                               fontSize: Style.font.caption
                               horizontalPadding: Style.space(5)
                               verticalPadding: Style.space(3)
@@ -2872,7 +3052,7 @@ Panel {
                               iconText: "󰆴"
                               enabled: root.canRemove && !actionProcess.running
                               tooltipText: root.canRemove
-                                ? "Remove location" : "Keep at least one timezone"
+                                ? "Remove location (Delete)" : "Keep at least one timezone"
                               foreground: root.contentForeground
                               hoverColor: Color.urgent
                               fontFamily: root.contentFontFamily
@@ -2902,6 +3082,11 @@ Panel {
                           onAccepted: root.convertFrom(
                             clockCell.clockData.timezone, text, conversionSource)
                           onTextEdited: root.timeInputEdited(conversionSource)
+                          Keys.onEscapePressed: function(event) {
+                            root.cancelTimeEditor(cardTimeInput,
+                              clockCell.clockData.time, conversionSource)
+                            event.accepted = true
+                          }
                           onActiveFocusChanged: {
                             root.editorActive = activeFocus
                             root.timeEditorActive = activeFocus
@@ -3201,9 +3386,16 @@ Panel {
                 placeholderText: "Search for a city or timezone"
                 foreground: root.contentForeground
                 enabled: root.searchVisible && !actionProcess.running
+                Keys.priority: Keys.BeforeItem
                 onTextChanged: root.searchTextChanged()
-                onAccepted: root.selectFirstResult()
+                onAccepted: root.acceptSearchResult()
                 onActiveFocusChanged: root.editorActive = activeFocus
+                Keys.onDownPressed: function(event) {
+                  event.accepted = root.moveSearchResultSelection(1)
+                }
+                Keys.onUpPressed: function(event) {
+                  event.accepted = root.moveSearchResultSelection(-1)
+                }
                 Keys.onEscapePressed: function(event) {
                   if (root.mapSelection !== null) root.dismissMapSelection()
                   else root.closeSearch()
@@ -3359,15 +3551,16 @@ Panel {
                   interactive: contentHeight > height
                   clip: true
 
-                  delegate: Button {
+                  delegate: CursorSurface {
                     id: resultButton
+                    required property int index
                     required property var modelData
                     width: searchResultList.width
                     height: Style.space(48)
                     enabled: !actionProcess.running
-                    leftAlign: true
-                    text: ""
-                    onClicked: root.selectMapLocation(resultButton.modelData)
+                    hasCursor: resultButton.index === root.searchResultIndex
+                    foreground: root.contentForeground
+                    accent: Color.accent
 
                     Column {
                       anchors.left: parent.left
@@ -3396,6 +3589,21 @@ Panel {
                         font.family: root.contentFontFamily
                         font.pixelSize: Style.font.caption
                         elide: Text.ElideRight
+                      }
+                    }
+
+                    MouseArea {
+                      anchors.fill: parent
+                      hoverEnabled: true
+                      enabled: !actionProcess.running
+                      cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                      onPositionChanged: {
+                        if (resultButton.index !== root.searchResultIndex)
+                          root.focusSearchResult(resultButton.index)
+                      }
+                      onClicked: {
+                        root.focusSearchResult(resultButton.index)
+                        root.selectMapLocation(resultButton.modelData)
                       }
                     }
                   }
@@ -3430,6 +3638,7 @@ Panel {
                   required property int index
                   required property var modelData
                   readonly property var location: modelData.location
+                  readonly property var selection: modelData.selection || location
                   readonly property bool configured: modelData.configured === true
                   readonly property bool searchResult: modelData.searchResult === true
                   readonly property bool selectable: !configured
@@ -3526,7 +3735,7 @@ Panel {
                         ? Qt.PointingHandCursor : Qt.ArrowCursor
                       onClicked: {
                         if (mapMarker.selectable)
-                          root.selectMapLocation(mapMarker.location)
+                          root.selectMapLocation(mapMarker.selection)
                       }
                     }
                   }
@@ -3575,7 +3784,7 @@ Panel {
                         ? Qt.PointingHandCursor : Qt.ArrowCursor
                       onClicked: {
                         if (mapMarker.selectable)
-                          root.selectMapLocation(mapMarker.location)
+                          root.selectMapLocation(mapMarker.selection)
                       }
                     }
                   }
@@ -3584,8 +3793,10 @@ Panel {
 
               Rectangle {
                 id: mapSelectionPin
-                readonly property var projection: root.hasMapCoordinate(root.mapSelection)
-                  ? mapCanvas.project(root.mapSelection.latitude, root.mapSelection.longitude)
+                readonly property var focusLocation:
+                  root.mapFocusLocation(root.mapSelection)
+                readonly property var projection: focusLocation
+                  ? mapCanvas.project(focusLocation.latitude, focusLocation.longitude)
                   : ({ x: 0, y: 0, visible: false })
                 visible: root.mapSelection !== null && projection.visible
                 z: 31
@@ -3612,13 +3823,18 @@ Panel {
                 readonly property real edgeInset: Style.space(12)
                 readonly property real topInset: Style.space(84)
                 readonly property real pointGap: Style.space(22)
-                readonly property var projection: root.hasMapCoordinate(root.mapSelection)
-                  ? mapCanvas.project(root.mapSelection.latitude, root.mapSelection.longitude)
+                readonly property var focusLocation:
+                  root.mapFocusLocation(root.mapSelection)
+                readonly property var projection: focusLocation
+                  ? mapCanvas.project(focusLocation.latitude, focusLocation.longitude)
                   : ({ x: mapCanvas.width / 2, y: mapCanvas.height / 2, visible: false })
                 readonly property real preferredX: root.mapSelectionCardOnRight
                   ? projection.x + pointGap : projection.x - width - pointGap
                 visible: root.mode === "add" && root.mapSelection !== null
                   && !mapProcess.running
+                onVisibleChanged: {
+                  if (visible) root.completeMapSelectionActionFocus()
+                }
                 z: 32
                 width: Math.min(Style.space(252), parent.width - edgeInset * 2)
                 height: mapSelectionContent.implicitHeight + Style.space(32)
@@ -3741,8 +3957,9 @@ Panel {
                     fontSize: Style.font.title
                     horizontalPadding: Style.space(12)
                     verticalPadding: Style.space(8)
-                    onClicked: root.runAction("add", root.mapSelection.timezone,
-                      root.mapSelection)
+                    Accessible.name: "Add selected location"
+                    Accessible.description: "Press Enter or Space to add"
+                    onClicked: root.addMapSelection()
                   }
                 }
               }

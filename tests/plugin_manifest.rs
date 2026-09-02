@@ -196,11 +196,29 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     ));
     assert!(panel.contains("id: mapSelectionCard"));
     assert!(panel.contains("id: mapSelectionAddButton"));
-    assert!(panel.contains("root.selectMapLocation(mapMarker.location)"));
-    assert!(panel.contains("onClicked: root.selectMapLocation(resultButton.modelData)"));
-    assert!(panel.contains("function selectFirstResult()"));
-    assert!(panel.contains("onAccepted: root.selectFirstResult()"));
-    assert!(panel.contains("selectMapLocation(searchResults[0])"));
+    assert!(panel.contains("root.selectMapLocation(mapMarker.selection)"));
+    assert!(panel.contains("property int searchResultIndex: -1"));
+    assert!(panel.contains("function focusSearchResult(index)"));
+    assert!(panel.contains("function moveSearchResultSelection(direction)"));
+    assert!(panel.contains("function acceptSearchResult()"));
+    assert!(panel.contains("onAccepted: root.acceptSearchResult()"));
+    assert!(panel.contains("Keys.priority: Keys.BeforeItem"));
+    assert!(panel.contains("Keys.onDownPressed: function(event)"));
+    assert!(panel.contains("Keys.onUpPressed: function(event)"));
+    assert!(panel.contains("root.moveSearchResultSelection(1)"));
+    assert!(panel.contains("root.moveSearchResultSelection(-1)"));
+    assert!(panel.contains("searchResultList.positionViewAtIndex(boundedIndex, ListView.Contain)"));
+    assert!(panel.contains("function mapFocusLocation(entry)"));
+    assert!(panel.contains("var focusLocation = mapFocusLocation(result)"));
+    assert!(panel.contains("delegate: CursorSurface {"));
+    assert!(panel.contains("hasCursor: resultButton.index === root.searchResultIndex"));
+    assert!(panel.contains(
+        "onPositionChanged: {\n                        if (resultButton.index !== root.searchResultIndex)\n                          root.focusSearchResult(resultButton.index)"
+    ));
+    assert!(!panel.contains("hasCursor: selected"));
+    assert!(panel.contains("root.focusSearchResult(resultButton.index)"));
+    assert!(panel.contains("root.selectMapLocation(resultButton.modelData)"));
+    assert!(panel.contains("selectMapLocation(searchResults[activeIndex])"));
     assert!(panel.contains("root.selectMapLocation(root.searchResults[0])"));
     assert!(panel.contains("root.runAction(\"add\", root.mapSelection.timezone,"));
     assert!(panel.contains("message = \"That location is already added.\""));
@@ -506,7 +524,7 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("Keys.onLeftPressed"));
     assert!(panel.contains("Keys.onRightPressed"));
     assert!(panel.contains("function focusTimeRail()"));
-    assert!(panel.contains("else if (text === \"s\" || text === \"S\") root.focusTimeRail()"));
+    assert!(panel.contains("onTimelineRequested: root.focusTimeRail()"));
     assert!(panel.contains("root.lockScrubSelection()"));
     assert!(panel.contains("if (activeFocus) root.selectScrubSource(root.summary)"));
     assert!(panel.contains("root.selectScrubSource(clockCell.clockData)"));
@@ -626,8 +644,9 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(!panel
         .contains("tooltipText: root.searchVisible ? \"Close search\" : \"Search locations\""));
     assert!(!panel.contains("diameterRatio:"));
-    assert!(panel.contains("mapCanvas.focusOnLocations(root.searchResults)"));
-    assert!(panel.contains("mapCanvas.focusOnLocations([result])"));
+    assert!(panel.contains("root.focusSearchResult(0)"));
+    assert!(!panel.contains("mapCanvas.focusOnLocations(root.searchResults)"));
+    assert!(panel.contains("mapCanvas.focusOnLocations([focusLocation])"));
     assert!(panel.contains("command.push(\"--at\", String(snapshot.reference_utc))"));
     assert!(panel.contains("root.mode = \"read\""));
     assert!(panel.contains("font.pixelSize: Style.font.title"));
@@ -1091,4 +1110,82 @@ fn escape_unwinds_preview_and_locked_time_before_closing() {
     assert!(rail_escape.contains("wheelSlotRemainder = 0"));
     assert!(rail_escape.contains("wheelMovedSelection = false"));
     assert!(rail_escape.contains("root.dismissTransientTime()"));
+}
+
+#[test]
+fn add_confirmation_and_core_actions_are_keyboard_reachable() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let panel =
+        fs::read_to_string(root.join("quattro/Panel.qml")).expect("read native panel source");
+    let key_catcher = fs::read_to_string(root.join("quattro/WorldClockKeyCatcher.qml"))
+        .expect("read panel key catcher");
+
+    let accept_search = panel
+        .split("function acceptSearchResult() {")
+        .nth(1)
+        .and_then(|source| source.split("function hasMapCoordinate(").next())
+        .expect("search acceptance body");
+    assert!(accept_search.contains("if (mapSelection !== null)"));
+    assert!(accept_search.contains("addMapSelection()"));
+    assert!(accept_search.contains("focusMapSelectionAction()"));
+
+    let activate_cursor = panel
+        .split("function activateKeyboardCursor() {")
+        .nth(1)
+        .and_then(|source| source.split("function deleteKeyboardCursor() {").next())
+        .expect("keyboard activation body");
+    assert!(activate_cursor.contains("if (mapSelection !== null) addMapSelection()"));
+    assert!(panel.contains("function addMapSelection()"));
+    assert!(panel.contains("function focusMapSelectionAction()"));
+    assert!(panel.contains("mapSelectionAddButton.forceActiveFocus(Qt.ShortcutFocusReason)"));
+    assert!(panel.contains("onClicked: root.addMapSelection()"));
+
+    assert!(key_catcher.contains("signal editRequested()"));
+    assert!(key_catcher.contains("signal liveRequested()"));
+    assert!(key_catcher.contains("signal timelineRequested()"));
+    assert!(key_catcher.contains("event.key === Qt.Key_Delete"));
+    assert!(key_catcher.contains("event.key === Qt.Key_F2"));
+    assert!(key_catcher.contains("event.key === Qt.Key_Home"));
+    assert!(key_catcher.contains("event.key === Qt.Key_T"));
+    assert!(key_catcher.contains("event.modifiers & Qt.ControlModifier"));
+
+    assert!(panel.contains("onEditRequested: root.toggleEditMode()"));
+    assert!(panel.contains("onLiveRequested: root.returnToLive()"));
+    assert!(panel.contains("onTimelineRequested: root.focusTimeRail()"));
+    assert!(panel.contains("function toggleKeyboardCursorPin()"));
+    assert!(panel.contains("root.toggleKeyboardCursorPin()"));
+    assert!(panel.contains("Press Ctrl+T to focus"));
+}
+
+#[test]
+fn time_editors_can_be_cancelled_with_escape() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let panel =
+        fs::read_to_string(root.join("quattro/Panel.qml")).expect("read native panel source");
+
+    assert!(panel.contains("function cancelTimeEditor(input, currentTime, source)"));
+    assert_eq!(
+        panel.matches("root.cancelTimeEditor(").count(),
+        2,
+        "the summary and every recycled location time editor need Escape cancellation"
+    );
+    assert!(panel.contains("Keys.onEscapePressed: function(event)"));
+}
+
+#[test]
+fn editor_focus_keeps_non_text_shortcuts_reachable() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let panel =
+        fs::read_to_string(root.join("quattro/Panel.qml")).expect("read native panel source");
+
+    let shortcuts = panel
+        .split("id: editorShortcutLayer")
+        .nth(1)
+        .expect("focus-independent editor shortcuts");
+    assert!(shortcuts.contains("sequence: \"F2\""));
+    assert!(shortcuts.contains("sequence: \"Ctrl+T\""));
+    assert!(shortcuts.contains("sequence: \"Home\""));
+    assert!(shortcuts.contains("root.editorActive"));
+    assert!(shortcuts.contains("!root.live || root.scrubPreviewActive"));
+    assert!(!shortcuts.contains("sequence: \"Delete\""));
 }

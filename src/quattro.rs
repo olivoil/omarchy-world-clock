@@ -7,7 +7,7 @@ use crate::time::{
     zoned_datetime,
 };
 use crate::timezone_grid::timezone_at;
-use chrono::{DateTime, Duration, LocalResult, Offset, TimeZone, Timelike, Utc};
+use chrono::{DateTime, Duration, LocalResult, NaiveDate, Offset, TimeZone, Timelike, Utc};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, sync::OnceLock};
 
@@ -168,6 +168,12 @@ pub fn build_module_payload(
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct QuattroUtcOffsetState {
+    pub from_minute: u32,
+    pub utc_offset_seconds: i32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct QuattroClock {
     pub timezone: String,
     pub label: String,
@@ -178,6 +184,7 @@ pub struct QuattroClock {
     pub notation: String,
     pub local_minutes: u32,
     pub utc_offset_seconds: i32,
+    pub utc_offset_states: Vec<QuattroUtcOffsetState>,
     pub relative_minutes: i64,
     pub relative_label: String,
     pub latitude: Option<f64>,
@@ -323,6 +330,51 @@ fn day_label(reference_utc: DateTime<Utc>, local_timezone: &str, timezone: &str)
     }
 }
 
+fn daily_utc_offset_states(
+    timezone_name: &str,
+    date: NaiveDate,
+    fallback_offset_seconds: i32,
+) -> Vec<QuattroUtcOffsetState> {
+    let Some(timezone) = parse_timezone(timezone_name) else {
+        return vec![QuattroUtcOffsetState {
+            from_minute: 0,
+            utc_offset_seconds: fallback_offset_seconds,
+        }];
+    };
+    let mut states = Vec::new();
+    let mut previous_offset = None;
+    for minute in 0..24 * 60 {
+        let local = date
+            .and_hms_opt(minute / 60, minute % 60, 0)
+            .expect("a minute inside a day should be valid");
+        let localized = match timezone.from_local_datetime(&local) {
+            LocalResult::Single(value) => Some(value),
+            LocalResult::Ambiguous(first, second) => Some(first.min(second)),
+            LocalResult::None => None,
+        };
+        let Some(offset) = localized.map(|value| value.offset().fix().local_minus_utc()) else {
+            continue;
+        };
+        if previous_offset == Some(offset) {
+            continue;
+        }
+        states.push(QuattroUtcOffsetState {
+            from_minute: minute,
+            utc_offset_seconds: offset,
+        });
+        previous_offset = Some(offset);
+    }
+    if states.is_empty() {
+        states.push(QuattroUtcOffsetState {
+            from_minute: 0,
+            utc_offset_seconds: fallback_offset_seconds,
+        });
+    } else {
+        states[0].from_minute = 0;
+    }
+    states
+}
+
 fn clock_from_entry(
     entry: &TimezoneEntry,
     pinned_locations: &PinnedLocationIndex<'_>,
@@ -331,6 +383,7 @@ fn clock_from_entry(
     time_format: &str,
 ) -> QuattroClock {
     let zoned = zoned_datetime(reference_utc, &entry.timezone);
+    let utc_offset_seconds = zoned.offset().fix().local_minus_utc();
     let relative_minutes = wall_clock_delta_minutes(reference_utc, local_timezone, &entry.timezone);
     let (latitude, longitude) = place_coordinate(entry)
         .map(|(latitude, longitude)| (Some(latitude), Some(longitude)))
@@ -344,7 +397,12 @@ fn clock_from_entry(
         day: day_label(reference_utc, local_timezone, &entry.timezone),
         notation: format_timezone_notation(&zoned),
         local_minutes: zoned.hour() * 60 + zoned.minute(),
-        utc_offset_seconds: zoned.offset().fix().local_minus_utc(),
+        utc_offset_seconds,
+        utc_offset_states: daily_utc_offset_states(
+            &entry.timezone,
+            zoned.date_naive(),
+            utc_offset_seconds,
+        ),
         relative_minutes,
         relative_label: relative_label(relative_minutes),
         latitude,
@@ -875,6 +933,31 @@ mod tests {
         assert_eq!(snapshot.summary.local_minutes, 18 * 60 + 45);
         assert_eq!(snapshot.summary.utc_offset_seconds, -18_000);
         assert_eq!(snapshot.clocks[0].utc_offset_seconds, 19_800);
+    }
+
+    #[test]
+    fn snapshot_reports_daily_offset_transitions_for_solar_events() {
+        let config = AppConfig {
+            timezones: vec![entry("America/New_York", "New York")],
+            pinned_locations: vec![],
+            disable_open_meteo_geolocation: false,
+        };
+        let before_spring_forward = Utc.with_ymd_and_hms(2026, 3, 8, 6, 30, 0).unwrap();
+
+        let snapshot = build_snapshot(&config, before_spring_forward, "America/New_York", "24h");
+
+        assert_eq!(snapshot.summary.utc_offset_seconds, -18_000);
+        assert_eq!(snapshot.summary.utc_offset_states.len(), 2);
+        assert_eq!(snapshot.summary.utc_offset_states[0].from_minute, 0);
+        assert_eq!(
+            snapshot.summary.utc_offset_states[0].utc_offset_seconds,
+            -18_000
+        );
+        assert_eq!(snapshot.summary.utc_offset_states[1].from_minute, 3 * 60);
+        assert_eq!(
+            snapshot.summary.utc_offset_states[1].utc_offset_seconds,
+            -14_400
+        );
     }
 
     #[test]

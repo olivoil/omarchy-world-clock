@@ -91,6 +91,85 @@ const newYorkNight = context.localDaylight({
 assert.ok(newYorkNight.marker_light < 0.1,
   "a nighttime marker receives the cool end of the marker scale")
 
+const newYorkSpringForward = context.localDaylight({
+  date: "2026-03-08",
+  local_minutes: 90,
+  utc_offset_seconds: -5 * 60 * 60,
+  utc_offset_states: [
+    { from_minute: 0, utc_offset_seconds: -5 * 60 * 60 },
+    { from_minute: 3 * 60, utc_offset_seconds: -4 * 60 * 60 },
+  ],
+  latitude: 40.72,
+  longitude: -74.02,
+}, "2026-03-08T06:30:00Z")
+assert.equal(newYorkSpringForward.kind, "solar")
+assertNear(newYorkSpringForward.sunrise_minutes, 7 * 60 + 21, 3,
+  "sunrise uses the offset in force at the solar event")
+assertNear(newYorkSpringForward.solar_noon_minutes, 13 * 60 + 8, 3,
+  "solar noon uses the post-transition offset")
+
+const apiaDaylight = context.localDaylight({
+  date: "2026-08-31",
+  local_minutes: 12 * 60,
+  utc_offset_seconds: 13 * 60 * 60,
+  utc_offset_states: [
+    { from_minute: 0, utc_offset_seconds: 13 * 60 * 60 },
+  ],
+  latitude: -13.8333,
+  longitude: -171.75,
+}, "2026-08-30T23:00:00Z")
+assert.equal(apiaDaylight.kind, "solar",
+  "date-line locations normalize their solar cycle into the civil day")
+assert.ok(apiaDaylight.solar_noon_minutes > 11 * 60
+    && apiaDaylight.solar_noon_minutes < 14 * 60,
+  "date-line solar noon remains near local midday")
+
+const historicalManilaDaylight = context.localDaylight({
+  date: "1844-05-01",
+  local_minutes: 12 * 60,
+  utc_offset_seconds: -57368,
+  utc_offset_states: [
+    { from_minute: 0, utc_offset_seconds: -57368 },
+  ],
+  latitude: 14.6,
+  longitude: 120.98,
+}, "1844-05-02T03:56:08Z")
+assert.equal(historicalManilaDaylight.kind, "solar",
+  "historical IANA offsets beyond 15 hours retain their solar profile")
+assert.ok(historicalManilaDaylight.solar_noon_minutes > 11 * 60
+    && historicalManilaDaylight.solar_noon_minutes < 14 * 60,
+  "historical Manila solar noon remains near local midday")
+
+const historicalParisDaylight = context.localDaylight({
+  date: "1500-06-01",
+  local_minutes: 12 * 60,
+  utc_offset_seconds: 561,
+  utc_offset_states: [{ from_minute: 0, utc_offset_seconds: 561 }],
+  latitude: 48.8566,
+  longitude: 2.3522,
+}, "1500-06-01T11:50:39Z")
+assert.equal(historicalParisDaylight.kind, "solar",
+  "four-digit historical dates accepted by conversion retain their solar profile")
+assert.ok(context.parsedLocalDate("0000-02-29"),
+  "year zero avoids JavaScript's special Date.UTC handling for years below 100")
+
+const reykjavikSummer = context.localDaylight({
+  date: "2026-06-21",
+  local_minutes: 12 * 60,
+  utc_offset_seconds: 0,
+  utc_offset_states: [{ from_minute: 0, utc_offset_seconds: 0 }],
+  latitude: 64.1466,
+  longitude: -21.9426,
+}, "2026-06-21T12:00:00Z")
+assert.equal(reykjavikSummer.kind, "solar",
+  "near-midnight sunset retains the solar profile")
+assert.ok(reykjavikSummer.sunrise_minutes > reykjavikSummer.sunset_minutes,
+  "a daylight cycle crossing midnight keeps its wrapped event order")
+assert.equal(reykjavikSummer.daylight_intervals.length, 2,
+  "daylight crossing midnight is split at the ruler boundary")
+assert.equal(reykjavikSummer.curve_segments.length, 2,
+  "the clipped solar glow has one segment on each side of midnight")
+
 const newYorkWinter = context.localDaylight({
   date: "2026-12-21",
   local_minutes: 12 * 60,
@@ -224,6 +303,21 @@ const matchingLocations = {
     },
   ],
 }
+const springForwardOffsets = context.scrubOffsetStatesForDate({
+  slots: [
+    { reference_utc: "2026-03-08T06:45:00Z" },
+    { reference_utc: "2026-03-08T07:00:00Z" },
+  ],
+}, {
+  states: [
+    { from_slot: 0, utc_offset_seconds: -5 * 60 * 60 },
+    { from_slot: 1, utc_offset_seconds: -4 * 60 * 60 },
+  ],
+}, "2026-03-08")
+assert.deepEqual(Array.from(springForwardOffsets, state => ({ ...state })), [
+  { from_minute: 0, utc_offset_seconds: -5 * 60 * 60 },
+  { from_minute: 3 * 60, utc_offset_seconds: -4 * 60 * 60 },
+], "scrub previews retain the displayed date's offset transition")
 assert.equal(context.payloadMatchesSnapshot(matchingLocations, base), true,
   "ordered backend identities authenticate against the displayed snapshot")
 assert.equal(context.payloadMatchesSnapshot({

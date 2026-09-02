@@ -166,7 +166,7 @@ Panel {
       : rows * Style.space(104) + (rows - 1) * Style.space(14)
   }
   readonly property real comfortableRequiredHeight: panelHeader.height
-    + panelColumn.spacing + Style.space(92)
+    + panelColumn.spacing + summaryClock.height
     + (timelineView.visible ? Style.space(18) + Style.space(128) : 0)
     + (clocks.length > 0 ? Style.space(18) + comfortableClockGridHeight : 0)
   readonly property real readHeightLimit: {
@@ -1075,8 +1075,8 @@ Panel {
 
   function resetTimeOnPanelClose() {
     cancelScrubPreview()
-    if (live) return
     invalidateSnapshotRequests()
+    if (live) return
     invalidConversionSource = ""
     live = true
     requestLiveSnapshot()

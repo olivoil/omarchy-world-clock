@@ -119,6 +119,8 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(!panel.contains("maxClocks"));
     assert!(!panel.contains("canAddLocation"));
     assert!(panel.contains("readonly property bool autoCompactDensity"));
+    assert!(panel.contains("+ panelColumn.spacing + summaryClock.height"));
+    assert!(!panel.contains("+ panelColumn.spacing + Style.space(92)"));
     assert!(panel.contains("readonly property bool compactDensity"));
     let compact_density = panel
         .split("readonly property bool compactDensity:")
@@ -346,8 +348,9 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("readonly property var localDaylight:"));
     assert!(panel.contains("TimeRail.localDaylight(clockData, root.snapshot.reference_utc)"));
     assert!(panel.contains("daylight: clockCell.localDaylight"));
-    assert!(solar_arc.contains("daylight.curve_positions"));
-    assert!(solar_arc.contains("daylight.curve_heights"));
+    assert!(solar_arc.contains("daylight.curve_segments"));
+    assert!(solar_arc.contains("for (var segmentIndex = 0;"));
+    assert!(solar_arc.contains("root.curveHeightAt(dayPosition, curveSegments)"));
     assert!(!panel.contains("id: localSunriseCap"));
     assert!(!panel.contains("id: localSunsetCap"));
     assert!(solar_arc.contains("daylight.marker_light"));
@@ -982,6 +985,12 @@ fn closing_the_panel_discards_selected_time_and_requests_now() {
     let cancel_preview = reset_on_close
         .find("cancelScrubPreview()")
         .expect("closing must first cancel an in-progress preview");
+    let invalidate = reset_on_close
+        .find("invalidateSnapshotRequests()")
+        .expect("closing must invalidate pending conversions even while live");
+    let live_return = reset_on_close
+        .find("if (live) return")
+        .expect("closing may skip the live refresh after invalidation");
     let restore_live = reset_on_close
         .find("live = true")
         .expect("closing must discard a locked selected time");
@@ -989,7 +998,8 @@ fn closing_the_panel_discards_selected_time_and_requests_now() {
         .find("requestLiveSnapshot()")
         .expect("closing must refresh the live instant");
 
-    assert!(cancel_preview < restore_live && restore_live < request_now);
+    assert!(cancel_preview < invalidate && invalidate < live_return);
+    assert!(live_return < restore_live && restore_live < request_now);
 
     let opened_changed = panel
         .split("onOpenedChanged: {")

@@ -36,6 +36,7 @@ Panel {
   })
   property bool snapshotLoaded: false
   property bool summaryFocusPending: false
+  property bool summaryFocusScheduled: false
   property string summaryFocusSeed: ""
   property string mode: "read"
   property bool live: true
@@ -299,11 +300,11 @@ Panel {
   }
 
   function focusSummaryEditor(initialText) {
-    var seed = initialText === undefined
-      ? summaryFocusSeed : String(initialText || "")
-    if (initialText !== undefined) summaryFocusSeed = seed
+    if (initialText !== undefined)
+      summaryFocusSeed += String(initialText || "")
     if (mode !== "read") {
       summaryFocusPending = false
+      summaryFocusScheduled = false
       summaryFocusSeed = ""
       return
     }
@@ -312,14 +313,21 @@ Panel {
       return
     }
     summaryFocusPending = false
-    summaryFocusSeed = ""
+    if (summaryFocusScheduled) return
+    summaryFocusScheduled = true
     // Return is emitted while PanelKeyCatcher is still dispatching the key.
     // Hand focus over on the next event-loop turn so the catcher cannot take
     // it straight back, then select the live time for immediate replacement.
     // A digit typed into the unfocused panel has already been consumed by the
     // catcher, so apply it after focus moves to preserve that first character.
     Qt.callLater(function() {
-      if (!opened || mode !== "read") return
+      summaryFocusScheduled = false
+      if (!opened || mode !== "read") {
+        summaryFocusSeed = ""
+        return
+      }
+      var seed = summaryFocusSeed
+      summaryFocusSeed = ""
       summaryInput.forceActiveFocus(Qt.ShortcutFocusReason)
       summaryInput.selectAll()
       if (seed) {
@@ -328,6 +336,11 @@ Panel {
         root.timeInputEdited(summaryInput.conversionSource)
       }
     })
+  }
+
+  function restoreReadModeFocus() {
+    if (opened && mode === "read")
+      keyCatcher.forceActiveFocus(Qt.ShortcutFocusReason)
   }
 
   function isLetterKey(text) {
@@ -394,6 +407,7 @@ Panel {
     mode = "read"
     globeDetailRequested = false
     summaryFocusPending = false
+    summaryFocusScheduled = false
     summaryFocusSeed = ""
     searchResults = []
     searchResultsQuery = ""
@@ -1438,6 +1452,7 @@ Panel {
       searchSubmitQuery = ""
       mapSelection = null
       mapClickPending = false
+      if (mode === "read") Qt.callLater(root.restoreReadModeFocus)
     }
   }
   Process {
@@ -1578,6 +1593,11 @@ Panel {
         root.mapSelection = null
         root.mapClickPending = false
         root.mode = "read"
+        root.editorActive = false
+        // The search field owned focus when Add was submitted. It disappears
+        // with the mode change, so explicitly return focus to the read-mode
+        // dispatcher before the user begins another quick entry.
+        Qt.callLater(root.restoreReadModeFocus)
       }
       root.invalidateSnapshotRequests()
       root.requestSnapshot(root.live ? "" : String(root.snapshot.reference_utc || ""))

@@ -16,10 +16,21 @@ Item {
   signal tabRequested(int direction)
   signal textKey(string text)
 
+  function textForEvent(event) {
+    var value = String(event.text || "")
+    // Some keyboard/numpad paths expose a numeric Qt key without printable
+    // text. Preserve those digits for direct time entry as well.
+    if (!value && event.key >= Qt.Key_0 && event.key <= Qt.Key_9)
+      value = String(event.key - Qt.Key_0)
+    return value
+  }
+
   focus: true
   Keys.priority: Keys.BeforeItem
   Keys.onPressed: function(event) {
     if (blocked) return
+
+    var typedText = root.textForEvent(event)
 
     if (event.key === Qt.Key_Escape) {
       closeRequested(); event.accepted = true; return
@@ -32,24 +43,24 @@ Item {
     }
 
     var commandModifiers = Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier
-    if (directTextInput && event.text && event.text.length === 1
-        && event.text.trim() !== ""
+    if (directTextInput && typedText.length === 1
+        && typedText.trim() !== ""
         && !(event.modifiers & commandModifiers)) {
-      textKey(event.text)
+      textKey(typedText)
       event.accepted = true
       return
     }
 
-    if (event.key === Qt.Key_Down || event.text === "j") {
+    if (event.key === Qt.Key_Down || typedText === "j") {
       moveRequested(0, 1); event.accepted = true; return
     }
-    if (event.key === Qt.Key_Up || event.text === "k") {
+    if (event.key === Qt.Key_Up || typedText === "k") {
       moveRequested(0, -1); event.accepted = true; return
     }
-    if (event.key === Qt.Key_Right || event.text === "l") {
+    if (event.key === Qt.Key_Right || typedText === "l") {
       moveRequested(1, 0); event.accepted = true; return
     }
-    if (event.key === Qt.Key_Left || event.text === "h") {
+    if (event.key === Qt.Key_Left || typedText === "h") {
       moveRequested(-1, 0); event.accepted = true; return
     }
     if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
@@ -58,10 +69,10 @@ Item {
     if (event.key === Qt.Key_Space) {
       activateRequested(); event.accepted = true; return
     }
-    if (event.text === "x" || event.text === "X") {
+    if (typedText === "x" || typedText === "X") {
       deleteRequested(); event.accepted = true; return
     }
-    if (event.text && event.text.length === 1)
-      textKey(event.text)
+    if (typedText.length === 1)
+      textKey(typedText)
   }
 }

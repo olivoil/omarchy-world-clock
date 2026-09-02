@@ -75,7 +75,7 @@ The executable exposes a deliberately small command/JSON boundary:
 | `module` | bar tooltip, ordered coded pin clocks, compatibility handshake | JSON |
 | `snapshot` | complete read/edit model at now or `--at` | JSON |
 | `convert` | parse a local input and return a converted snapshot | JSON |
-| `weather` | fetch current conditions for visible coordinates at now or `--at` | JSON |
+| `weather` | fetch current conditions and a short forecast for visible coordinates at now or `--at` | JSON |
 | `search` | local search with optional remote fallback and live display context | JSON array |
 | `locate` | map coordinate to a timezone and display model | JSON/null |
 | `add` | persist a location | no output |
@@ -90,11 +90,16 @@ must be implemented in backend tests and QML together, then shipped in the
 same commit.
 
 Weather is deliberately outside the snapshot path. Clock refreshes remain
-local and deterministic, while the panel requests all current conditions in a
-single HTTPS call and keeps the last successful response for 15 minutes. A
-lightweight 30-second freshness check refreshes that response at its original
-expiry even when the panel closes and reopens. A weather timeout therefore
-cannot delay panel opening, minute ticks, or time conversion.
+local and deterministic, while the panel requests rich current conditions,
+the next eight local hourly points, and five daily records for every visible
+coordinate in bounded HTTPS batches and keeps the last successful response for
+15 minutes. The first daily record supplies today's high, low, sun times, rain
+chance, and UV maximum; the frontend presents the following four days as the
+outlook. Richer responses use smaller batches so each remains inside the shared
+response-size ceiling. A lightweight 30-second freshness check refreshes that
+response at its original expiry even when the panel closes and reopens. A
+weather timeout therefore cannot delay panel opening, minute ticks, or time
+conversion.
 
 Snapshots carry the effective unit inherited from `omarchy.weather`. An
 explicit `shell.json` unit wins; automatic mode resolves the configured Weather

@@ -269,13 +269,29 @@ No separate World Clock 12/24-hour preference is stored.
   row; the icon is slightly larger than its temperature. Units appear on the
   summary weather value, while card temperatures omit the repeated unit letter
   to stay quiet.
+- The weather icon and temperature form one padded drill-in target rather than
+  making the entire clock card actionable. The combined control has tooltip,
+  hover, focus, and pointing-cursor states. The ambient whole-card hover uses a
+  subtler fill so the local weather affordance remains distinct without
+  competing with the time.
+- Activating that weather control replaces the clock surface in the same panel
+  with a compact current-conditions hero, feels-like temperature, directional
+  wind, humidity, rain chance, pressure, visibility, sunrise, sunset, UV,
+  eight hourly forecast points, and the next four local forecast days. This is
+  an inline panel state, not a nested popup or modal. The back action and
+  `Escape` restore the clock surface.
+- Weather detail uses a modestly narrower, content-fitted panel instead of
+  inheriting empty space from a long clock grid. It may resize once when
+  entering or leaving detail, remains bounded by the shell's normal height cap,
+  and must not leave a large blank region below the forecast.
 - The summary timezone metadata, weather icon, and temperature share one
   centered row beneath the primary time.
 - Weather remains secondary to the clock and does not change card ordering.
 - Converted-time views hide weather because the conditions are current rather
   than historical or forecast data.
 - Missing coordinates or individual conditions produce a quiet unavailable
-  state without hiding the clock.
+  state without hiding the clock. Optional detail fields use a neutral dash
+  when the provider omits them.
 - A failed refresh keeps prior conditions visible with an update warning. An
   initial failure leaves the rest of the panel fully usable.
 - `disable_open_meteo_geolocation` remains the master privacy opt-out and

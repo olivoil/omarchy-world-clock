@@ -70,6 +70,10 @@ the AUR package is no longer required.
 - From the keyboard, press **S** to focus the ruler, use **Left/Right** to
   compare times, and press **Enter** to keep the selection.
 - Cards automatically become compact only when the large layout would not fit.
+- Click the weather icon and temperature beside the home time or on any
+  location card to open that place's current conditions, next eight hours,
+  and four-day outlook. Use **Escape** or the back button to return to the
+  clocks.
 - Select a displayed time and enter another time to convert the same instant
   across every visible place.
 - Use **plus** to open the full-panel globe. Start typing or select **search**
@@ -83,7 +87,9 @@ the AUR package is no longer required.
 - An interactive, DST-aware time scrubber with a fixed playhead, direct ruler
   dragging, trackpad and wheel input, plus explicit previous- and next-day
   overflow context.
-- Optional current temperature and conditions for every place with a known
+- Optional current temperature, conditions, feels-like temperature, humidity,
+  directional wind, rain chance, pressure, visibility, sunrise, sunset, UV,
+  an eight-hour forecast, and a four-day outlook for every place with a known
   coordinate.
 - Multiple named places in the same timezone, such as Boston and New York.
 - Personal labels for saved locations, such as a person's name or "Home".

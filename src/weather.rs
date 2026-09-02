@@ -11,7 +11,13 @@ use std::time::Duration;
 
 const OPEN_METEO_FORECAST_ENDPOINT: &str = "https://api.open-meteo.com/v1/forecast";
 const OPEN_METEO_ATTRIBUTION_URL: &str = "https://open-meteo.com/";
-const OPEN_METEO_BATCH_SIZE: usize = 50;
+// Rich current, hourly, and daily forecasts are still comfortably below the
+// shared 64 KiB response ceiling at this batch size. Keeping the batch bounded
+// also prevents one unusually verbose upstream response from discarding every
+// visible location at once.
+const OPEN_METEO_BATCH_SIZE: usize = 20;
+const HOURLY_FORECAST_COUNT: usize = 8;
+const DAILY_FORECAST_COUNT: usize = 4;
 
 #[derive(Debug, Clone, PartialEq)]
 struct WeatherLocation {
@@ -22,13 +28,63 @@ struct WeatherLocation {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
-pub struct LocationWeather {
-    pub timezone: String,
-    pub label: String,
+pub struct DailyWeather {
+    pub date: String,
+    pub temperature_max_celsius: f64,
+    pub temperature_min_celsius: f64,
+    pub weather_code: i64,
+    pub condition: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub precipitation_probability_percent: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sunrise: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sunset: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub uv_index_max: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct HourlyWeather {
+    pub time: String,
     pub temperature_celsius: f64,
     pub weather_code: i64,
     pub condition: &'static str,
     pub is_day: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub precipitation_probability_percent: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct LocationWeather {
+    pub timezone: String,
+    pub label: String,
+    pub temperature_celsius: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub apparent_temperature_celsius: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub relative_humidity_percent: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wind_speed_kmh: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wind_direction_degrees: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wind_gusts_kmh: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub precipitation_mm: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pressure_hpa: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub visibility_meters: Option<f64>,
+    pub weather_code: i64,
+    pub condition: &'static str,
+    pub is_day: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub today: Option<DailyWeather>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub hourly_forecast: Vec<HourlyWeather>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub forecast: Vec<DailyWeather>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -42,19 +98,55 @@ pub struct WeatherPayload {
 #[derive(Debug, Deserialize)]
 struct OpenMeteoCurrent {
     temperature_2m: f64,
+    apparent_temperature: Option<f64>,
+    relative_humidity_2m: Option<f64>,
+    wind_speed_10m: Option<f64>,
+    wind_direction_10m: Option<f64>,
+    wind_gusts_10m: Option<f64>,
+    precipitation: Option<f64>,
+    pressure_msl: Option<f64>,
+    visibility: Option<f64>,
     weather_code: i64,
     is_day: i64,
 }
 
 #[derive(Debug, Deserialize)]
+struct OpenMeteoHourly {
+    time: Vec<String>,
+    temperature_2m: Vec<f64>,
+    weather_code: Vec<i64>,
+    is_day: Vec<i64>,
+    #[serde(default)]
+    precipitation_probability: Vec<Option<f64>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenMeteoDaily {
+    time: Vec<String>,
+    weather_code: Vec<i64>,
+    temperature_2m_max: Vec<f64>,
+    temperature_2m_min: Vec<f64>,
+    #[serde(default)]
+    precipitation_probability_max: Vec<Option<f64>>,
+    #[serde(default)]
+    sunrise: Vec<String>,
+    #[serde(default)]
+    sunset: Vec<String>,
+    #[serde(default)]
+    uv_index_max: Vec<Option<f64>>,
+}
+
+#[derive(Debug, Deserialize)]
 struct OpenMeteoForecast {
     current: Option<OpenMeteoCurrent>,
+    hourly: Option<OpenMeteoHourly>,
+    daily: Option<OpenMeteoDaily>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
 enum OpenMeteoResponse {
-    One(OpenMeteoForecast),
+    One(Box<OpenMeteoForecast>),
     Many(Vec<OpenMeteoForecast>),
 }
 
@@ -115,9 +207,23 @@ fn fetch_weather_response(
         .query(&[
             ("latitude", latitudes),
             ("longitude", longitudes),
-            ("current", "temperature_2m,weather_code,is_day"),
+            (
+                "current",
+                "temperature_2m,apparent_temperature,relative_humidity_2m,precipitation,pressure_msl,visibility,wind_speed_10m,wind_direction_10m,wind_gusts_10m,weather_code,is_day",
+            ),
+            (
+                "hourly",
+                "temperature_2m,precipitation_probability,weather_code,is_day",
+            ),
+            (
+                "daily",
+                "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset,uv_index_max",
+            ),
             ("temperature_unit", "celsius"),
-            ("forecast_days", "1"),
+            ("wind_speed_unit", "kmh"),
+            ("forecast_hours", "8"),
+            ("forecast_days", "5"),
+            ("timezone", "auto"),
         ])
         .send()
         .context("could not reach Open-Meteo")?;
@@ -166,7 +272,7 @@ fn weather_from_response(
     locations: &[WeatherLocation],
 ) -> Result<Vec<LocationWeather>> {
     let forecasts = match response {
-        OpenMeteoResponse::One(forecast) => vec![forecast],
+        OpenMeteoResponse::One(forecast) => vec![*forecast],
         OpenMeteoResponse::Many(forecasts) => forecasts,
     };
     if forecasts.len() != locations.len() {
@@ -185,16 +291,121 @@ fn weather_from_response(
             if !current.temperature_2m.is_finite() {
                 return None;
             }
+            let today = forecast
+                .daily
+                .as_ref()
+                .and_then(|daily| daily_weather_at(daily, 0));
+            let daily_forecast = forecast
+                .daily
+                .as_ref()
+                .map(|daily| {
+                    (1..daily.time.len())
+                        .take(DAILY_FORECAST_COUNT)
+                        .filter_map(|index| daily_weather_at(daily, index))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let hourly_forecast = forecast
+                .hourly
+                .as_ref()
+                .map(|hourly| {
+                    let count = hourly
+                        .time
+                        .len()
+                        .min(hourly.temperature_2m.len())
+                        .min(hourly.weather_code.len())
+                        .min(hourly.is_day.len());
+                    (0..count)
+                        .take(HOURLY_FORECAST_COUNT)
+                        .filter_map(|index| hourly_weather_at(hourly, index))
+                        .collect()
+                })
+                .unwrap_or_default();
             Some(LocationWeather {
                 timezone: location.timezone.clone(),
                 label: location.label.clone(),
                 temperature_celsius: current.temperature_2m,
+                apparent_temperature_celsius: current
+                    .apparent_temperature
+                    .filter(|value| value.is_finite()),
+                relative_humidity_percent: current
+                    .relative_humidity_2m
+                    .filter(|value| value.is_finite()),
+                wind_speed_kmh: current.wind_speed_10m.filter(|value| value.is_finite()),
+                wind_direction_degrees: current
+                    .wind_direction_10m
+                    .filter(|value| value.is_finite()),
+                wind_gusts_kmh: current.wind_gusts_10m.filter(|value| value.is_finite()),
+                precipitation_mm: current.precipitation.filter(|value| value.is_finite()),
+                pressure_hpa: current.pressure_msl.filter(|value| value.is_finite()),
+                visibility_meters: current.visibility.filter(|value| value.is_finite()),
                 weather_code: current.weather_code,
                 condition: weather_condition(current.weather_code),
                 is_day: current.is_day != 0,
+                today,
+                hourly_forecast,
+                forecast: daily_forecast,
             })
         })
         .collect())
+}
+
+fn optional_finite(values: &[Option<f64>], index: usize) -> Option<f64> {
+    values
+        .get(index)
+        .copied()
+        .flatten()
+        .filter(|value| value.is_finite())
+}
+
+fn daily_weather_at(daily: &OpenMeteoDaily, index: usize) -> Option<DailyWeather> {
+    let maximum = *daily.temperature_2m_max.get(index)?;
+    let minimum = *daily.temperature_2m_min.get(index)?;
+    let weather_code = *daily.weather_code.get(index)?;
+    if !maximum.is_finite() || !minimum.is_finite() {
+        return None;
+    }
+    Some(DailyWeather {
+        date: daily.time.get(index)?.clone(),
+        temperature_max_celsius: maximum,
+        temperature_min_celsius: minimum,
+        weather_code,
+        condition: weather_condition(weather_code),
+        precipitation_probability_percent: optional_finite(
+            &daily.precipitation_probability_max,
+            index,
+        ),
+        sunrise: daily
+            .sunrise
+            .get(index)
+            .filter(|value| !value.is_empty())
+            .cloned(),
+        sunset: daily
+            .sunset
+            .get(index)
+            .filter(|value| !value.is_empty())
+            .cloned(),
+        uv_index_max: optional_finite(&daily.uv_index_max, index),
+    })
+}
+
+fn hourly_weather_at(hourly: &OpenMeteoHourly, index: usize) -> Option<HourlyWeather> {
+    let temperature = *hourly.temperature_2m.get(index)?;
+    let weather_code = *hourly.weather_code.get(index)?;
+    if !temperature.is_finite() {
+        return None;
+    }
+    Some(HourlyWeather {
+        time: hourly.time.get(index)?.clone(),
+        temperature_celsius: temperature,
+        weather_code,
+        condition: weather_condition(weather_code),
+        is_day: *hourly.is_day.get(index)? != 0,
+        precipitation_probability_percent: optional_finite(
+            &hourly.precipitation_probability,
+            index,
+        ),
+    })
 }
 
 fn weather_condition(code: i64) -> &'static str {
@@ -255,7 +466,41 @@ mod tests {
     fn single_location_weather_preserves_location_identity() {
         let locations = vec![location("America/Cancun", "Home")];
         let weather = parse_weather_response(
-            r#"{"current":{"temperature_2m":29.4,"weather_code":1,"is_day":1}}"#,
+            r#"{
+              "current": {
+                "temperature_2m": 29.4,
+                "apparent_temperature": 33.1,
+                "relative_humidity_2m": 72,
+                "wind_speed_10m": 14.8,
+                "wind_direction_10m": 82,
+                "wind_gusts_10m": 24.1,
+                "precipitation": 0.2,
+                "pressure_msl": 1013.6,
+                "visibility": 24140,
+                "weather_code": 1,
+                "is_day": 1
+              },
+              "hourly": {
+                "time": [
+                  "2026-08-21T10:00", "2026-08-21T11:00",
+                  "2026-08-21T12:00", "2026-08-21T13:00"
+                ],
+                "temperature_2m": [29.4, 30.1, 30.8, 31.0],
+                "precipitation_probability": [8, 12, 20, 18],
+                "weather_code": [1, 2, 61, 2],
+                "is_day": [1, 1, 1, 1]
+              },
+              "daily": {
+                "time": ["2026-08-21", "2026-08-22", "2026-08-23", "2026-08-24", "2026-08-25"],
+                "weather_code": [1, 2, 61, 3, 80],
+                "temperature_2m_max": [31.2, 30.4, 28.8, 29.1, 30.0],
+                "temperature_2m_min": [26.0, 25.5, 24.9, 25.1, 25.0],
+                "precipitation_probability_max": [18, 35, 82, 14, 65],
+                "sunrise": ["2026-08-21T06:28", "2026-08-22T06:28", "2026-08-23T06:29", "2026-08-24T06:29", "2026-08-25T06:29"],
+                "sunset": ["2026-08-21T19:12", "2026-08-22T19:11", "2026-08-23T19:10", "2026-08-24T19:09", "2026-08-25T19:08"],
+                "uv_index_max": [8.2, 7.8, 4.1, 8.0, 6.3]
+              }
+            }"#,
             &locations,
         )
         .unwrap();
@@ -264,8 +509,33 @@ mod tests {
         assert_eq!(weather[0].timezone, "America/Cancun");
         assert_eq!(weather[0].label, "Home");
         assert_eq!(weather[0].temperature_celsius, 29.4);
+        assert_eq!(weather[0].apparent_temperature_celsius, Some(33.1));
+        assert_eq!(weather[0].relative_humidity_percent, Some(72.0));
+        assert_eq!(weather[0].wind_speed_kmh, Some(14.8));
+        assert_eq!(weather[0].wind_direction_degrees, Some(82.0));
+        assert_eq!(weather[0].wind_gusts_kmh, Some(24.1));
+        assert_eq!(weather[0].precipitation_mm, Some(0.2));
+        assert_eq!(weather[0].pressure_hpa, Some(1013.6));
+        assert_eq!(weather[0].visibility_meters, Some(24140.0));
         assert_eq!(weather[0].condition, "Mostly clear");
         assert!(weather[0].is_day);
+        let today = weather[0].today.as_ref().unwrap();
+        assert_eq!(today.temperature_max_celsius, 31.2);
+        assert_eq!(today.precipitation_probability_percent, Some(18.0));
+        assert_eq!(today.sunrise.as_deref(), Some("2026-08-21T06:28"));
+        assert_eq!(today.sunset.as_deref(), Some("2026-08-21T19:12"));
+        assert_eq!(today.uv_index_max, Some(8.2));
+        assert_eq!(weather[0].hourly_forecast.len(), 4);
+        assert_eq!(weather[0].hourly_forecast[0].time, "2026-08-21T10:00");
+        assert_eq!(
+            weather[0].hourly_forecast[2].precipitation_probability_percent,
+            Some(20.0)
+        );
+        assert_eq!(weather[0].hourly_forecast[2].condition, "Rain");
+        assert_eq!(weather[0].forecast.len(), 4);
+        assert_eq!(weather[0].forecast[0].date, "2026-08-22");
+        assert_eq!(weather[0].forecast[0].temperature_max_celsius, 30.4);
+        assert_eq!(weather[0].forecast[3].weather_code, 80);
     }
 
     #[test]

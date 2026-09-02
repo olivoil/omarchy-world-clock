@@ -80,6 +80,7 @@ Panel {
   property string weatherAttemptSignature: ""
   property double weatherLastUpdatedAt: 0
   property double weatherLastAttemptAt: 0
+  property string weatherDetailKey: ""
   property bool globeInitialized: false
   property bool globeDetailRequested: false
   property bool searchVisible: false
@@ -130,6 +131,18 @@ Panel {
     && !root.scrubPreviewActive
     && weather.disabled !== true
     && (root.weatherLoading || root.weatherLocations.length > 0)
+  readonly property bool weatherDetailOpen: weatherDetailKey !== ""
+  readonly property var weatherDetailClock: root.clockForWeatherDetail()
+  readonly property var weatherDetailData: root.weatherFor(weatherDetailClock)
+  readonly property var weatherDetailForecast:
+    weatherDetailData && Array.isArray(weatherDetailData.forecast)
+      ? weatherDetailData.forecast : []
+  readonly property var weatherDetailHourlyForecast:
+    weatherDetailData && Array.isArray(weatherDetailData.hourly_forecast)
+      ? weatherDetailData.hourly_forecast : []
+  readonly property var weatherDetailToday:
+    weatherDetailData && weatherDetailData.today
+      ? weatherDetailData.today : null
   readonly property bool localDayRulersVisible:
     mode === "read" && (scrubPreviewActive || !live)
   readonly property int weatherRefreshMilliseconds: 15 * 60 * 1000
@@ -364,6 +377,7 @@ Panel {
   }
 
   function openAdd() {
+    weatherDetailKey = ""
     mode = "add"
     searchVisible = false
     var alreadyOpened = opened
@@ -374,6 +388,7 @@ Panel {
   function close() {
     cancelScrubPreview()
     mode = "read"
+    weatherDetailKey = ""
     globeDetailRequested = false
     summaryFocusPending = false
     searchResults = []
@@ -428,6 +443,15 @@ Panel {
       base.g * (1 - ratio) + tint.g * ratio,
       base.b * (1 - ratio) + tint.b * ratio,
       1)
+  }
+
+  function mixColorWithAlpha(base, tint, amount) {
+    var ratio = Math.max(0, Math.min(1, Number(amount)))
+    return Qt.rgba(
+      base.r * (1 - ratio) + tint.r * ratio,
+      base.g * (1 - ratio) + tint.g * ratio,
+      base.b * (1 - ratio) + tint.b * ratio,
+      base.a * (1 - ratio) + tint.a * ratio)
   }
 
   function initializeGlobe() {
@@ -488,6 +512,7 @@ Panel {
   }
 
   function moveKeyboardCursor(dx, dy) {
+    if (weatherDetailOpen) return
     if (mode === "add") {
       if (mapSelection !== null) dismissMapSelection()
       mapClickPending = false
@@ -543,6 +568,7 @@ Panel {
   }
 
   function activateKeyboardCursor() {
+    if (weatherDetailOpen) return
     if (mode === "add") {
       openSearch()
       return
@@ -565,7 +591,7 @@ Panel {
   }
 
   function deleteKeyboardCursor() {
-    if (mode !== "edit" || !keyboardCursorActive
+    if (weatherDetailOpen || mode !== "edit" || !keyboardCursorActive
         || keyboardClockIndex < 0 || keyboardClockIndex >= clocks.length
         || !canRemove || actionProcess.running) return
     removeClock(clocks[keyboardClockIndex])
@@ -597,6 +623,37 @@ Panel {
     var label = clock.label !== null && clock.label !== undefined
       ? clock.label : clock.title
     return String(clock.timezone || "") + "\u001f" + String(label || "")
+  }
+
+  function clockForWeatherDetail() {
+    if (!weatherDetailKey) return null
+    var entries = [summary].concat(clocks)
+    for (var index = 0; index < entries.length; index++)
+      if (conversionSource(entries[index]) === weatherDetailKey)
+        return entries[index]
+    return null
+  }
+
+  function showWeatherDetail(clock) {
+    if (mode === "add" || !weatherPresentationActive || !weatherFor(clock)) return
+    weatherDetailKey = conversionSource(clock)
+    keyboardCursorActive = false
+    keyboardClockIndex = -1
+    clearTimelineHover()
+    panelScroll.contentY = 0
+    Qt.callLater(function() {
+      if (opened && root.weatherDetailOpen)
+        keyCatcher.forceActiveFocus(Qt.ShortcutFocusReason)
+    })
+  }
+
+  function dismissWeatherDetail() {
+    if (!weatherDetailOpen) return
+    weatherDetailKey = ""
+    panelScroll.contentY = 0
+    Qt.callLater(function() {
+      if (opened) keyCatcher.forceActiveFocus(Qt.ShortcutFocusReason)
+    })
   }
 
   function scrubLocationSignature() {
@@ -798,7 +855,7 @@ Panel {
   }
 
   function focusTimeRail() {
-    if (mode !== "read" || !scrubReady) return
+    if (weatherDetailOpen || mode !== "read" || !scrubReady) return
     keyboardCursorActive = false
     keyboardClockIndex = -1
     panelScroll.contentY = 0
@@ -840,8 +897,13 @@ Panel {
     return null
   }
 
+  function weatherNumber(value) {
+    if (value === null || value === undefined || value === "") return NaN
+    return Number(value)
+  }
+
   function weatherTemperature(value) {
-    var celsius = Number(value)
+    var celsius = weatherNumber(value)
     if (!isFinite(celsius)) return ""
     var temperature = weatherUseImperial ? celsius * 9 / 5 + 32 : celsius
     return String(Math.round(temperature)) + "°" + (weatherUseImperial ? "F" : "C")
@@ -849,6 +911,130 @@ Panel {
 
   function weatherTemperatureCompact(value) {
     return weatherTemperature(value).replace(/[FC]$/, "")
+  }
+
+  function weatherTemperatureOrDash(value) {
+    return isFinite(weatherNumber(value)) ? weatherTemperature(value) : "—"
+  }
+
+  function weatherWind(value) {
+    var speed = weatherNumber(value)
+    if (!isFinite(speed)) return "—"
+    if (weatherUseImperial) return String(Math.round(speed * 0.621371)) + " mph"
+    return String(Math.round(speed)) + " km/h"
+  }
+
+  function weatherHumidity(value) {
+    var humidity = weatherNumber(value)
+    return isFinite(humidity) ? String(Math.round(humidity)) + "%" : "—"
+  }
+
+  function weatherProbability(value) {
+    var probability = weatherNumber(value)
+    return isFinite(probability) ? String(Math.round(probability)) + "%" : "—"
+  }
+
+  function weatherWindDirection(value) {
+    var degrees = weatherNumber(value)
+    if (!isFinite(degrees)) return ""
+    var directions = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
+    var index = Math.round(((degrees % 360) + 360) % 360 / 45) % 8
+    return directions[index]
+  }
+
+  function weatherWindDetailed(speedValue, directionValue, gustValue) {
+    var speed = weatherNumber(speedValue)
+    if (!isFinite(speed)) return "—"
+    var displaySpeed = weatherUseImperial ? speed * 0.621371 : speed
+    var direction = weatherWindDirection(directionValue)
+    var result = (direction ? direction + "  " : "")
+      + String(Math.round(displaySpeed))
+    var gust = weatherNumber(gustValue)
+    if (isFinite(gust) && gust > speed + 1) {
+      var displayGust = weatherUseImperial ? gust * 0.621371 : gust
+      result += "  ·  G" + String(Math.round(displayGust))
+    }
+    return result + (weatherUseImperial ? " mph" : " km/h")
+  }
+
+  function weatherPrecipitation(value) {
+    var millimeters = weatherNumber(value)
+    if (!isFinite(millimeters)) return ""
+    if (weatherUseImperial) return (millimeters / 25.4).toFixed(2) + " in"
+    return millimeters.toFixed(1) + " mm"
+  }
+
+  function weatherPressure(value) {
+    var pressure = weatherNumber(value)
+    if (!isFinite(pressure)) return "—"
+    if (weatherUseImperial) return (pressure * 0.0295299830714).toFixed(2) + " inHg"
+    return String(Math.round(pressure)) + " hPa"
+  }
+
+  function weatherVisibility(value) {
+    var meters = weatherNumber(value)
+    if (!isFinite(meters)) return "—"
+    if (weatherUseImperial) {
+      var miles = meters / 1609.344
+      return (miles < 10 ? miles.toFixed(1) : String(Math.round(miles))) + " mi"
+    }
+    var kilometers = meters / 1000
+    return (kilometers < 10 ? kilometers.toFixed(1)
+      : String(Math.round(kilometers))) + " km"
+  }
+
+  function weatherLocalTime(value) {
+    var match = String(value || "").match(/T(\d{2}):(\d{2})/)
+    if (!match) return "—"
+    var hour = Number(match[1])
+    var minute = match[2]
+    if (String(snapshot.time_format || "24h") !== "12h")
+      return String(match[1]) + ":" + minute
+    var suffix = hour >= 12 ? "PM" : "AM"
+    var displayHour = hour % 12
+    if (displayHour === 0) displayHour = 12
+    return String(displayHour) + ":" + minute + " " + suffix
+  }
+
+  function weatherHourlyTime(value, index) {
+    if (index === 0) return "NOW"
+    var formatted = weatherLocalTime(value)
+    if (formatted === "—") return formatted
+    return formatted.replace(":00", "")
+  }
+
+  function weatherUv(value) {
+    var uv = weatherNumber(value)
+    if (!isFinite(uv)) return "—"
+    var rounded = Math.round(uv)
+    var level = rounded >= 11 ? "Extreme"
+      : (rounded >= 8 ? "Very high"
+        : (rounded >= 6 ? "High" : (rounded >= 3 ? "Moderate" : "Low")))
+    return String(rounded) + "  " + level
+  }
+
+  function weatherNextHourProbability() {
+    if (weatherDetailHourlyForecast.length === 0) return "—"
+    var chance = weatherProbability(
+      weatherDetailHourlyForecast[0].precipitation_probability_percent)
+    var amount = root.weatherDetailData
+      ? weatherNumber(root.weatherDetailData.precipitation_mm) : NaN
+    if (isFinite(amount) && amount > 0)
+      return chance + "  ·  " + weatherPrecipitation(amount)
+    return chance
+  }
+
+  function weatherForecastDay(dateValue) {
+    var date = new Date(String(dateValue || "") + "T12:00:00")
+    return isNaN(date.getTime()) ? "" : Qt.formatDate(date, "ddd").toUpperCase()
+  }
+
+  function weatherForecastGlyph(item) {
+    return weatherGlyph({ weather_code: item ? item.weather_code : 3, is_day: true })
+  }
+
+  function weatherForecastGlyphColor(item) {
+    return weatherGlyphColor({ weather_code: item ? item.weather_code : 3, is_day: true })
   }
 
   // Match the weather-icons glyph vocabulary already used by Omarchy's
@@ -913,6 +1099,7 @@ Panel {
     weatherAttemptSignature = ""
     weatherLastUpdatedAt = 0
     weatherLastAttemptAt = 0
+    weatherDetailKey = ""
   }
 
   function requestWeather(force) {
@@ -1379,6 +1566,7 @@ Panel {
   onOpenedChanged: {
     if (!opened) {
       globeDetailRequested = false
+      weatherDetailKey = ""
       resetTimeOnPanelClose()
       clearTimelineHover()
       return
@@ -1407,6 +1595,7 @@ Panel {
     if (mode === "add") {
       cancelScrubPreview()
       clearTimelineHover()
+      weatherDetailKey = ""
       searchVisible = false
       Qt.callLater(root.initializeGlobe)
       Qt.callLater(root.requestGlobeDetailWhenReady)
@@ -1679,8 +1868,10 @@ Panel {
     open: root.opened
     centerOnBar: true
     focusTarget: keyCatcher
-    contentWidth: panel.fittedContentWidth(Style.space(960))
-    contentHeight: panel.fittedContentHeight(panelColumn.implicitHeight, Style.space(680))
+    contentWidth: panel.fittedContentWidth(
+      Style.space(root.weatherDetailOpen ? 840 : 960))
+    contentHeight: panel.fittedContentHeight(
+      panelColumn.implicitHeight, Style.space(680))
 
     WorldClockKeyCatcher {
       id: keyCatcher
@@ -1691,7 +1882,8 @@ Panel {
       onActivateRequested: root.activateKeyboardCursor()
       onDeleteRequested: root.deleteKeyboardCursor()
       onCloseRequested: {
-        if (root.mapSelection !== null) root.dismissMapSelection()
+        if (root.weatherDetailOpen) root.dismissWeatherDetail()
+        else if (root.mapSelection !== null) root.dismissMapSelection()
         else if (root.mode === "add" && root.searchVisible) root.closeSearch()
         else if (root.mode === "read") {
           if (!root.dismissTransientTime()) root.close()
@@ -1700,6 +1892,7 @@ Panel {
       }
       onTabRequested: function(direction) { root.switchPanel(direction) }
       onTextKey: function(text) {
+        if (root.weatherDetailOpen) return
         if (root.mode === "add") {
           if (!root.searchVisible) root.openSearch(text)
           else {
@@ -1738,11 +1931,12 @@ Panel {
         Column {
           id: panelColumn
           width: panelScroll.width
-          spacing: Style.space(root.mode === "add" ? 14 : 8)
+          spacing: Style.space(root.mode === "add" ? 14
+            : (root.weatherDetailOpen ? 0 : 8))
 
           Item {
             id: panelHeader
-            visible: root.mode !== "add"
+            visible: root.mode !== "add" && !root.weatherDetailOpen
             width: parent.width
             height: visible
               ? Math.max(headerTitle.implicitHeight, headerStart.implicitHeight,
@@ -1927,7 +2121,7 @@ Panel {
 
           Column {
             id: readPage
-            visible: root.mode !== "add"
+            visible: root.mode !== "add" && !root.weatherDetailOpen
             width: parent.width
             spacing: Style.space(18)
 
@@ -2007,12 +2201,22 @@ Panel {
                   font.pixelSize: Style.font.bodySmall
                 }
 
-                Item {
+                Button {
                   id: summaryWeatherLine
                   visible: root.weatherPresentationActive
-                  width: Math.max(summaryWeatherContent.implicitWidth,
-                    summaryWeatherSkeleton.implicitWidth)
-                  height: Style.space(16)
+                  enabled: summaryClock.weatherData !== null
+                  width: Math.max(summaryWeatherContent.implicitWidth
+                    + Style.space(8), summaryWeatherSkeleton.implicitWidth)
+                  height: Style.space(20)
+                  background: "transparent"
+                  focusable: enabled
+                  horizontalPadding: 0
+                  verticalPadding: 0
+                  tooltipText: enabled
+                    ? "Show weather for " + root.currentLocationTitle : ""
+                  Accessible.name: tooltipText
+                  Accessible.role: Accessible.Button
+                  onClicked: root.showWeatherDetail(root.summary)
 
                   Row {
                     id: summaryWeatherContent
@@ -2023,6 +2227,7 @@ Panel {
                     Text {
                       textFormat: Text.PlainText
                       id: summaryWeatherGlyph
+                      visible: summaryClock.weatherData !== null
                       anchors.verticalCenter: parent.verticalCenter
                       text: root.weatherGlyph(summaryClock.weatherData)
                       color: root.weatherGlyphColor(summaryClock.weatherData)
@@ -2623,14 +2828,18 @@ Panel {
                         id: clockSurface
                         anchors.fill: parent
                         radius: Style.cornerRadius
-                        color: clockCell.hasKeyboardCursor || clockCell.linkedHovered
-                          ? Style.hoverFillFor(root.contentForeground, Color.accent)
-                          : Style.normalFillFor(root.contentForeground, Color.accent)
-                        border.width: clockCell.hasKeyboardCursor || clockCell.linkedHovered
+                        readonly property color restingFill:
+                          Style.normalFillFor(root.contentForeground, Color.accent)
+                        readonly property color hoverFill:
+                          Style.hoverFillFor(root.contentForeground, Color.accent)
+                        color: clockCell.hasKeyboardCursor ? hoverFill
+                          : (clockCell.linkedHovered
+                            ? root.mixColorWithAlpha(restingFill, hoverFill, 0.18)
+                            : restingFill)
+                        border.width: clockCell.hasKeyboardCursor
                           ? Style.spacing.hairline : 0
-                        border.color: clockCell.hasKeyboardCursor
-                          ? Style.focusStateColor(root.contentForeground, Color.accent)
-                          : Style.hoverBorderFor(root.contentForeground, Color.accent)
+                        border.color:
+                          Style.focusStateColor(root.contentForeground, Color.accent)
 
                         Behavior on color { ColorAnimation { duration: 150 } }
                       }
@@ -2846,38 +3055,57 @@ Panel {
                             visible: clockCell.showWeather
                             anchors.right: parent.right
                             anchors.verticalCenter: parent.verticalCenter
-                            implicitWidth: Style.space(64)
-                            implicitHeight: Style.space(14)
+                            implicitWidth: Style.space(72)
+                            implicitHeight: Style.space(20)
                             width: visible ? implicitWidth : 0
                             height: implicitHeight
 
-                            Text {
-                              textFormat: Text.PlainText
-                              id: cardWeatherTemperature
+                            Button {
+                              id: cardWeatherButton
                               visible: clockCell.weatherData !== null
                               anchors.right: parent.right
                               anchors.verticalCenter: parent.verticalCenter
-                              text: clockCell.weatherData === null ? ""
-                                : root.weatherTemperatureCompact(
-                                  clockCell.weatherData.temperature_celsius)
-                              color: Qt.darker(root.contentForeground, 1.5)
-                              font.family: root.contentFontFamily
-                              font.pixelSize: Style.font.caption
-                              font.letterSpacing: 0.2
-                            }
+                              background: "transparent"
+                              focusable: true
+                              width: cardWeatherContent.implicitWidth + Style.space(10)
+                              height: Style.space(20)
+                              horizontalPadding: 0
+                              verticalPadding: 0
+                              tooltipText: "Show weather for "
+                                + String(clockCell.clockData.title || "location")
+                              Accessible.name: tooltipText
+                              Accessible.role: Accessible.Button
+                              onClicked: root.showWeatherDetail(clockCell.clockData)
 
-                            Text {
-                              textFormat: Text.PlainText
-                              id: cardWeatherGlyph
-                              visible: clockCell.weatherData !== null
-                              anchors.right: cardWeatherTemperature.left
-                              anchors.rightMargin: Style.space(4)
-                              anchors.baseline: cardWeatherTemperature.baseline
-                              text: clockCell.weatherData === null ? ""
-                                : root.weatherGlyph(clockCell.weatherData)
-                              color: root.weatherGlyphColor(clockCell.weatherData)
-                              font.family: root.contentFontFamily
-                              font.pixelSize: Style.font.bodySmall
+                              Row {
+                                id: cardWeatherContent
+                                anchors.centerIn: parent
+                                spacing: Style.space(4)
+
+                                Text {
+                                  textFormat: Text.PlainText
+                                  id: cardWeatherGlyph
+                                  anchors.verticalCenter: parent.verticalCenter
+                                  text: root.weatherGlyph(clockCell.weatherData)
+                                  color: root.weatherGlyphColor(clockCell.weatherData)
+                                  font.family: root.contentFontFamily
+                                  font.pixelSize: Style.font.bodySmall
+                                }
+
+                                Text {
+                                  textFormat: Text.PlainText
+                                  id: cardWeatherTemperature
+                                  anchors.verticalCenter: parent.verticalCenter
+                                  text: clockCell.weatherData
+                                    ? root.weatherTemperatureCompact(
+                                        clockCell.weatherData.temperature_celsius)
+                                    : ""
+                                  color: Qt.darker(root.contentForeground, 1.5)
+                                  font.family: root.contentFontFamily
+                                  font.pixelSize: Style.font.caption
+                                  font.letterSpacing: 0.2
+                                }
+                              }
                             }
 
                             Rectangle {
@@ -3051,6 +3279,613 @@ Panel {
               iconText: "󰐕"
               bordered: true
               onClicked: root.mode = "add"
+            }
+          }
+
+          Column {
+            id: weatherDetailPage
+            visible: root.mode !== "add" && root.weatherDetailOpen
+            width: parent.width
+            spacing: Style.space(12)
+
+            Item {
+              id: weatherDetailHeader
+              width: parent.width
+              height: Math.max(weatherDetailBack.implicitHeight,
+                weatherDetailTitle.implicitHeight,
+                weatherDetailAttribution.implicitHeight)
+
+              Button {
+                id: weatherDetailBack
+                anchors.left: parent.left
+                anchors.verticalCenter: parent.verticalCenter
+                iconText: "󰅁"
+                foreground: root.contentForeground
+                background: "transparent"
+                focusable: true
+                horizontalPadding: Style.space(8)
+                verticalPadding: Style.space(5)
+                tooltipText: "Back to world clock"
+                Accessible.name: tooltipText
+                Accessible.role: Accessible.Button
+                onClicked: root.dismissWeatherDetail()
+              }
+
+              Text {
+                textFormat: Text.PlainText
+                id: weatherDetailTitle
+                anchors.centerIn: parent
+                width: Math.max(0, parent.width
+                  - Math.max(weatherDetailBack.width,
+                    weatherDetailAttribution.width) * 2
+                  - Style.space(24))
+                horizontalAlignment: Text.AlignHCenter
+                elide: Text.ElideRight
+                text: root.weatherDetailClock
+                  ? String(root.weatherDetailClock.title
+                    || root.weatherDetailClock.label || "Weather")
+                  : "Weather"
+                color: root.contentForeground
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.space(18)
+                font.bold: true
+              }
+
+              Button {
+                id: weatherDetailAttribution
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                text: "Open-Meteo"
+                  + (root.weatherError ? "  ·  Update unavailable" : "")
+                foreground: Qt.darker(root.contentForeground, 1.35)
+                background: "transparent"
+                fontFamily: root.contentFontFamily
+                fontSize: Style.fontPx(0.75)
+                focusable: true
+                horizontalPadding: Style.space(4)
+                verticalPadding: Style.space(1)
+                tooltipText: "Weather data by Open-Meteo"
+                Accessible.name: tooltipText
+                Accessible.role: Accessible.Button
+                onClicked: Qt.openUrlExternally("https://open-meteo.com/")
+              }
+            }
+
+            Item {
+              id: weatherDetailHero
+              width: parent.width
+              height: Style.space(106)
+
+              Row {
+                id: weatherDetailHeroRow
+                anchors.centerIn: parent
+                spacing: Style.space(panelScroll.width >= Style.space(760) ? 42 : 24)
+
+                Row {
+                  id: weatherDetailReading
+                  anchors.verticalCenter: parent.verticalCenter
+                  spacing: Style.space(12)
+
+                  Text {
+                    textFormat: Text.PlainText
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: root.weatherGlyph(root.weatherDetailData) || "—"
+                    color: root.weatherGlyphColor(root.weatherDetailData)
+                    font.family: root.contentFontFamily
+                    font.pixelSize: Style.space(54)
+                  }
+
+                  Row {
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: Style.space(1)
+
+                    Text {
+                      id: weatherDetailTemperature
+                      textFormat: Text.PlainText
+                      text: root.weatherDetailData
+                        ? root.weatherTemperatureCompact(
+                          root.weatherDetailData.temperature_celsius)
+                        : "—"
+                      color: root.contentForeground
+                      font.family: root.contentFontFamily
+                      font.pixelSize: Style.space(48)
+                      font.bold: true
+                    }
+
+                    Text {
+                      textFormat: Text.PlainText
+                      visible: root.weatherDetailData !== null
+                      anchors.top: weatherDetailTemperature.top
+                      anchors.topMargin: Style.space(8)
+                      text: root.weatherUseImperial ? "F" : "C"
+                      color: root.contentForeground
+                      font.family: root.contentFontFamily
+                      font.pixelSize: Style.font.title
+                    }
+                  }
+                }
+
+                Column {
+                  id: weatherDetailContext
+                  anchors.verticalCenter: parent.verticalCenter
+                  spacing: Style.space(7)
+
+                  Text {
+                    textFormat: Text.PlainText
+                    text: root.weatherDetailData
+                      ? String(root.weatherDetailData.condition || "Current conditions")
+                        + (root.weatherDetailToday
+                          ? "  ·  H " + root.weatherTemperatureCompact(
+                              root.weatherDetailToday.temperature_max_celsius)
+                            + "  L " + root.weatherTemperatureCompact(
+                              root.weatherDetailToday.temperature_min_celsius)
+                          : "")
+                      : "Weather unavailable"
+                    color: root.contentForeground
+                    font.family: root.contentFontFamily
+                    font.pixelSize: Style.space(22)
+                    font.bold: true
+                  }
+
+                  Text {
+                    textFormat: Text.PlainText
+                    text: root.weatherDetailClock
+                      ? String(root.weatherDetailClock.time || "")
+                        + "  ·  "
+                        + root.clockDayLabel(root.weatherDetailClock).toUpperCase()
+                        + "  ·  "
+                        + String(root.weatherDetailClock.notation || "").toUpperCase()
+                        + "  ·  "
+                        + String(root.weatherDetailClock.timezone || "")
+                      : ""
+                    color: Qt.darker(root.contentForeground, 1.4)
+                    font.family: root.contentFontFamily
+                    font.pixelSize: Style.font.caption
+                    font.letterSpacing: 0.25
+                  }
+
+                  Row {
+                    id: weatherDetailStats
+                    spacing: Style.space(22)
+
+                    Row {
+                      spacing: Style.space(5)
+
+                      Text {
+                        id: weatherDetailFeelsLabel
+                        textFormat: Text.PlainText
+                        anchors.baseline: weatherDetailFeelsValue.baseline
+                        text: "Feels"
+                        color: Qt.darker(root.contentForeground, 1.5)
+                        font.family: root.contentFontFamily
+                        font.pixelSize: Style.font.caption
+                        font.letterSpacing: 0.2
+                      }
+
+                      Text {
+                        id: weatherDetailFeelsValue
+                        textFormat: Text.PlainText
+                        text: root.weatherDetailData
+                          ? root.weatherTemperatureOrDash(
+                            root.weatherDetailData.apparent_temperature_celsius)
+                          : "—"
+                        color: root.contentForeground
+                        font.family: root.contentFontFamily
+                        font.pixelSize: Style.font.bodySmall
+                        font.bold: true
+                      }
+                    }
+
+                    Row {
+                      spacing: Style.space(5)
+
+                      Text {
+                        id: weatherDetailWindLabel
+                        textFormat: Text.PlainText
+                        anchors.baseline: weatherDetailWindValue.baseline
+                        text: "Wind"
+                        color: Qt.darker(root.contentForeground, 1.5)
+                        font.family: root.contentFontFamily
+                        font.pixelSize: Style.font.caption
+                        font.letterSpacing: 0.2
+                      }
+
+                      Text {
+                        id: weatherDetailWindValue
+                        textFormat: Text.PlainText
+                        text: root.weatherDetailData
+                          ? root.weatherWindDetailed(
+                            root.weatherDetailData.wind_speed_kmh,
+                            root.weatherDetailData.wind_direction_degrees,
+                            root.weatherDetailData.wind_gusts_kmh) : "—"
+                        color: root.contentForeground
+                        font.family: root.contentFontFamily
+                        font.pixelSize: Style.font.bodySmall
+                        font.bold: true
+                      }
+                    }
+
+                    Row {
+                      spacing: Style.space(5)
+
+                      Text {
+                        id: weatherDetailHumidityLabel
+                        textFormat: Text.PlainText
+                        anchors.baseline: weatherDetailHumidityValue.baseline
+                        text: "Humidity"
+                        color: Qt.darker(root.contentForeground, 1.5)
+                        font.family: root.contentFontFamily
+                        font.pixelSize: Style.font.caption
+                        font.letterSpacing: 0.2
+                      }
+
+                      Text {
+                        id: weatherDetailHumidityValue
+                        textFormat: Text.PlainText
+                        text: root.weatherDetailData
+                          ? root.weatherHumidity(
+                            root.weatherDetailData.relative_humidity_percent) : "—"
+                        color: root.contentForeground
+                        font.family: root.contentFontFamily
+                        font.pixelSize: Style.font.bodySmall
+                        font.bold: true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+
+            Item {
+              id: weatherDetailFacts
+              width: parent.width
+              height: Style.space(58)
+
+              Grid {
+                id: weatherDetailFactGrid
+                anchors.fill: parent
+                anchors.leftMargin: Style.space(24)
+                anchors.rightMargin: Style.space(24)
+                columns: 3
+                columnSpacing: Style.space(28)
+                rowSpacing: Style.space(8)
+
+                Repeater {
+                  id: weatherDetailFactRepeater
+                  model: [
+                    {
+                      label: "Rain next hour",
+                      value: root.weatherNextHourProbability()
+                    },
+                    {
+                      label: "Sunrise",
+                      value: root.weatherDetailToday
+                        ? root.weatherLocalTime(root.weatherDetailToday.sunrise) : "—"
+                    },
+                    {
+                      label: "Sunset",
+                      value: root.weatherDetailToday
+                        ? root.weatherLocalTime(root.weatherDetailToday.sunset) : "—"
+                    },
+                    {
+                      label: "UV max",
+                      value: root.weatherDetailToday
+                        ? root.weatherUv(root.weatherDetailToday.uv_index_max) : "—"
+                    },
+                    {
+                      label: "Pressure",
+                      value: root.weatherDetailData
+                        ? root.weatherPressure(root.weatherDetailData.pressure_hpa) : "—"
+                    },
+                    {
+                      label: "Visibility",
+                      value: root.weatherDetailData
+                        ? root.weatherVisibility(root.weatherDetailData.visibility_meters) : "—"
+                    }
+                  ]
+
+                  Item {
+                    id: weatherDetailFactCell
+                    required property var modelData
+                    required property int index
+                    width: (weatherDetailFactGrid.width
+                      - weatherDetailFactGrid.columnSpacing * 2) / 3
+                    height: Style.space(25)
+
+                    Item {
+                      anchors.fill: parent
+
+                      Text {
+                        textFormat: Text.PlainText
+                        anchors.left: parent.left
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: String(weatherDetailFactCell.modelData.label || "")
+                        color: Qt.darker(root.contentForeground, 1.5)
+                        font.family: root.contentFontFamily
+                        font.pixelSize: Style.font.caption
+                        font.letterSpacing: 0.2
+                      }
+
+                      Text {
+                        textFormat: Text.PlainText
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: String(weatherDetailFactCell.modelData.value || "—")
+                        color: root.contentForeground
+                        font.family: root.contentFontFamily
+                        font.pixelSize: Style.font.bodySmall
+                        font.bold: true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+
+            Rectangle {
+              visible: root.weatherDetailHourlyForecast.length > 0
+              width: parent.width
+              height: Style.spacing.hairline
+              color: root.contentForeground
+              opacity: 0.08
+            }
+
+            Column {
+              id: weatherDetailHourlySection
+              visible: root.weatherDetailHourlyForecast.length > 0
+              width: parent.width
+              spacing: Style.space(8)
+
+              Text {
+                textFormat: Text.PlainText
+                x: Style.space(20)
+                text: "Hourly"
+                color: Qt.darker(root.contentForeground, 1.45)
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.font.bodySmall
+                font.bold: true
+                font.letterSpacing: 0.2
+              }
+
+              Item {
+                id: weatherDetailHourlyStrip
+                width: parent.width
+                height: Style.space(68)
+
+                Row {
+                  id: weatherDetailHourlyRow
+                  anchors.fill: parent
+                  anchors.leftMargin: Style.space(8)
+                  anchors.rightMargin: Style.space(8)
+
+                  Repeater {
+                    id: weatherDetailHourlyRepeater
+                    model: root.weatherDetailHourlyForecast
+
+                    Item {
+                      id: weatherDetailHourlyCell
+                      required property var modelData
+                      required property int index
+                      width: weatherDetailHourlyRow.width
+                        / weatherDetailHourlyRepeater.count
+                      height: weatherDetailHourlyStrip.height
+                      Accessible.name: root.weatherHourlyTime(modelData.time, index)
+                        + ", " + String(modelData.condition || "")
+                        + ", " + root.weatherTemperature(modelData.temperature_celsius)
+                        + ", " + root.weatherProbability(
+                          modelData.precipitation_probability_percent) + " rain"
+                      Accessible.role: Accessible.StaticText
+
+                      Column {
+                        anchors.centerIn: parent
+                        spacing: Style.space(4)
+
+                        Text {
+                          textFormat: Text.PlainText
+                          anchors.horizontalCenter: parent.horizontalCenter
+                          text: root.weatherHourlyTime(
+                            weatherDetailHourlyCell.modelData.time,
+                            weatherDetailHourlyCell.index)
+                          color: weatherDetailHourlyCell.index === 0
+                            ? root.contentForeground
+                            : Qt.darker(root.contentForeground, 1.45)
+                          font.family: root.contentFontFamily
+                          font.pixelSize: Style.font.caption
+                          font.bold: weatherDetailHourlyCell.index === 0
+                          font.letterSpacing: 0.35
+                        }
+
+                        Text {
+                          textFormat: Text.PlainText
+                          anchors.horizontalCenter: parent.horizontalCenter
+                          text: root.weatherGlyph(weatherDetailHourlyCell.modelData)
+                          color: root.weatherGlyphColor(
+                            weatherDetailHourlyCell.modelData)
+                          font.family: root.contentFontFamily
+                          font.pixelSize: Style.font.title
+                        }
+
+                        Row {
+                          anchors.horizontalCenter: parent.horizontalCenter
+                          spacing: Style.space(6)
+
+                          Text {
+                            textFormat: Text.PlainText
+                            text: root.weatherTemperatureCompact(
+                              weatherDetailHourlyCell.modelData.temperature_celsius)
+                            color: root.contentForeground
+                            font.family: root.contentFontFamily
+                            font.pixelSize: Style.font.bodySmall
+                            font.bold: true
+                          }
+
+                          Text {
+                            textFormat: Text.PlainText
+                            text: root.weatherProbability(
+                              weatherDetailHourlyCell.modelData
+                                .precipitation_probability_percent)
+                            color: root.weatherNumber(
+                              weatherDetailHourlyCell.modelData
+                                .precipitation_probability_percent) >= 30
+                              ? root.mixColor(root.contentForeground, Color.accent, 0.62)
+                              : Qt.darker(root.contentForeground, 1.55)
+                            font.family: root.contentFontFamily
+                            font.pixelSize: Style.font.caption
+                          }
+                        }
+                      }
+
+                    }
+                  }
+                }
+              }
+            }
+
+            Rectangle {
+              visible: root.weatherDetailForecast.length > 0
+              width: parent.width
+              height: Style.spacing.hairline
+              color: root.contentForeground
+              opacity: 0.08
+            }
+
+            Column {
+              visible: root.weatherDetailForecast.length > 0
+              width: parent.width
+              spacing: Style.space(8)
+
+              Text {
+                textFormat: Text.PlainText
+                x: Style.space(20)
+                text: "4-day forecast"
+                color: Qt.darker(root.contentForeground, 1.45)
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.font.bodySmall
+                font.bold: true
+                font.letterSpacing: 0.2
+              }
+
+              Item {
+                width: parent.width
+                height: Style.space(74)
+
+                Row {
+                  id: weatherDetailForecastRow
+                  anchors.fill: parent
+                  anchors.leftMargin: Style.space(8)
+                  anchors.rightMargin: Style.space(8)
+
+                  Repeater {
+                    id: weatherDetailForecastRepeater
+                    model: root.weatherDetailForecast
+
+                    Item {
+                      id: weatherDetailForecastCell
+                      required property var modelData
+                      required property int index
+                      width: weatherDetailForecastRow.width
+                        / weatherDetailForecastRepeater.count
+                      height: weatherDetailForecastRow.height
+                      Accessible.name: root.weatherForecastDay(modelData.date)
+                        + ", " + String(modelData.condition || "")
+                        + ", high " + root.weatherTemperature(
+                          modelData.temperature_max_celsius)
+                        + ", low " + root.weatherTemperature(
+                          modelData.temperature_min_celsius)
+                        + ", " + root.weatherProbability(
+                          modelData.precipitation_probability_percent) + " rain"
+                      Accessible.role: Accessible.StaticText
+
+                      Row {
+                        anchors.centerIn: parent
+                        spacing: Style.space(8)
+
+                        Text {
+                          textFormat: Text.PlainText
+                          anchors.verticalCenter: parent.verticalCenter
+                          text: root.weatherForecastGlyph(
+                            weatherDetailForecastCell.modelData)
+                          color: root.weatherForecastGlyphColor(
+                            weatherDetailForecastCell.modelData)
+                          font.family: root.contentFontFamily
+                          font.pixelSize: Style.font.display
+                        }
+
+                        Column {
+                          anchors.verticalCenter: parent.verticalCenter
+                          width: Math.max(0, weatherDetailForecastCell.width
+                            - Style.space(56))
+                          spacing: Style.space(2)
+
+                          Text {
+                            textFormat: Text.PlainText
+                            width: parent.width
+                            text: root.weatherForecastDay(
+                              weatherDetailForecastCell.modelData.date)
+                            elide: Text.ElideRight
+                            color: Qt.darker(root.contentForeground, 1.4)
+                            font.family: root.contentFontFamily
+                            font.pixelSize: Style.font.caption
+                            font.bold: true
+                            font.letterSpacing: 0.35
+                          }
+
+                          Text {
+                            textFormat: Text.PlainText
+                            width: parent.width
+                            text: String(weatherDetailForecastCell.modelData.condition
+                              || "")
+                            elide: Text.ElideRight
+                            color: Qt.darker(root.contentForeground, 1.5)
+                            font.family: root.contentFontFamily
+                            font.pixelSize: Style.font.caption
+                          }
+
+                          Row {
+                            spacing: Style.space(7)
+
+                            Text {
+                              textFormat: Text.PlainText
+                              text: root.weatherTemperatureCompact(
+                                weatherDetailForecastCell.modelData
+                                  .temperature_max_celsius)
+                              color: root.contentForeground
+                              font.family: root.contentFontFamily
+                              font.pixelSize: Style.font.body
+                            }
+
+                            Text {
+                              textFormat: Text.PlainText
+                              text: root.weatherTemperatureCompact(
+                                weatherDetailForecastCell.modelData
+                                  .temperature_min_celsius)
+                              color: Qt.darker(root.contentForeground, 1.5)
+                              font.family: root.contentFontFamily
+                              font.pixelSize: Style.font.body
+                            }
+
+                            Text {
+                              textFormat: Text.PlainText
+                              text: root.weatherProbability(
+                                weatherDetailForecastCell.modelData
+                                  .precipitation_probability_percent)
+                              color: root.weatherNumber(
+                                weatherDetailForecastCell.modelData
+                                  .precipitation_probability_percent) >= 30
+                                ? root.mixColor(root.contentForeground,
+                                    Color.accent, 0.62)
+                                : Qt.darker(root.contentForeground, 1.55)
+                              font.family: root.contentFontFamily
+                              font.pixelSize: Style.font.caption
+                            }
+                          }
+                        }
+                      }
+
+                    }
+                  }
+                }
+              }
             }
           }
 

@@ -142,11 +142,12 @@ Panel {
     var forecast = weatherDetailData
       && Array.isArray(weatherDetailData.hourly_forecast)
       ? weatherDetailData.hourly_forecast : []
-    var currentHour = root.weatherCurrentHourKey()
-    if (!currentHour) return forecast
+    var currentHour = root.weatherUtcHour(snapshot.reference_utc)
+    if (!isFinite(currentHour)) return forecast
     var currentAndFuture = []
     for (var i = 0; i < forecast.length; i++) {
-      if (String(forecast[i].time || "") >= currentHour)
+      var forecastHour = root.weatherUtcHour(forecast[i].reference_utc)
+      if (isFinite(forecastHour) && forecastHour >= currentHour)
         currentAndFuture.push(forecast[i])
     }
     return currentAndFuture
@@ -985,15 +986,14 @@ Panel {
     if (!snapshotLoaded) return ""
     var entries = [summary].concat(clocks)
     var signatures = []
+    var currentUtcHour = weatherUtcHour(snapshot.reference_utc)
     for (var i = 0; i < entries.length; i++) {
       var entry = entries[i]
-      var localMinutes = weatherNumber(entry.local_minutes)
-      var localHour = isFinite(localMinutes) ? Math.floor(localMinutes / 60) : ""
       signatures.push(conversionSource(entry)
         + "\u001f" + String(entry.latitude)
         + "\u001f" + String(entry.longitude)
         + "\u001f" + String(entry.date || "")
-        + "\u001f" + String(localHour))
+        + "\u001f" + String(currentUtcHour))
     }
     signatures.sort()
     return signatures.join("\u001e")
@@ -1099,24 +1099,20 @@ Panel {
     return String(displayHour) + ":" + minute + " " + suffix
   }
 
-  function weatherCurrentHourKey() {
-    if (!weatherDetailClock) return ""
-    var date = String(weatherDetailClock.date || "")
-    var minutes = weatherNumber(weatherDetailClock.local_minutes)
-    if (!date || !isFinite(minutes)) return ""
-    var normalizedMinutes = ((minutes % 1440) + 1440) % 1440
-    var hour = Math.floor(normalizedMinutes / 60)
-    return date + "T" + (hour < 10 ? "0" : "") + String(hour) + ":00"
+  function weatherUtcHour(value) {
+    var milliseconds = Date.parse(String(value || ""))
+    return isFinite(milliseconds) ? Math.floor(milliseconds / 3600000) : NaN
   }
 
-  function weatherHourlyIsCurrent(value) {
-    var currentHour = weatherCurrentHourKey()
-    return currentHour !== "" && String(value || "") === currentHour
+  function weatherHourlyIsCurrent(item) {
+    var currentHour = weatherUtcHour(snapshot.reference_utc)
+    var forecastHour = weatherUtcHour(item ? item.reference_utc : "")
+    return isFinite(currentHour) && forecastHour === currentHour
   }
 
-  function weatherHourlyTime(value) {
-    if (weatherHourlyIsCurrent(value)) return "NOW"
-    var formatted = weatherLocalTime(value)
+  function weatherHourlyTime(item) {
+    if (weatherHourlyIsCurrent(item)) return "NOW"
+    var formatted = weatherLocalTime(item ? item.time : "")
     if (formatted === "—") return formatted
     return formatted.replace(":00", "")
   }
@@ -1132,10 +1128,11 @@ Panel {
   }
 
   function weatherNextHourForecast() {
-    var currentHour = weatherCurrentHourKey()
-    if (!currentHour) return null
+    var currentHour = weatherUtcHour(snapshot.reference_utc)
+    if (!isFinite(currentHour)) return null
     for (var i = 0; i < weatherDetailHourlyForecast.length - 1; i++) {
-      if (String(weatherDetailHourlyForecast[i].time || "") === currentHour)
+      if (weatherUtcHour(weatherDetailHourlyForecast[i].reference_utc)
+          === currentHour)
         return weatherDetailHourlyForecast[i + 1]
     }
     return null
@@ -3859,7 +3856,7 @@ Panel {
                         ? (weatherDetailHourlyRow.width - width) / 2
                         : index * (weatherDetailHourlyRow.width - width)
                           / (weatherDetailHourlyRepeater.count - 1)
-                      Accessible.name: root.weatherHourlyTime(modelData.time)
+                      Accessible.name: root.weatherHourlyTime(modelData)
                         + ", " + String(modelData.condition || "")
                         + ", " + root.weatherTemperature(modelData.temperature_celsius)
                         + ", " + root.weatherProbability(
@@ -3880,15 +3877,15 @@ Panel {
                           textFormat: Text.PlainText
                           anchors.horizontalCenter: parent.horizontalCenter
                           text: root.weatherHourlyTime(
-                            weatherDetailHourlyCell.modelData.time)
+                            weatherDetailHourlyCell.modelData)
                           color: root.weatherHourlyIsCurrent(
-                            weatherDetailHourlyCell.modelData.time)
+                            weatherDetailHourlyCell.modelData)
                             ? root.contentForeground
                             : Qt.darker(root.contentForeground, 1.45)
                           font.family: root.contentFontFamily
                           font.pixelSize: Style.font.caption
                           font.bold: root.weatherHourlyIsCurrent(
-                            weatherDetailHourlyCell.modelData.time)
+                            weatherDetailHourlyCell.modelData)
                           font.letterSpacing: 0.35
                         }
 

@@ -3,8 +3,9 @@ use crate::quattro::visible_location_entries;
 use crate::remote_response::{
     open_meteo_client, read_json_response, MAX_OPEN_METEO_RESPONSE_BYTES,
 };
+use crate::time::zoned_datetime;
 use anyhow::{bail, Context, Result};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration as ChronoDuration, Timelike, Utc};
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -47,6 +48,7 @@ pub struct DailyWeather {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct HourlyWeather {
     pub time: String,
+    pub reference_utc: String,
     pub temperature_celsius: f64,
     pub weather_code: i64,
     pub condition: &'static str,
@@ -191,7 +193,7 @@ pub fn current_weather(
         )?;
         payload
             .locations
-            .extend(weather_from_response(response, batch)?);
+            .extend(weather_from_response(response, batch, reference_utc)?);
     }
     Ok(payload)
 }
@@ -261,15 +263,17 @@ fn weather_locations(
 fn parse_weather_response(
     raw: &str,
     locations: &[WeatherLocation],
+    reference_utc: DateTime<Utc>,
 ) -> Result<Vec<LocationWeather>> {
     let response = serde_json::from_str::<OpenMeteoResponse>(raw)
         .context("Open-Meteo returned invalid weather data")?;
-    weather_from_response(response, locations)
+    weather_from_response(response, locations, reference_utc)
 }
 
 fn weather_from_response(
     response: OpenMeteoResponse,
     locations: &[WeatherLocation],
+    reference_utc: DateTime<Utc>,
 ) -> Result<Vec<LocationWeather>> {
     let forecasts = match response {
         OpenMeteoResponse::One(forecast) => vec![*forecast],
@@ -282,6 +286,12 @@ fn weather_from_response(
             locations.len()
         );
     }
+
+    let hourly_start_utc = reference_utc
+        .with_minute(0)
+        .and_then(|value| value.with_second(0))
+        .and_then(|value| value.with_nanosecond(0))
+        .unwrap_or(reference_utc);
 
     Ok(locations
         .iter()
@@ -317,7 +327,9 @@ fn weather_from_response(
                         .min(hourly.is_day.len());
                     (0..count)
                         .take(HOURLY_FORECAST_COUNT)
-                        .filter_map(|index| hourly_weather_at(hourly, index))
+                        .filter_map(|index| {
+                            hourly_weather_at(hourly, index, &location.timezone, hourly_start_utc)
+                        })
                         .collect()
                 })
                 .unwrap_or_default();
@@ -391,14 +403,26 @@ fn daily_weather_at(daily: &OpenMeteoDaily, index: usize) -> Option<DailyWeather
     })
 }
 
-fn hourly_weather_at(hourly: &OpenMeteoHourly, index: usize) -> Option<HourlyWeather> {
+fn hourly_weather_at(
+    hourly: &OpenMeteoHourly,
+    index: usize,
+    timezone: &str,
+    hourly_start_utc: DateTime<Utc>,
+) -> Option<HourlyWeather> {
     let temperature = *hourly.temperature_2m.get(index)?;
     let weather_code = *hourly.weather_code.get(index)?;
     if !temperature.is_finite() {
         return None;
     }
+    // Open-Meteo's forecast_hours window begins at the current elapsed hour.
+    // Assign each point a UTC identity, then derive its display timestamp from
+    // tzdb so repeated fall-back hours remain distinct and correctly labeled.
+    let reference_utc = hourly_start_utc + ChronoDuration::hours(i64::try_from(index).ok()?);
     Some(HourlyWeather {
-        time: hourly.time.get(index)?.clone(),
+        time: zoned_datetime(reference_utc, timezone)
+            .format("%Y-%m-%dT%H:%M")
+            .to_string(),
+        reference_utc: reference_utc.to_rfc3339(),
         temperature_celsius: temperature,
         weather_code,
         condition: weather_condition(weather_code),
@@ -504,6 +528,7 @@ mod tests {
               }
             }"#,
             &locations,
+            Utc.with_ymd_and_hms(2026, 8, 21, 15, 45, 0).unwrap(),
         )
         .unwrap();
 
@@ -529,6 +554,10 @@ mod tests {
         assert_eq!(today.uv_index_max, Some(8.2));
         assert_eq!(weather[0].hourly_forecast.len(), 4);
         assert_eq!(weather[0].hourly_forecast[0].time, "2026-08-21T10:00");
+        assert_eq!(
+            weather[0].hourly_forecast[0].reference_utc,
+            "2026-08-21T15:00:00+00:00"
+        );
         assert_eq!(
             weather[0].hourly_forecast[2].precipitation_probability_percent,
             Some(20.0)
@@ -560,12 +589,55 @@ mod tests {
               }
             }"#,
             &locations,
+            Utc.with_ymd_and_hms(2026, 12, 21, 12, 0, 0).unwrap(),
         )
         .unwrap();
 
         let today = weather[0].today.as_ref().unwrap();
         assert_eq!(today.sunrise, None);
         assert_eq!(today.sunset, None);
+    }
+
+    #[test]
+    fn hourly_weather_disambiguates_a_repeated_fall_back_hour() {
+        let locations = vec![location("America/New_York", "New York")];
+        let weather = parse_weather_response(
+            r#"{
+              "current": {
+                "temperature_2m": 12.0,
+                "weather_code": 2,
+                "is_day": 0
+              },
+              "hourly": {
+                "time": [
+                  "2026-11-01T00:00", "2026-11-01T01:00",
+                  "2026-11-01T02:00", "2026-11-01T03:00"
+                ],
+                "temperature_2m": [12.0, 11.0, 10.0, 9.0],
+                "weather_code": [2, 2, 3, 3],
+                "is_day": [0, 0, 0, 0]
+              }
+            }"#,
+            &locations,
+            Utc.with_ymd_and_hms(2026, 11, 1, 4, 30, 0).unwrap(),
+        )
+        .unwrap();
+
+        let hourly = &weather[0].hourly_forecast;
+        assert_eq!(
+            hourly
+                .iter()
+                .map(|item| item.time.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "2026-11-01T00:00",
+                "2026-11-01T01:00",
+                "2026-11-01T01:00",
+                "2026-11-01T02:00",
+            ]
+        );
+        assert_eq!(hourly[1].reference_utc, "2026-11-01T05:00:00+00:00");
+        assert_eq!(hourly[2].reference_utc, "2026-11-01T06:00:00+00:00");
     }
 
     #[test]
@@ -582,6 +654,7 @@ mod tests {
               {}
             ]"#,
             &locations,
+            Utc.with_ymd_and_hms(2026, 8, 21, 15, 0, 0).unwrap(),
         )
         .unwrap();
 
@@ -601,6 +674,7 @@ mod tests {
         let error = parse_weather_response(
             r#"{"current":{"temperature_2m":29.4,"weather_code":1,"is_day":1}}"#,
             &locations,
+            Utc.with_ymd_and_hms(2026, 8, 21, 15, 0, 0).unwrap(),
         )
         .unwrap_err();
 

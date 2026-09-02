@@ -67,8 +67,8 @@ the AUR package is no longer required.
 - Drag the time ruler beneath its fixed center marker to compare every place at
   that moment: pull right for earlier or left for later, then release to keep
   the selection. Two-finger trackpad scrolling and the mouse wheel work too.
-- From the keyboard, press **S** to focus the ruler, use **Left/Right** to
-  compare times, and press **Enter** to keep the selection.
+- With no field focused, start typing a number to replace the local summary
+  time, or start typing a location name to open Add mode and search for it.
 - Cards automatically become compact only when the large layout would not fit.
 - Select a displayed time and enter another time to convert the same instant
   across every visible place.

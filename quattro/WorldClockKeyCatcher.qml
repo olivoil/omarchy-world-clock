@@ -1,8 +1,8 @@
 import QtQuick
 
-// Panel key dispatcher with one add-mode extension: printable keys can be
-// routed to search before the TextField owns focus. This priority is what lets
-// queries beginning with the shell's h/j/k/l/x navigation keys work intact.
+// Panel key dispatcher with direct-input support: printable keys can be routed
+// to the read-mode time editor or add-mode search before either field owns
+// focus. This priority also keeps h/j/k/l/x intact as query characters.
 Item {
   id: root
 

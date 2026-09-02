@@ -527,7 +527,7 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
         !mode_changed.starts_with("\n    clearTimelineHover()"),
         "switching between read and edit mode must preserve active hover state"
     );
-    assert!(panel.contains("function focusSummaryEditor()"));
+    assert!(panel.contains("function focusSummaryEditor(initialText)"));
     assert!(panel.contains("property bool snapshotLoaded: false"));
     assert!(panel.contains("property bool summaryFocusPending: false"));
     assert!(panel.contains("if (!snapshotLoaded)"));
@@ -769,7 +769,7 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(key_catcher.contains("event.text.trim() !== \"\""));
     assert!(key_catcher.contains("Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier"));
     assert!(panel.contains("WorldClockKeyCatcher {"));
-    assert!(panel.contains("directTextInput: root.mode === \"add\" && !addField.activeFocus"));
+    assert!(panel.contains("directTextInput: (root.mode === \"read\" || root.mode === \"add\")"));
     assert!(panel.contains("onMoveRequested: function(dx, dy)"));
     assert!(panel.contains("onActivateRequested: root.activateKeyboardCursor()"));
     assert!(panel.contains("onDeleteRequested: root.deleteKeyboardCursor()"));
@@ -778,6 +778,14 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("function deleteKeyboardCursor()"));
     assert!(panel.contains("readonly property bool hasKeyboardCursor:"));
     assert!(panel.contains("if (!root.searchVisible) root.openSearch(text)"));
+    assert!(panel.contains("property string summaryFocusSeed: \"\""));
+    assert!(panel.contains("function focusSummaryEditor(initialText)"));
+    assert!(panel.contains("if (root.mode === \"read\" && /^[0-9]$/.test(text))"));
+    assert!(panel.contains("root.focusSummaryEditor(text)"));
+    assert!(panel.contains("function isLetterKey(text)"));
+    assert!(panel.contains("value.toLowerCase() !== value.toUpperCase()"));
+    assert!(panel.contains("if (root.mode === \"read\" && root.isLetterKey(text))"));
+    assert!(panel.contains("root.mode = \"add\"\n          root.openSearch(text)"));
 
     let globe_path = qml_path.parent().unwrap().join("Globe.qml");
     assert!(globe_path.is_file(), "missing {}", globe_path.display());

@@ -36,6 +36,7 @@ Panel {
   })
   property bool snapshotLoaded: false
   property bool summaryFocusPending: false
+  property string summaryFocusSeed: ""
   property string mode: "read"
   property bool live: true
   property bool editorActive: false
@@ -297,9 +298,13 @@ Panel {
     controller.show()
   }
 
-  function focusSummaryEditor() {
+  function focusSummaryEditor(initialText) {
+    var seed = initialText === undefined
+      ? summaryFocusSeed : String(initialText || "")
+    if (initialText !== undefined) summaryFocusSeed = seed
     if (mode !== "read") {
       summaryFocusPending = false
+      summaryFocusSeed = ""
       return
     }
     if (!snapshotLoaded) {
@@ -307,14 +312,27 @@ Panel {
       return
     }
     summaryFocusPending = false
+    summaryFocusSeed = ""
     // Return is emitted while PanelKeyCatcher is still dispatching the key.
     // Hand focus over on the next event-loop turn so the catcher cannot take
     // it straight back, then select the live time for immediate replacement.
+    // A digit typed into the unfocused panel has already been consumed by the
+    // catcher, so apply it after focus moves to preserve that first character.
     Qt.callLater(function() {
       if (!opened || mode !== "read") return
       summaryInput.forceActiveFocus(Qt.ShortcutFocusReason)
       summaryInput.selectAll()
+      if (seed) {
+        summaryInput.text = seed
+        summaryInput.cursorPosition = summaryInput.text.length
+        root.timeInputEdited(summaryInput.conversionSource)
+      }
     })
+  }
+
+  function isLetterKey(text) {
+    var value = String(text || "")
+    return value.length === 1 && value.toLowerCase() !== value.toUpperCase()
   }
 
   function openEditor() {
@@ -376,6 +394,7 @@ Panel {
     mode = "read"
     globeDetailRequested = false
     summaryFocusPending = false
+    summaryFocusSeed = ""
     searchResults = []
     searchResultsQuery = ""
     searchSubmitQuery = ""
@@ -1686,7 +1705,8 @@ Panel {
       id: keyCatcher
       anchors.fill: parent
       blocked: root.editorActive || addField.activeFocus
-      directTextInput: root.mode === "add" && !addField.activeFocus
+      directTextInput: (root.mode === "read" || root.mode === "add")
+        && !addField.activeFocus
       onMoveRequested: function(dx, dy) { root.moveKeyboardCursor(dx, dy) }
       onActivateRequested: root.activateKeyboardCursor()
       onDeleteRequested: root.deleteKeyboardCursor()
@@ -1706,6 +1726,15 @@ Panel {
             addField.text += text
             root.focusAddField(false)
           }
+          return
+        }
+        if (root.mode === "read" && /^[0-9]$/.test(text)) {
+          root.focusSummaryEditor(text)
+          return
+        }
+        if (root.mode === "read" && root.isLetterKey(text)) {
+          root.mode = "add"
+          root.openSearch(text)
           return
         }
         if (text === "a" || text === "A") root.mode = "add"

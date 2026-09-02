@@ -159,14 +159,22 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("readonly property var mapLocations: searchHasQuery"));
     assert!(panel.contains("model: root.mapLocations"));
     assert!(panel.contains("modelData.searchResult === true"));
+    assert!(panel.contains("opacity: mapCanvas.openingFlightRunning ? 0 : 1"));
     assert!(panel.contains("readonly property bool selectable: !configured"));
     assert_eq!(panel.matches("if (mapMarker.selectable)").count(), 2);
     assert!(panel.contains("hoverEnabled: mapMarker.selectable"));
     assert!(panel.contains("property bool globeDetailRequested: false"));
+    assert!(panel.contains("function globeOpeningTarget()"));
+    assert!(panel.contains("String(snapshot.pinned_timezone || \"\")"));
+    assert!(panel.contains("|| !mapCanvas.previewReady) return"));
+    assert!(panel.contains("mapCanvas.settleOn(target.latitude, target.longitude)"));
+    assert!(panel.contains("mapCanvas.stopMotion()"));
     assert!(panel.contains("function requestGlobeDetailWhenReady()"));
     assert!(panel.contains("!mapCanvas.previewReady"));
     assert!(panel.contains("onPreviewReadyChanged:"));
-    assert!(panel.contains("if (previewReady) root.requestGlobeDetailWhenReady()"));
+    assert!(panel.contains("if (previewReady) {"));
+    assert!(panel
+        .contains("root.initializeGlobe()\n                  root.requestGlobeDetailWhenReady()"));
     assert!(panel.contains("if (!opened) {\n      globeDetailRequested = false"));
     assert!(panel.contains("highResolutionEnabled: root.opened && root.globeDetailRequested"));
     assert!(panel.contains("if (!root.mapClickPending) return\n      if (exitCode !== 0)"));
@@ -608,7 +616,7 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("tooltipText: \"Search locations\""));
     assert!(!panel
         .contains("tooltipText: root.searchVisible ? \"Close search\" : \"Search locations\""));
-    assert!(panel.contains("diameterRatio: 0.63"));
+    assert!(!panel.contains("diameterRatio:"));
     assert!(panel.contains("mapCanvas.focusOnLocations(root.searchResults)"));
     assert!(panel.contains("mapCanvas.focusOnLocations([result])"));
     assert!(panel.contains("command.push(\"--at\", String(snapshot.reference_utc))"));
@@ -830,7 +838,39 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(globe.contains("function minimumAngularCenter(vectors)"));
     assert!(globe.contains("minimumDepth: minimumDepth"));
     assert!(globe.contains("event.pixelDelta.y"));
-    assert!(globe.contains("property real openingZoom:"));
+    assert!(globe.contains("property real openingZoom: 2.2"));
+    assert!(globe.contains("property real openingOverviewZoom: 0.94"));
+    assert!(globe.contains("property real openingSpinDegrees: 104"));
+    assert!(globe.contains("property int openingFlightDuration: 1080"));
+    assert!(globe.contains("property real zoom: openingOverviewZoom"));
+    assert!(globe.contains("property real diameterRatio: 0.86"));
+    assert!(globe.contains("Math.min(width, height) * diameterRatio"));
+    assert!(globe.contains("readonly property bool openingFlightRunning: openingMotion.running"));
+    assert!(!globe.contains("openingHoldDuration"));
+    assert!(globe.contains("function settleOn(latitudeDegrees, longitudeDegrees)"));
+    assert!(globe.contains("longitude = targetLongitude - openingSpinDegrees"));
+    assert!(globe.contains("id: openingMotion"));
+    let opening_motion = globe
+        .split("id: openingMotion")
+        .nth(1)
+        .expect("opening motion")
+        .split("id: focusMotion")
+        .next()
+        .expect("opening motion body");
+    assert!(!opening_motion.contains("PauseAnimation"));
+    assert_eq!(
+        opening_motion
+            .matches("duration: root.openingFlightDuration")
+            .count(),
+        3
+    );
+    assert_eq!(
+        opening_motion
+            .matches("easing.type: Easing.InOutSine")
+            .count(),
+        3
+    );
+    assert!(globe.contains("function stopMotion()"));
     assert!(globe.contains("property real maximumZoom: 4.8"));
     assert!(globe.contains("property bool highResolutionEnabled: true"));
     assert!(globe.contains("property bool previewReady: false"));

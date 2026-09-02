@@ -463,13 +463,41 @@ Panel {
       1)
   }
 
+  function globeOpeningTarget() {
+    // The summary carries a saved place coordinate when one is known and the
+    // system timezone's representative coordinate otherwise.
+    if (hasMapCoordinate(summary)) return summary
+
+    var summaryTimezone = String(summary.timezone || snapshot.local_timezone || "")
+    for (var featuredIndex = 0; featuredIndex < featuredCities.length; featuredIndex++) {
+      var featured = featuredCities[featuredIndex]
+      if (String(featured.timezone || "") === summaryTimezone
+          && hasMapCoordinate(featured)) return featured
+    }
+
+    var pinnedTimezone = String(snapshot.pinned_timezone || "")
+    if (pinnedTimezone) {
+      for (var pinnedIndex = 0; pinnedIndex < mapClocks.length; pinnedIndex++) {
+        var pinned = mapClocks[pinnedIndex]
+        if (String(pinned.timezone || "") === pinnedTimezone
+            && hasMapCoordinate(pinned)) return pinned
+      }
+    }
+
+    for (var clockIndex = 0; clockIndex < clocks.length; clockIndex++)
+      if (hasMapCoordinate(clocks[clockIndex])) return clocks[clockIndex]
+
+    // UTC has no geographic extent. Greenwich is the least surprising visual
+    // anchor when neither a place nor a configured timezone has a coordinate.
+    return ({ latitude: 51.4779, longitude: 0 })
+  }
+
   function initializeGlobe() {
-    if (globeInitialized || mode !== "add" || !snapshotLoaded) return
+    if (globeInitialized || !opened || mode !== "add" || !snapshotLoaded
+        || !mapCanvas.previewReady) return
+    var target = globeOpeningTarget()
     globeInitialized = true
-    if (hasMapCoordinate(summary))
-      mapCanvas.settleOn(summary.latitude, summary.longitude)
-    else
-      mapCanvas.settleOn(18, 0)
+    mapCanvas.settleOn(target.latitude, target.longitude)
   }
 
   function requestGlobeDetailWhenReady() {
@@ -1416,7 +1444,10 @@ Panel {
       clearTimelineHover()
       return
     }
-    if (mode === "add") Qt.callLater(root.requestGlobeDetailWhenReady)
+    if (mode === "add") {
+      Qt.callLater(root.initializeGlobe)
+      Qt.callLater(root.requestGlobeDetailWhenReady)
+    }
     refresh()
     requestWeather(false)
   }
@@ -1441,9 +1472,13 @@ Panel {
       cancelScrubPreview()
       clearTimelineHover()
       searchVisible = false
+      globeInitialized = false
+      root.initializeGlobe()
       Qt.callLater(root.initializeGlobe)
       Qt.callLater(root.requestGlobeDetailWhenReady)
     } else {
+      mapCanvas.stopMotion()
+      globeInitialized = false
       searchVisible = false
       addField.text = ""
       searchDebounce.stop()
@@ -3263,13 +3298,15 @@ Panel {
               interactive: !actionProcess.running
               highResolutionEnabled: root.opened && root.globeDetailRequested
               property var markerLayouts: root.globeLabelLayouts(width, height)
-              diameterRatio: 0.63
               oceanColor: root.mixColor(Color.background, root.contentForeground, 0.07)
               landColor: root.mixColor(Color.background, root.contentForeground, 0.68)
               boundaryColor: root.mixColor(Color.background, root.contentForeground, 0.40)
               rimColor: root.mixColor(Color.background, root.contentForeground, 0.28)
               onPreviewReadyChanged: {
-                if (previewReady) root.requestGlobeDetailWhenReady()
+                if (previewReady) {
+                  root.initializeGlobe()
+                  root.requestGlobeDetailWhenReady()
+                }
               }
               onLocationPicked: function(latitude, longitude, viewX, viewY) {
                 root.requestMapLocation(latitude, longitude, viewX, viewY)
@@ -3401,6 +3438,7 @@ Panel {
                   Rectangle {
                     id: cityLabel
                     visible: mapMarker.layout.labelVisible && !mapMarker.selected
+                    opacity: mapCanvas.openingFlightRunning ? 0 : 1
                     x: mapMarker.layout.x
                     y: mapMarker.layout.y
                     width: mapMarker.layout.width
@@ -3411,6 +3449,10 @@ Panel {
                       : cityMouse.containsMouse && mapMarker.selectable
                       ? Style.hoverFillFor(root.contentForeground, Color.accent)
                       : "transparent"
+
+                    Behavior on opacity {
+                      NumberAnimation { duration: 160; easing.type: Easing.OutQuint }
+                    }
 
                     Column {
                       anchors.leftMargin: Style.space(6)

@@ -342,9 +342,14 @@ Rules:
   one panel session, then is released when the panel closes.
 - The globe occupies the full add surface. Search results and contextual
   feedback float over it instead of reducing its viewport.
-- The globe opens tightly framed on the local region, with its edge outside
-  the viewport so the spherical form emerges through interaction rather than
-  dominating the initial view.
+- Once the warm preview is ready, the completely visible globe immediately
+  begins easing the destination in from beyond the near horizon. Rotation and
+  zoom share one 1.1-second camera flight, so the globe arrives as a continuous
+  movement at a comfortable regional scale. Place labels stay quiet during the
+  flight and fade in on arrival. It prefers the local summary's
+  saved coordinate, then its timezone representative, followed by the first
+  pinned or configured place; UTC-only setups use Greenwich as their visual
+  anchor.
 - Drag rotates it. Mouse-wheel angle deltas and trackpad pixel deltas both
   zoom it across an extended range; zooming out reveals the complete sphere.
 - Up to 48 configured places and a ranked catalogue of more than 300 capitals

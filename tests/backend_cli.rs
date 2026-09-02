@@ -225,6 +225,24 @@ fn bundled_backend_supports_the_complete_quattro_command_protocol() {
         .as_str()
         .is_some_and(|label| !label.is_empty()));
 
+    let alias_search = Command::new(backend)
+        .args(["search", "Samoa", "--at", "2026-08-11T11:05:00Z"])
+        .env("HOME", &home)
+        .env("OMARCHY_WORLD_CLOCK_CONFIG", &config_path)
+        .output()
+        .expect("search a timezone link without its own coordinate");
+    assert!(alias_search.status.success());
+    let alias_search: serde_json::Value =
+        serde_json::from_slice(&alias_search.stdout).expect("parse alias search results");
+    let samoa = alias_search
+        .as_array()
+        .and_then(|results| results.iter().find(|result| result["title"] == "Samoa"))
+        .expect("Samoa should remain searchable");
+    assert!(samoa["latitude"].is_null());
+    assert!(samoa["longitude"].is_null());
+    assert!(samoa["focus_latitude"].is_number());
+    assert!(samoa["focus_longitude"].is_number());
+
     let locate = Command::new(backend)
         .args([
             "locate",

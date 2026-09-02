@@ -41,13 +41,15 @@ branch=$(git -C "$repo_root" branch --show-current)
   exit 1
 }
 
-slug=$(printf '%s' "$branch" |
+normalized_slug=$(printf '%s' "$branch" |
   tr '[:upper:]/_' '[:lower:]--' |
   sed -E 's/[^a-z0-9.-]+/-/g; s/^-+//; s/-+$//; s/-+/-/g')
-[[ -n $slug ]] || {
+[[ -n $normalized_slug ]] || {
   printf 'Could not derive a review ID from branch: %s\n' "$branch" >&2
   exit 1
 }
+branch_hash=$(printf '%s' "$branch" | git hash-object --stdin)
+slug="${normalized_slug}-${branch_hash:0:10}"
 
 plugin_id="io.github.olivoil.world-clock-review-${slug}"
 branch_leaf=${branch##*/}

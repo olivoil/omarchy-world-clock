@@ -8,8 +8,9 @@ user explicitly asks not to install it.
 
 - Never overwrite or repurpose the canonical
   `io.github.olivoil.world-clock` install; keep it as the comparison baseline.
-- Review builds must use the script's branch-derived plugin ID, visible review
-  icon color, branch tooltip header, and branch-isolated config file.
+- Review builds must use the script's collision-resistant branch-derived plugin
+  ID, visible review icon color, branch tooltip header, and branch-isolated
+  config file.
 - Before removing old World Clock review installs, audit live work rather than
   treating the existence of a Git worktree as proof that it is active. On T3
   Code workstations, processes whose `/proc/<pid>/cwd` points into a worktree

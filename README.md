@@ -248,9 +248,9 @@ visually marked copy without replacing the normal plugin:
 scripts/install-review-preview.sh
 ```
 
-The review copy gets a branch-derived plugin ID, a distinct icon color, a
-branch header in its tooltip, and its own seeded config file. Re-running the
-command updates that branch's copy in place.
+The review copy gets a collision-resistant branch-derived plugin ID, a distinct
+icon color, a branch header in its tooltip, and its own seeded config file.
+Re-running the command updates that branch's copy in place.
 
 Artifact reproduction requires Podman or Docker. The scripts use a
 digest-pinned official Rust/Alpine image and produce a static x86-64 Linux

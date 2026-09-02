@@ -129,9 +129,9 @@ struct OpenMeteoDaily {
     #[serde(default)]
     precipitation_probability_max: Vec<Option<f64>>,
     #[serde(default)]
-    sunrise: Vec<String>,
+    sunrise: Vec<Option<String>>,
     #[serde(default)]
-    sunset: Vec<String>,
+    sunset: Vec<Option<String>>,
     #[serde(default)]
     uv_index_max: Vec<Option<f64>>,
 }
@@ -378,11 +378,13 @@ fn daily_weather_at(daily: &OpenMeteoDaily, index: usize) -> Option<DailyWeather
         sunrise: daily
             .sunrise
             .get(index)
+            .and_then(Option::as_ref)
             .filter(|value| !value.is_empty())
             .cloned(),
         sunset: daily
             .sunset
             .get(index)
+            .and_then(Option::as_ref)
             .filter(|value| !value.is_empty())
             .cloned(),
         uv_index_max: optional_finite(&daily.uv_index_max, index),
@@ -536,6 +538,34 @@ mod tests {
         assert_eq!(weather[0].forecast[0].date, "2026-08-22");
         assert_eq!(weather[0].forecast[0].temperature_max_celsius, 30.4);
         assert_eq!(weather[0].forecast[3].weather_code, 80);
+    }
+
+    #[test]
+    fn daily_weather_accepts_missing_sunrise_and_sunset() {
+        let locations = vec![location("Arctic/Longyearbyen", "Longyearbyen")];
+        let weather = parse_weather_response(
+            r#"{
+              "current": {
+                "temperature_2m": -8.0,
+                "weather_code": 3,
+                "is_day": 0
+              },
+              "daily": {
+                "time": ["2026-12-21"],
+                "weather_code": [3],
+                "temperature_2m_max": [-6.0],
+                "temperature_2m_min": [-12.0],
+                "sunrise": [null],
+                "sunset": [null]
+              }
+            }"#,
+            &locations,
+        )
+        .unwrap();
+
+        let today = weather[0].today.as_ref().unwrap();
+        assert_eq!(today.sunrise, None);
+        assert_eq!(today.sunset, None);
     }
 
     #[test]

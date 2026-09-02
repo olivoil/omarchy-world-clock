@@ -138,15 +138,34 @@ Panel {
   readonly property bool weatherDetailOpen: weatherDetailKey !== ""
   readonly property var weatherDetailClock: root.clockForWeatherDetail()
   readonly property var weatherDetailData: root.weatherFor(weatherDetailClock)
-  readonly property var weatherDetailForecast:
-    weatherDetailData && Array.isArray(weatherDetailData.forecast)
-      ? weatherDetailData.forecast : []
   readonly property var weatherDetailHourlyForecast:
     weatherDetailData && Array.isArray(weatherDetailData.hourly_forecast)
       ? weatherDetailData.hourly_forecast : []
+  readonly property var weatherDetailDailyForecast: {
+    var days = []
+    if (!weatherDetailData) return days
+    if (weatherDetailData.today) days.push(weatherDetailData.today)
+    var forecast = Array.isArray(weatherDetailData.forecast)
+      ? weatherDetailData.forecast : []
+    for (var i = 0; i < forecast.length; i++) days.push(forecast[i])
+    return days
+  }
+  readonly property string weatherDetailLocalDate: weatherDetailClock
+    ? String(weatherDetailClock.date || "") : ""
+  readonly property int weatherDetailTodayIndex: {
+    for (var i = 0; i < weatherDetailDailyForecast.length; i++) {
+      if (String(weatherDetailDailyForecast[i].date || "")
+          === weatherDetailLocalDate) return i
+    }
+    return -1
+  }
   readonly property var weatherDetailToday:
-    weatherDetailData && weatherDetailData.today
-      ? weatherDetailData.today : null
+    weatherDetailTodayIndex >= 0
+      ? weatherDetailDailyForecast[weatherDetailTodayIndex] : null
+  readonly property var weatherDetailForecast:
+    weatherDetailTodayIndex >= 0
+      ? weatherDetailDailyForecast.slice(
+          weatherDetailTodayIndex + 1, weatherDetailTodayIndex + 5) : []
   readonly property real weatherDetailSectionInset: Style.space(24)
   readonly property bool localDayRulersVisible:
     mode === "read" && (scrubPreviewActive || !live)
@@ -960,7 +979,8 @@ Panel {
       var entry = entries[i]
       signatures.push(conversionSource(entry)
         + "\u001f" + String(entry.latitude)
-        + "\u001f" + String(entry.longitude))
+        + "\u001f" + String(entry.longitude)
+        + "\u001f" + String(entry.date || ""))
     }
     signatures.sort()
     return signatures.join("\u001e")

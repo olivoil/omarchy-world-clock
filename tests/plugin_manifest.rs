@@ -714,6 +714,9 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(!panel.contains("weatherDetailRetainedPanelHeight"));
     assert!(panel.contains("readonly property bool weatherDetailOpen:"));
     assert!(panel.contains("readonly property var weatherDetailHourlyForecast:"));
+    assert!(panel.contains("readonly property var weatherDetailDailyForecast:"));
+    assert!(panel.contains("readonly property string weatherDetailLocalDate:"));
+    assert!(panel.contains("readonly property int weatherDetailTodayIndex:"));
     assert!(panel.contains("readonly property var weatherDetailToday:"));
     assert!(panel.contains("function showWeatherDetail(clock)"));
     assert!(panel.contains("function dismissWeatherDetail()"));
@@ -737,6 +740,12 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("root.weatherDetailData.pressure_hpa"));
     assert!(panel.contains("root.weatherDetailData.visibility_meters"));
     assert!(panel.contains("function weatherProbability(value)"));
+    let weather_signature = panel
+        .split("function weatherSignature()")
+        .nth(1)
+        .and_then(|source| source.split("function weatherFor(clock)").next())
+        .expect("weather signature body");
+    assert!(weather_signature.contains("String(entry.date || \"\")"));
     assert!(panel.contains("function weatherCurrentHourKey()"));
     assert!(panel.contains("weatherDetailClock.local_minutes"));
     assert!(panel.contains("function weatherHourlyIsCurrent(value)"));

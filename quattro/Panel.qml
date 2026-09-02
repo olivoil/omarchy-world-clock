@@ -2011,8 +2011,7 @@ Panel {
                 markerDiameter: Style.space(11)
                 markerOpacity: 0.96
                 haloOpacity: 0.14
-                motionDuration: 160
-                positionAnimationEnabled: root.live && !root.scrubPreviewActive
+                positionAnimationEnabled: false
               }
 
               Row {

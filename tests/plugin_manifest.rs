@@ -472,8 +472,11 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("TimeRail.localDaylight(summary, snapshot.reference_utc)"));
     assert!(shared_read_chrome.contains("id: summarySolarRuler"));
     assert!(shared_read_chrome.contains("daylight: summaryClock.daylightData"));
-    assert!(shared_read_chrome
-        .contains("positionAnimationEnabled: root.live && !root.scrubPreviewActive"));
+    assert_eq!(
+        panel.matches("positionAnimationEnabled: false").count(),
+        2,
+        "summary and card markers must wrap directly at local midnight"
+    );
     let rail_mouse = panel
         .split("id: railMouse")
         .nth(1)

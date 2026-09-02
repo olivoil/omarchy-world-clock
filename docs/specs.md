@@ -235,9 +235,9 @@ missing coordinates fall back to a neutral edge. A small dot follows that curve
 at the card's `local_minutes`; its restrained color and contrast interpolate
 from cool, muted night through twilight to warm, bright daylight using the
 current solar elevation. The dot and curve share that tint and use the same
-day/night palette as the summary solar ruler. Marker positions track timeline
-manipulation directly rather than easing between slots, so crossing local
-midnight wraps cleanly from one edge to the other instead of traversing the card
+day/night palette as the summary solar ruler. Marker positions track clock
+changes directly rather than easing between instants, so crossing local midnight
+wraps cleanly from one edge to the other instead of traversing the ruler
 backward.
 The rulers disappear in live and edit modes, never replace the printed time,
 and do not label or imply availability. They are not an additional

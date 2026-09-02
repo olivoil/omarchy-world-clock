@@ -801,7 +801,14 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("function isLetterKey(text)"));
     assert!(panel.contains("value.toLowerCase() !== value.toUpperCase()"));
     assert!(panel.contains("if (root.mode === \"read\" && root.isLetterKey(text))"));
-    assert!(panel.contains("root.mode = \"add\"\n          root.openSearch(text)"));
+    assert!(panel.contains("root.openSearchFromRead(text)"));
+    assert!(panel.contains("property bool skipNextGlobeOpeningFlight: false"));
+    assert!(panel.contains("function enterAddMode(skipOpeningFlight)"));
+    assert!(panel.contains("function openSearchFromRead(initialText)"));
+    assert!(panel.contains("enterAddMode(true)\n    openSearch(initialText)"));
+    assert!(panel.contains("var skipOpeningFlight = skipNextGlobeOpeningFlight"));
+    assert!(panel.contains("mapCanvas.showOpeningOverview(target.latitude, target.longitude)"));
+    assert_eq!(panel.matches("onClicked: root.enterAddMode(false)").count(), 2);
 
     let action_process = panel
         .split("id: actionProcess")
@@ -847,7 +854,9 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(globe.contains("Math.min(width, height) * diameterRatio"));
     assert!(globe.contains("readonly property bool openingFlightRunning: openingMotion.running"));
     assert!(!globe.contains("openingHoldDuration"));
+    assert!(globe.contains("function showOpeningOverview(latitudeDegrees, longitudeDegrees)"));
     assert!(globe.contains("function settleOn(latitudeDegrees, longitudeDegrees)"));
+    assert!(globe.contains("if (!showOpeningOverview(targetLatitude, targetLongitude)) return"));
     assert!(globe.contains("longitude = targetLongitude - openingSpinDegrees"));
     assert!(globe.contains("id: openingMotion"));
     let opening_motion = globe

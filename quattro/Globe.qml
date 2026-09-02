@@ -363,20 +363,28 @@ Item {
     focusOn(view.latitude, view.longitude, targetZoom)
   }
 
+  function showOpeningOverview(latitudeDegrees, longitudeDegrees) {
+    var targetLatitude = Math.max(-82, Math.min(82, Number(latitudeDegrees)))
+    var targetLongitude = Number(longitudeDegrees)
+    if (!isFinite(targetLatitude) || !isFinite(targetLongitude)) return false
+
+    stopMotion()
+    latitude = Math.max(-10, Math.min(10, targetLatitude * 0.16))
+    longitude = targetLongitude - openingSpinDegrees
+    zoom = clampZoom(openingOverviewZoom)
+    return true
+  }
+
   function settleOn(latitudeDegrees, longitudeDegrees) {
     // Match Hurricane Tracker's opening-flight contract exactly: a complete
     // globe, 104 degrees of travel, and a comfortable 2.2x regional landing.
     var targetLatitude = Math.max(-82, Math.min(82, Number(latitudeDegrees)))
     var targetLongitude = Number(longitudeDegrees)
-    if (!isFinite(targetLatitude) || !isFinite(targetLongitude)) return
+    if (!showOpeningOverview(targetLatitude, targetLongitude)) return
 
-    stopMotion()
     // Treat rotation and zoom as one camera flight. Matching their duration
     // and curve keeps the destination on one continuous approach instead of
     // making the zoom read as a second movement.
-    latitude = Math.max(-10, Math.min(10, targetLatitude * 0.16))
-    longitude = targetLongitude - openingSpinDegrees
-    zoom = clampZoom(openingOverviewZoom)
     openingLatitude.from = latitude
     openingLatitude.to = targetLatitude
     openingLongitude.from = longitude

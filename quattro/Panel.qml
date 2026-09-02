@@ -83,6 +83,7 @@ Panel {
   property double weatherLastUpdatedAt: 0
   property double weatherLastAttemptAt: 0
   property bool globeInitialized: false
+  property bool skipNextGlobeOpeningFlight: false
   property bool globeDetailRequested: false
   property bool searchVisible: false
   property bool keyboardCursorActive: false
@@ -378,6 +379,17 @@ Panel {
     focusAddField(seed === "")
   }
 
+  function enterAddMode(skipOpeningFlight) {
+    skipNextGlobeOpeningFlight = skipOpeningFlight === true
+    mode = "add"
+  }
+
+  function openSearchFromRead(initialText) {
+    if (mode !== "read") return
+    enterAddMode(true)
+    openSearch(initialText)
+  }
+
   function closeSearch() {
     searchVisible = false
     searchDebounce.stop()
@@ -395,7 +407,7 @@ Panel {
   }
 
   function openAdd() {
-    mode = "add"
+    enterAddMode(false)
     searchVisible = false
     var alreadyOpened = opened
     controller.show()
@@ -416,6 +428,7 @@ Panel {
     mapSelection = null
     mapClickPending = false
     globeInitialized = false
+    skipNextGlobeOpeningFlight = false
     keyboardCursorActive = false
     keyboardClockIndex = -1
     controller.hide()
@@ -1471,14 +1484,23 @@ Panel {
     if (mode === "add") {
       cancelScrubPreview()
       clearTimelineHover()
+      var skipOpeningFlight = skipNextGlobeOpeningFlight
+      skipNextGlobeOpeningFlight = false
       searchVisible = false
       globeInitialized = false
-      root.initializeGlobe()
-      Qt.callLater(root.initializeGlobe)
+      if (skipOpeningFlight) {
+        var target = globeOpeningTarget()
+        mapCanvas.showOpeningOverview(target.latitude, target.longitude)
+        globeInitialized = true
+      } else {
+        root.initializeGlobe()
+        Qt.callLater(root.initializeGlobe)
+      }
       Qt.callLater(root.requestGlobeDetailWhenReady)
     } else {
       mapCanvas.stopMotion()
       globeInitialized = false
+      skipNextGlobeOpeningFlight = false
       searchVisible = false
       addField.text = ""
       searchDebounce.stop()
@@ -1788,8 +1810,7 @@ Panel {
           return
         }
         if (root.mode === "read" && root.isLetterKey(text)) {
-          root.mode = "add"
-          root.openSearch(text)
+          root.openSearchFromRead(text)
           return
         }
         if (text === "a" || text === "A") root.mode = "add"
@@ -1989,7 +2010,7 @@ Panel {
                 tooltipText: "Add a location"
                 horizontalPadding: Style.space(8)
                 verticalPadding: Style.space(5)
-                onClicked: root.mode = "add"
+                onClicked: root.enterAddMode(false)
               }
 
               Button {
@@ -3134,7 +3155,7 @@ Panel {
               text: "Add a location"
               iconText: "󰐕"
               bordered: true
-              onClicked: root.mode = "add"
+              onClicked: root.enterAddMode(false)
             }
           }
 

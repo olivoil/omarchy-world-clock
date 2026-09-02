@@ -298,6 +298,9 @@ Rules:
 - local search always runs first
 - the search field stays hidden until Search or `Enter` is selected, or a
   printable key is typed; that first key becomes the first query character
+- typing a location from the main clock view opens search on a stationary
+  whole-globe overview, reserving the next camera move for the result set;
+  explicitly choosing Add still plays the location-arrival flight
 - closing search returns keyboard focus to the globe surface
 - remote search requires at least three normalized characters
 - remote search is skipped when `disable_open_meteo_geolocation` is true
@@ -342,11 +345,13 @@ Rules:
   one panel session, then is released when the panel closes.
 - The globe occupies the full add surface. Search results and contextual
   feedback float over it instead of reducing its viewport.
-- Once the warm preview is ready, the completely visible globe immediately
+- When Add is opened explicitly, the completely visible globe immediately
   begins easing the destination in from beyond the near horizon. Rotation and
   zoom share one 1.1-second camera flight, so the globe arrives as a continuous
   movement at a comfortable regional scale. Place labels stay quiet during the
-  flight and fade in on arrival. It prefers the local summary's
+  flight and fade in on arrival. Direct type-to-search holds the same overview
+  still instead, avoiding a competing camera move before results appear. The
+  opening target prefers the local summary's
   saved coordinate, then its timezone representative, followed by the first
   pinned or configured place; UTC-only setups use Greenwich as their visual
   anchor.

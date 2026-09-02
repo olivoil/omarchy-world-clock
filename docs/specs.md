@@ -235,6 +235,18 @@ uses that digit as the first character. Typing an alphabetic character instead
 opens Add mode, focuses location search, and preserves that character as the
 start of the query.
 
+Core clock management remains reachable without moving through toolbar buttons:
+
+- `F2` enters or leaves edit mode
+- the arrow keys select the summary or a location card
+- `Enter` edits the selected time in read mode or its name in edit mode
+- `P` pins or unpins the selected clock in edit mode
+- `Delete` or `X` removes the selected non-summary clock in edit mode
+- `Ctrl+T` focuses the time ruler; `Left` and `Right` preview, `Enter` locks,
+  and `Home` returns to live time
+- `Escape` unwinds the active detail, search, edit, or time-preview state before
+  closing the panel
+
 ## Time format
 
 The only user-facing format is the system format. Detection order is:
@@ -317,13 +329,16 @@ Rules:
 - `Up` and `Down` move the selected dropdown row, keep it visible when the list
   scrolls, and move the globe to that result without moving focus from search
 - search results include live time, day, notation, and relative-offset context;
-  locally resolved places also include bundled coordinates, allowing the globe
-  to focus the result set without a remote request
+  locally resolved places use their exact tzdata coordinate when available and
+  a separate canonical-zone focus coordinate otherwise, allowing every valid
+  result to move the globe without saving an approximate place coordinate
 - Open-Meteo results show one quiet, clickable attribution in the lower-left
   map corner while those remote results are visible
 - selecting a dropdown result, or pressing Enter to choose the selected
   result, centers it and opens an anchored detail card with an explicit `Add`
   action instead of mutating configuration
+- keyboard selection moves focus to that `Add` action; pressing Enter or Space
+  confirms it, including when the initial Enter had to wait for search results
 - selecting the same result from its map marker follows the identical preview
   and confirmation flow
 - dismissing a detail card closes any active search and returns focus to the

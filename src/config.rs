@@ -1041,9 +1041,14 @@ fn verified_colocated_timezone_link_coordinate(
     alias: &str,
     timezone_name: &str,
 ) -> Option<(f64, f64)> {
+    if let Some(coordinate) = timezone_coordinate_lookup().get(alias).copied() {
+        return Some(coordinate);
+    }
+
     // Most tzdb links only share clock rules and cannot safely inherit the
-    // canonical zone's geography. Keep the small set of true city renames
-    // explicit so those aliases can still focus the globe offline.
+    // canonical zone's geography. Prefer an alias's own zone.tab entry above,
+    // then keep the small set of true city renames explicit so those aliases
+    // can still focus the globe offline.
     let colocated = matches!((alias, timezone_name), ("Asia/Saigon", "Asia/Ho_Chi_Minh"));
     if !colocated {
         return None;
@@ -2396,6 +2401,22 @@ mod tests {
         assert_eq!(result.title, "Johnston");
         assert_eq!(result.latitude, None);
         assert_eq!(result.longitude, None);
+    }
+
+    #[test]
+    fn timezone_link_uses_its_own_zone_tab_coordinate_when_available() {
+        let canonical = canonical_timezone_name("Pacific/Saipan");
+        let resolver = TimezoneResolver::new(Some(vec![canonical.clone()]));
+
+        let result = resolver
+            .search("Saipan", 8)
+            .into_iter()
+            .find(|result| result.timezone == canonical)
+            .expect("Saipan alias should remain searchable");
+
+        assert_eq!(result.title, "Saipan");
+        assert!(result.latitude.is_some());
+        assert!(result.longitude.is_some());
     }
 
     #[test]

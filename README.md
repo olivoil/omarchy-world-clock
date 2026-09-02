@@ -129,7 +129,7 @@ Example:
 
 ```json
 {
-  "version": 7,
+  "version": 8,
   "pinned_locations": [
     {
       "timezone": "Europe/Paris",
@@ -150,12 +150,14 @@ Example:
     {
       "timezone": "Europe/Paris",
       "label": "Rennes",
+      "original_label": "Rennes",
       "latitude": 48.1173,
       "longitude": -1.6778
     },
     {
       "timezone": "Asia/Tokyo",
       "label": "Tokyo",
+      "original_label": "Tokyo",
       "latitude": 35.6764,
       "longitude": 139.65
     }

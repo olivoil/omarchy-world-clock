@@ -369,6 +369,7 @@ mod tests {
                 .map(|(index, (timezone, label))| TimezoneEntry {
                     timezone: (*timezone).to_string(),
                     label: (*label).to_string(),
+                    original_label: (*label).to_string(),
                     latitude: Some(index as f64),
                     longitude: Some(index as f64),
                 })

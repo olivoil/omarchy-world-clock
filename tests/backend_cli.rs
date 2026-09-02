@@ -371,11 +371,11 @@ fn bundled_backend_supports_the_complete_quattro_command_protocol() {
         .iter()
         .find(|clock| clock["timezone"] == "America/New_York")
         .expect("reset location clock");
-    assert_eq!(reset_clock["label"], "New York");
-    assert_eq!(reset_clock["title"], "New York");
+    assert_eq!(reset_clock["label"], "Boston");
+    assert_eq!(reset_clock["title"], "Boston");
 
     let remove = Command::new(backend)
-        .args(["remove", "America/New_York", "--label", "New York"])
+        .args(["remove", "America/New_York", "--label", "Boston"])
         .env("HOME", &home)
         .env("OMARCHY_WORLD_CLOCK_CONFIG", &config_path)
         .status()

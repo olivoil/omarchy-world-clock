@@ -103,6 +103,13 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     let panel_path = qml_path.parent().unwrap().join("Panel.qml");
     assert!(panel_path.is_file(), "missing {}", panel_path.display());
     let panel = fs::read_to_string(panel_path).expect("read native panel");
+    let solar_arc_path = qml_path.parent().unwrap().join("SolarArc.qml");
+    assert!(
+        solar_arc_path.is_file(),
+        "missing {}",
+        solar_arc_path.display()
+    );
+    let solar_arc = fs::read_to_string(solar_arc_path).expect("read solar arc component");
     assert_text_items_are_plain_text(&panel, "quattro/Panel.qml");
     assert!(!panel.contains("omarchy-world-clock-bin"));
     assert!(panel.contains("KeyboardPanel"));
@@ -112,6 +119,8 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(!panel.contains("maxClocks"));
     assert!(!panel.contains("canAddLocation"));
     assert!(panel.contains("readonly property bool autoCompactDensity"));
+    assert!(panel.contains("+ panelColumn.spacing + summaryClock.height"));
+    assert!(!panel.contains("+ panelColumn.spacing + Style.space(92)"));
     assert!(panel.contains("readonly property bool compactDensity"));
     let compact_density = panel
         .split("readonly property bool compactDensity:")
@@ -300,6 +309,11 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("TimeRail.mergeSnapshot(scrubBaseSnapshot, scrubPayload, index)"));
     assert!(panel.contains("property real scrubAnchorMinute: 0"));
     assert!(panel.contains("readonly property bool scrubSourceIsSummary"));
+    assert!(panel.contains("visible: !root.scrubSourceIsSummary"));
+    assert!(
+        !panel.contains("\"PREPARING \""),
+        "fast cross-day reloads must not flash a transient timeline caption"
+    );
     assert!(panel.contains("function clockDayLabel(clock)"));
     assert!(panel.contains("if (root.live && !root.scrubPreviewActive) return liveLabel"));
     assert!(panel.contains("TimeRail.relativeDayLabel(clock, root.clockForScrubSource())"));
@@ -324,37 +338,59 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("readonly property bool localDayRulersVisible:"));
     assert!(panel.contains("mode === \"read\" && (scrubPreviewActive || !live)"));
     assert!(panel.contains("id: cardLocalDayRuler"));
-    assert!(panel.contains("id: localDayTrack"));
-    assert!(panel.contains("id: localSolarGlow"));
-    assert!(panel.contains("Canvas {"));
+    assert_eq!(panel.matches("SolarArc {").count(), 2);
+    assert!(!panel.contains("id: localDayTrack"));
+    assert!(!panel.contains("id: localSolarGlow"));
+    assert!(solar_arc.contains("id: arcCanvas"));
+    assert!(solar_arc.contains("id: solarMarker"));
+    assert!(solar_arc.contains("function curveHeightAt("));
+    assert!(solar_arc.contains("property bool positionAnimationEnabled: true"));
     assert!(panel.contains("readonly property var localDaylight:"));
     assert!(panel.contains("TimeRail.localDaylight(clockData, root.snapshot.reference_utc)"));
-    assert!(panel.contains("clockCell.localDaylight.curve_segments"));
-    assert!(panel.contains("clockCell.localDaylight.daylight_intervals"));
-    assert!(panel.contains("id: localDaylightEdgeRepeater"));
+    assert!(panel.contains("daylight: clockCell.localDaylight"));
+    assert!(solar_arc.contains("daylight.curve_segments"));
+    assert!(solar_arc.contains("for (var segmentIndex = 0;"));
+    assert!(solar_arc.contains("root.curveHeightAt(dayPosition, curveSegments)"));
     assert!(!panel.contains("id: localSunriseCap"));
     assert!(!panel.contains("id: localSunsetCap"));
-    assert!(panel.contains("clockCell.localDaylight.marker_light"));
-    assert!(panel.contains("Behavior on color { ColorAnimation { duration: 150 } }"));
+    assert!(solar_arc.contains("daylight.marker_light"));
+    assert!(solar_arc.contains("Behavior on solarColor"));
     assert!(!panel.contains("orientation: Gradient.Horizontal"));
-    assert!(panel.contains("TimeRail.localDayPosition(clockCell.clockData.local_minutes)"));
+    assert!(panel.contains("localMinutes: clockCell.clockData.local_minutes"));
+    assert!(solar_arc.contains("TimeRail.localDayPosition(localMinutes)"));
     let local_day_ruler = panel
         .split("id: cardLocalDayRuler")
         .nth(1)
-        .and_then(|source| source.split("id: localDayMarker").next())
+        .and_then(|source| source.split("Button {").next())
         .expect("passive local-day ruler body");
     assert!(!local_day_ruler.contains("MouseArea"));
-    let local_day_marker = panel
-        .split("id: localDayMarker")
+    assert!(!local_day_ruler.contains("readonly property color nightTint:"));
+    assert!(!solar_arc.contains("property color arcColor:"));
+    assert!(!solar_arc.contains("property color markerColor:"));
+    assert!(solar_arc.contains("root.solarColor, root.curveFillOpacity"));
+    assert!(solar_arc.contains("root.solarColor, root.curveStrokeOpacity"));
+    assert_eq!(solar_arc.matches("color: root.solarColor").count(), 2);
+    assert_eq!(panel.matches("dayColor: root.solarDayColor").count(), 2);
+    assert_eq!(panel.matches("nightColor: root.solarNightColor").count(), 2);
+    assert!(local_day_ruler.contains("0.74 + cardLocalDayRuler.sunlight * 0.18"));
+    assert!(local_day_ruler.contains("positionAnimationEnabled: false"));
+    assert!(solar_arc.contains("Behavior on x"));
+    assert!(solar_arc.contains("Behavior on y"));
+    assert_eq!(
+        solar_arc
+            .matches("enabled: root.positionAnimationEnabled")
+            .count(),
+        2,
+        "both marker axes must honor direct scrub tracking"
+    );
+    let scrub_value_bubble = panel
+        .split("id: scrubValueBubble")
         .nth(1)
-        .and_then(|source| source.split("Button {").next())
-        .expect("local-day ruler marker body");
-    assert!(local_day_marker.contains("height: Math.round(parent.height * 0.5)"));
-    assert!(local_day_marker.contains("readonly property color nightTint:"));
-    assert!(local_day_marker.contains("nightTint, clockSurface.color"));
-    assert!(local_day_marker.contains("readonly property real restingOpacity:"));
-    assert!(local_day_marker.contains("0.68 + sunlight * 0.26"));
-    assert!(!local_day_marker.contains("Behavior on x"));
+        .and_then(|source| source.split("MouseArea {").next())
+        .expect("selected timeline value bubble body");
+    assert!(scrub_value_bubble.contains("TimeRail.selectionLabelVisible("));
+    assert!(!scrub_value_bubble.contains("visible: root.scrubReady"));
+    assert!(panel.contains("visible: root.scrubReady || scrubValueBubble.visible"));
     assert!(!panel.contains("TimeRail.centeredSlotIndexAt("));
     assert!(!panel.contains("TimeRail.framePosition("));
     assert!(panel.contains("readonly property real scrubViewportMinute:"));
@@ -430,9 +466,17 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
         .and_then(|source| source.split("id: timelineView").next())
         .expect("shared read-mode chrome");
     assert!(shared_read_chrome.contains("spacing: Style.space(18)"));
-    assert!(shared_read_chrome.contains("height: Style.space(92)"));
+    assert!(shared_read_chrome.contains("height: Style.space(112)"));
     assert!(shared_read_chrome.contains("font.pixelSize: Style.space(52)"));
-    assert!(shared_read_chrome.contains("anchors.topMargin: Style.space(7)"));
+    assert!(!shared_read_chrome.contains("id: summaryMoodText"));
+    assert!(panel.contains("TimeRail.localDaylight(summary, snapshot.reference_utc)"));
+    assert!(shared_read_chrome.contains("id: summarySolarRuler"));
+    assert!(shared_read_chrome.contains("daylight: summaryClock.daylightData"));
+    assert_eq!(
+        panel.matches("positionAnimationEnabled: false").count(),
+        2,
+        "summary and card markers must wrap directly at local midnight"
+    );
     let rail_mouse = panel
         .split("id: railMouse")
         .nth(1)
@@ -624,10 +668,16 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(!panel.contains("<a href=\"https://open-meteo.com/\">"));
     assert!(!panel.contains("resultButton.modelData.open_meteo_attribution"));
     assert!(panel.contains("readonly property string currentLocationTitle"));
+    assert!(!panel.contains("AlmanacQuotes"));
+    assert!(!root.join("quattro/AlmanacQuotes.js").exists());
+    assert!(panel.contains("readonly property color solarDayColor"));
+    assert!(panel.contains("readonly property color solarNightColor"));
     assert!(panel.contains("readonly property string currentTimezoneMetadata"));
     assert!(panel.contains("spacing: Style.space(root.mode === \"add\" ? 14 : 8)"));
     assert!(panel.contains("visible: root.mode !== \"add\""));
     assert!(panel.contains("text: root.currentLocationTitle"));
+    assert!(panel.contains("? Font.AllUppercase : Font.MixedCase"));
+    assert!(panel.contains("font.letterSpacing: root.mode === \"read\" ? 1.8 : 0"));
     assert!(panel.contains("font.pixelSize: Style.space(18)"));
     assert!(panel.contains("text: root.currentTimezoneMetadata"));
     assert!(panel.contains("id: clockRows"));
@@ -668,7 +718,7 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("[\"US\", \"LR\", \"MM\"].indexOf(territory) !== -1"));
     assert!(!panel.contains("/^en[_-]US"));
     assert!(panel.contains("id: summaryMetadataLine"));
-    assert!(panel.contains("height: Style.space(92)"));
+    assert!(panel.contains("height: Style.space(112)"));
     assert!(panel.contains("id: summaryWeatherLine"));
     assert!(panel.contains("id: summaryWeatherGlyph"));
     assert!(panel.contains("color: root.weatherGlyphColor(summaryClock.weatherData)"));

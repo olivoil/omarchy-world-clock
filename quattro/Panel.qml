@@ -143,6 +143,7 @@ Panel {
   readonly property var weatherDetailToday:
     weatherDetailData && weatherDetailData.today
       ? weatherDetailData.today : null
+  readonly property real weatherDetailSectionInset: Style.space(24)
   readonly property bool localDayRulersVisible:
     mode === "read" && (scrubPreviewActive || !live)
   readonly property int weatherRefreshMilliseconds: 15 * 60 * 1000
@@ -3286,7 +3287,7 @@ Panel {
             id: weatherDetailPage
             visible: root.mode !== "add" && root.weatherDetailOpen
             width: parent.width
-            spacing: Style.space(12)
+            spacing: 0
 
             Item {
               id: weatherDetailHeader
@@ -3352,18 +3353,24 @@ Panel {
             }
 
             Item {
+              width: parent.width
+              height: Style.space(14)
+            }
+
+            Item {
               id: weatherDetailHero
               width: parent.width
-              height: Style.space(106)
+              height: Style.space(88)
 
               Row {
                 id: weatherDetailHeroRow
                 anchors.centerIn: parent
-                spacing: Style.space(panelScroll.width >= Style.space(760) ? 42 : 24)
+                spacing: Style.space(panelScroll.width >= Style.space(760) ? 34 : 22)
 
                 Row {
                   id: weatherDetailReading
-                  anchors.verticalCenter: parent.verticalCenter
+                  anchors.top: parent.top
+                  anchors.topMargin: Style.space(2)
                   spacing: Style.space(12)
 
                   Text {
@@ -3396,19 +3403,20 @@ Panel {
                       textFormat: Text.PlainText
                       visible: root.weatherDetailData !== null
                       anchors.top: weatherDetailTemperature.top
-                      anchors.topMargin: Style.space(8)
+                      anchors.topMargin: Style.space(6)
                       text: root.weatherUseImperial ? "F" : "C"
                       color: root.contentForeground
                       font.family: root.contentFontFamily
-                      font.pixelSize: Style.font.title
+                      font.pixelSize: Style.font.body
+                      font.bold: true
                     }
                   }
                 }
 
                 Column {
                   id: weatherDetailContext
-                  anchors.verticalCenter: parent.verticalCenter
-                  spacing: Style.space(7)
+                  anchors.top: parent.top
+                  spacing: Style.space(6)
 
                   Text {
                     textFormat: Text.PlainText
@@ -3446,7 +3454,7 @@ Panel {
 
                   Row {
                     id: weatherDetailStats
-                    spacing: Style.space(22)
+                    spacing: Style.space(18)
 
                     Row {
                       spacing: Style.space(5)
@@ -3537,18 +3545,34 @@ Panel {
             }
 
             Item {
+              x: root.weatherDetailSectionInset
+              width: Math.max(0, parent.width
+                - root.weatherDetailSectionInset * 2)
+              height: Style.space(31)
+
+              Rectangle {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                height: Style.spacing.hairline
+                color: root.contentForeground
+                opacity: 0.10
+              }
+            }
+
+            Item {
               id: weatherDetailFacts
               width: parent.width
-              height: Style.space(58)
+              height: Style.space(54)
 
               Grid {
                 id: weatherDetailFactGrid
                 anchors.fill: parent
-                anchors.leftMargin: Style.space(24)
-                anchors.rightMargin: Style.space(24)
+                anchors.leftMargin: root.weatherDetailSectionInset
+                anchors.rightMargin: root.weatherDetailSectionInset
                 columns: 3
                 columnSpacing: Style.space(28)
-                rowSpacing: Style.space(8)
+                rowSpacing: Style.space(6)
 
                 Repeater {
                   id: weatherDetailFactRepeater
@@ -3590,15 +3614,16 @@ Panel {
                     required property int index
                     width: (weatherDetailFactGrid.width
                       - weatherDetailFactGrid.columnSpacing * 2) / 3
-                    height: Style.space(25)
+                    height: Style.space(24)
 
                     Item {
                       anchors.fill: parent
 
                       Text {
+                        id: weatherDetailFactLabel
                         textFormat: Text.PlainText
                         anchors.left: parent.left
-                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.baseline: weatherDetailFactValue.baseline
                         text: String(weatherDetailFactCell.modelData.label || "")
                         color: Qt.darker(root.contentForeground, 1.5)
                         font.family: root.contentFontFamily
@@ -3607,6 +3632,7 @@ Panel {
                       }
 
                       Text {
+                        id: weatherDetailFactValue
                         textFormat: Text.PlainText
                         anchors.right: parent.right
                         anchors.verticalCenter: parent.verticalCenter
@@ -3622,23 +3648,33 @@ Panel {
               }
             }
 
-            Rectangle {
+            Item {
               visible: root.weatherDetailHourlyForecast.length > 0
-              width: parent.width
-              height: Style.spacing.hairline
-              color: root.contentForeground
-              opacity: 0.08
+              x: root.weatherDetailSectionInset
+              width: Math.max(0, parent.width
+                - root.weatherDetailSectionInset * 2)
+              height: Style.space(27)
+
+              Rectangle {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                height: Style.spacing.hairline
+                color: root.contentForeground
+                opacity: 0.08
+              }
             }
 
             Column {
               id: weatherDetailHourlySection
               visible: root.weatherDetailHourlyForecast.length > 0
-              width: parent.width
-              spacing: Style.space(8)
+              x: root.weatherDetailSectionInset
+              width: Math.max(0, parent.width
+                - root.weatherDetailSectionInset * 2)
+              spacing: Style.space(6)
 
               Text {
                 textFormat: Text.PlainText
-                x: Style.space(20)
                 text: "Hourly"
                 color: Qt.darker(root.contentForeground, 1.45)
                 font.family: root.contentFontFamily
@@ -3650,13 +3686,11 @@ Panel {
               Item {
                 id: weatherDetailHourlyStrip
                 width: parent.width
-                height: Style.space(68)
+                height: Style.space(62)
 
-                Row {
+                Item {
                   id: weatherDetailHourlyRow
                   anchors.fill: parent
-                  anchors.leftMargin: Style.space(8)
-                  anchors.rightMargin: Style.space(8)
 
                   Repeater {
                     id: weatherDetailHourlyRepeater
@@ -3666,9 +3700,12 @@ Panel {
                       id: weatherDetailHourlyCell
                       required property var modelData
                       required property int index
-                      width: weatherDetailHourlyRow.width
-                        / weatherDetailHourlyRepeater.count
+                      width: Style.space(56)
                       height: weatherDetailHourlyStrip.height
+                      x: weatherDetailHourlyRepeater.count <= 1
+                        ? (weatherDetailHourlyRow.width - width) / 2
+                        : index * (weatherDetailHourlyRow.width - width)
+                          / (weatherDetailHourlyRepeater.count - 1)
                       Accessible.name: root.weatherHourlyTime(modelData.time, index)
                         + ", " + String(modelData.condition || "")
                         + ", " + root.weatherTemperature(modelData.temperature_celsius)
@@ -3677,7 +3714,13 @@ Panel {
                       Accessible.role: Accessible.StaticText
 
                       Column {
-                        anchors.centerIn: parent
+                        id: weatherDetailHourlyContent
+                        x: weatherDetailHourlyCell.index === 0 ? 0
+                          : (weatherDetailHourlyCell.index
+                              === weatherDetailHourlyRepeater.count - 1
+                            ? parent.width - width
+                            : (parent.width - width) / 2)
+                        anchors.verticalCenter: parent.verticalCenter
                         spacing: Style.space(4)
 
                         Text {
@@ -3710,6 +3753,7 @@ Panel {
                           spacing: Style.space(6)
 
                           Text {
+                            id: weatherDetailHourlyTemperature
                             textFormat: Text.PlainText
                             text: root.weatherTemperatureCompact(
                               weatherDetailHourlyCell.modelData.temperature_celsius)
@@ -3721,6 +3765,7 @@ Panel {
 
                           Text {
                             textFormat: Text.PlainText
+                            anchors.baseline: weatherDetailHourlyTemperature.baseline
                             text: root.weatherProbability(
                               weatherDetailHourlyCell.modelData
                                 .precipitation_probability_percent)
@@ -3741,22 +3786,32 @@ Panel {
               }
             }
 
-            Rectangle {
+            Item {
               visible: root.weatherDetailForecast.length > 0
-              width: parent.width
-              height: Style.spacing.hairline
-              color: root.contentForeground
-              opacity: 0.08
+              x: root.weatherDetailSectionInset
+              width: Math.max(0, parent.width
+                - root.weatherDetailSectionInset * 2)
+              height: Style.space(27)
+
+              Rectangle {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                height: Style.spacing.hairline
+                color: root.contentForeground
+                opacity: 0.08
+              }
             }
 
             Column {
               visible: root.weatherDetailForecast.length > 0
-              width: parent.width
-              spacing: Style.space(8)
+              x: root.weatherDetailSectionInset
+              width: Math.max(0, parent.width
+                - root.weatherDetailSectionInset * 2)
+              spacing: Style.space(6)
 
               Text {
                 textFormat: Text.PlainText
-                x: Style.space(20)
                 text: "4-day forecast"
                 color: Qt.darker(root.contentForeground, 1.45)
                 font.family: root.contentFontFamily
@@ -3767,13 +3822,11 @@ Panel {
 
               Item {
                 width: parent.width
-                height: Style.space(74)
+                height: Style.space(56)
 
-                Row {
+                Item {
                   id: weatherDetailForecastRow
                   anchors.fill: parent
-                  anchors.leftMargin: Style.space(8)
-                  anchors.rightMargin: Style.space(8)
 
                   Repeater {
                     id: weatherDetailForecastRepeater
@@ -3783,9 +3836,12 @@ Panel {
                       id: weatherDetailForecastCell
                       required property var modelData
                       required property int index
-                      width: weatherDetailForecastRow.width
-                        / weatherDetailForecastRepeater.count
+                      width: Style.space(132)
                       height: weatherDetailForecastRow.height
+                      x: weatherDetailForecastRepeater.count <= 1
+                        ? (weatherDetailForecastRow.width - width) / 2
+                        : index * (weatherDetailForecastRow.width - width)
+                          / (weatherDetailForecastRepeater.count - 1)
                       Accessible.name: root.weatherForecastDay(modelData.date)
                         + ", " + String(modelData.condition || "")
                         + ", high " + root.weatherTemperature(
@@ -3797,7 +3853,13 @@ Panel {
                       Accessible.role: Accessible.StaticText
 
                       Row {
-                        anchors.centerIn: parent
+                        id: weatherDetailForecastContent
+                        x: weatherDetailForecastCell.index === 0 ? 0
+                          : (weatherDetailForecastCell.index
+                              === weatherDetailForecastRepeater.count - 1
+                            ? parent.width - width
+                            : (parent.width - width) / 2)
+                        anchors.verticalCenter: parent.verticalCenter
                         spacing: Style.space(8)
 
                         Text {
@@ -3813,13 +3875,17 @@ Panel {
 
                         Column {
                           anchors.verticalCenter: parent.verticalCenter
-                          width: Math.max(0, weatherDetailForecastCell.width
-                            - Style.space(56))
+                          width: Style.space(94)
                           spacing: Style.space(2)
 
                           Text {
                             textFormat: Text.PlainText
                             width: parent.width
+                            horizontalAlignment: weatherDetailForecastCell.index === 0
+                              ? Text.AlignLeft
+                              : (weatherDetailForecastCell.index
+                                  === weatherDetailForecastRepeater.count - 1
+                                ? Text.AlignRight : Text.AlignHCenter)
                             text: root.weatherForecastDay(
                               weatherDetailForecastCell.modelData.date)
                             elide: Text.ElideRight
@@ -3833,6 +3899,11 @@ Panel {
                           Text {
                             textFormat: Text.PlainText
                             width: parent.width
+                            horizontalAlignment: weatherDetailForecastCell.index === 0
+                              ? Text.AlignLeft
+                              : (weatherDetailForecastCell.index
+                                  === weatherDetailForecastRepeater.count - 1
+                                ? Text.AlignRight : Text.AlignHCenter)
                             text: String(weatherDetailForecastCell.modelData.condition
                               || "")
                             elide: Text.ElideRight
@@ -3842,9 +3913,15 @@ Panel {
                           }
 
                           Row {
+                            x: weatherDetailForecastCell.index === 0 ? 0
+                              : (weatherDetailForecastCell.index
+                                  === weatherDetailForecastRepeater.count - 1
+                                ? parent.width - width
+                                : (parent.width - width) / 2)
                             spacing: Style.space(7)
 
                             Text {
+                              id: weatherDetailForecastHigh
                               textFormat: Text.PlainText
                               text: root.weatherTemperatureCompact(
                                 weatherDetailForecastCell.modelData
@@ -3856,6 +3933,7 @@ Panel {
 
                             Text {
                               textFormat: Text.PlainText
+                              anchors.baseline: weatherDetailForecastHigh.baseline
                               text: root.weatherTemperatureCompact(
                                 weatherDetailForecastCell.modelData
                                   .temperature_min_celsius)
@@ -3866,6 +3944,7 @@ Panel {
 
                             Text {
                               textFormat: Text.PlainText
+                              anchors.baseline: weatherDetailForecastHigh.baseline
                               text: root.weatherProbability(
                                 weatherDetailForecastCell.modelData
                                   .precipitation_probability_percent)

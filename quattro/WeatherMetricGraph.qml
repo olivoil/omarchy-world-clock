@@ -145,26 +145,18 @@ Item {
       var values = []
       var minimum = Number.POSITIVE_INFINITY
       var maximum = Number.NEGATIVE_INFINITY
+      var hasLineValues = false
       for (var valueIndex = 0; valueIndex < forecastHours.length; valueIndex++) {
         var value = graph.valueFor(forecastHours[valueIndex], selectedMetric)
         values.push(value)
         if (isFinite(value)) {
+          hasLineValues = true
           minimum = Math.min(minimum, value)
           maximum = Math.max(maximum, value)
         }
       }
-      if (!isFinite(minimum) || !isFinite(maximum)) return
 
-      if (selectedMetric === "uv") {
-        minimum = 0
-        maximum = Math.max(11, maximum)
-        var thresholdY = bottom - 8 / maximum * plotHeight
-        context.fillStyle = graph.canvasColor(uvLine, 0.065)
-        context.fillRect(0, top, width, Math.max(0, thresholdY - top))
-        context.fillStyle = graph.canvasColor(uvLine, 0.72)
-        context.font = String(Style.fontPx(0.58)) + "px " + controller.contentFontFamily
-        context.fillText("VERY HIGH · 8+", Style.space(7), top + Style.space(8))
-      } else if (selectedMetric === "precipitation") {
+      if (selectedMetric === "precipitation") {
         minimum = 0
         maximum = 100
         var amountMaximum = Math.max(0.1, graph.maximumFor("precipitation_mm"))
@@ -180,14 +172,30 @@ Item {
           context.fillRect(barX - barWidth / 2, bottom - barHeight,
             barWidth, barHeight)
         }
+        // Open-Meteo can supply measured/forecast amounts even where the
+        // probability series is unavailable. Keep those bars visible without
+        // inventing a probability line.
+        if (!hasLineValues) return
       } else {
-        var range = maximum - minimum
-        if (range < 1) {
-          minimum -= 0.5
-          maximum += 0.5
+        if (!hasLineValues) return
+        if (selectedMetric === "uv") {
+          minimum = 0
+          maximum = Math.max(11, maximum)
+          var thresholdY = bottom - 8 / maximum * plotHeight
+          context.fillStyle = graph.canvasColor(uvLine, 0.065)
+          context.fillRect(0, top, width, Math.max(0, thresholdY - top))
+          context.fillStyle = graph.canvasColor(uvLine, 0.72)
+          context.font = String(Style.fontPx(0.58)) + "px " + controller.contentFontFamily
+          context.fillText("VERY HIGH · 8+", Style.space(7), top + Style.space(8))
         } else {
-          minimum -= range * 0.12
-          maximum += range * 0.12
+          var range = maximum - minimum
+          if (range < 1) {
+            minimum -= 0.5
+            maximum += 0.5
+          } else {
+            minimum -= range * 0.12
+            maximum += range * 0.12
+          }
         }
       }
 

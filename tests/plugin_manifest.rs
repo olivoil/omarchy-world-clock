@@ -787,6 +787,20 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(weather_detail.contains("WeatherMetricGraph {"));
     assert!(weather_graph.contains("item.precipitation_mm"));
     assert!(weather_graph.contains("item.precipitation_probability_percent"));
+    let graph_paint = weather_graph
+        .split("onPaint: {")
+        .nth(1)
+        .expect("weather graph paint body");
+    assert!(graph_paint.contains("var hasLineValues = false"));
+    assert!(
+        graph_paint
+            .find("if (selectedMetric === \"precipitation\") {")
+            .expect("precipitation amount branch")
+            < graph_paint
+                .find("if (!hasLineValues) return")
+                .expect("missing probability fallback"),
+        "precipitation bars must be drawn before missing probability data can end painting"
+    );
     assert!(panel.contains("function weatherProbability(value)"));
     assert!(panel.contains("function weatherPrecipitation(value)"));
     let weather_signature = panel

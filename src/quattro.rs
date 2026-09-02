@@ -282,6 +282,8 @@ pub struct QuattroMapLocation {
 pub struct QuattroSearchLocation {
     #[serde(flatten)]
     pub result: TimezoneSearchResult,
+    pub focus_latitude: Option<f64>,
+    pub focus_longitude: Option<f64>,
     pub time: String,
     pub day: String,
     pub notation: String,
@@ -651,8 +653,19 @@ pub fn build_search_location(
     let zoned = zoned_datetime(reference_utc, &result.timezone);
     let relative_minutes =
         wall_clock_delta_minutes(reference_utc, local_timezone, &result.timezone);
+    let focus_coordinate = place_coordinate(&TimezoneEntry {
+        timezone: result.timezone.clone(),
+        label: result.title.clone(),
+        latitude: result.latitude,
+        longitude: result.longitude,
+    });
+    let (focus_latitude, focus_longitude) = focus_coordinate
+        .map(|(latitude, longitude)| (Some(latitude), Some(longitude)))
+        .unwrap_or((None, None));
 
     QuattroSearchLocation {
+        focus_latitude,
+        focus_longitude,
         time: format_display_time(&zoned, time_format),
         day: day_label(reference_utc, local_timezone, &result.timezone),
         notation: format_timezone_notation(&zoned),

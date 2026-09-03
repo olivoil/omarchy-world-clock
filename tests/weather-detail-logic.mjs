@@ -94,4 +94,30 @@ const ordinaryDay = Array.from({ length: 24 }, (_, index) =>
 assert.equal(context.defaultMetric(ordinaryDay), "temperature",
   "temperature remains the calm fallback when no signal dominates")
 
+const clearFewHours = Array.from({ length: 4 }, () =>
+  hour(0, 4, { precipitation_mm: 0 }))
+assert.equal(context.clearSkiesHold(clearFewHours, 4), true,
+  "a clear persistence claim requires several consistently clear forecast slots")
+assert.equal(context.clearSkiesHold([
+  hour(0, null),
+  hour(1, null),
+  hour(61, null, { precipitation_mm: 0.4 }),
+  hour(61, null, { precipitation_mm: 0.7 }),
+], 4), false,
+  "incoming rain codes prevent a clear-skies claim when probabilities are missing")
+assert.equal(context.clearSkiesHold([
+  hour(0, 2), hour(1, 4), hour(3, 5), hour(3, 6),
+], 4), false, "incoming cloud cover prevents a clear-skies persistence claim")
+assert.equal(context.clearSkiesHold(clearFewHours.slice(0, 2), 4), false,
+  "too little forecast evidence cannot support a next-few-hours claim")
+
+assert.equal(context.comfortNote(38, 60), "It will feel hot and humid.",
+  "humid heat retains the combined description when humidity supports it")
+assert.equal(context.comfortNote(38, 24), "It will feel hot.",
+  "dry heat is not described as humid")
+assert.equal(context.comfortNote(38, null), "It will feel hot.",
+  "missing humidity cannot produce a humidity claim")
+assert.equal(context.comfortNote(29, 82), "Humidity stays high.",
+  "high humidity remains useful outside extreme heat")
+
 console.log("Weather detail logic tests passed.")

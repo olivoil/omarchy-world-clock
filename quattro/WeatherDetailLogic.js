@@ -28,6 +28,36 @@ function wetFamily(family) {
     || family === "ice"
 }
 
+function clearSkiesHold(source, limit) {
+  var count = Math.min(listLength(source),
+    Math.max(0, Math.floor(Number(limit) || 4)))
+  // "The next few hours" is a forecast claim, so require the current slot
+  // plus at least two future observations instead of extrapolating from now.
+  if (count < 3) return false
+  for (var index = 0; index < count; index++) {
+    var item = source[index]
+    var code = finite(item ? item.weather_code : null)
+    var probability = finite(item
+      ? item.precipitation_probability_percent : null)
+    var amount = finite(item ? item.precipitation_mm : null)
+    if (!isFinite(code) || weatherFamily(item) !== "clear"
+        || (isFinite(probability) && probability >= 20)
+        || (isFinite(amount) && amount >= 0.1)) return false
+  }
+  return true
+}
+
+function comfortNote(apparentTemperature, relativeHumidity) {
+  var feels = finite(apparentTemperature)
+  var humidity = finite(relativeHumidity)
+  if (isFinite(feels) && feels >= 35) {
+    return isFinite(humidity) && humidity >= 60
+      ? "It will feel hot and humid." : "It will feel hot."
+  }
+  if (isFinite(humidity) && humidity >= 75) return "Humidity stays high."
+  return "Conditions stay close to the current reading."
+}
+
 function familyPriority(family) {
   if (family === "storm") return 5
   if (family === "ice" || family === "snow") return 4

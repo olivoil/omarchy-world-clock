@@ -353,7 +353,7 @@ Item {
       return { lead: heatTitle + ".", accent: "" }
     }
     var code = Number(weatherData.weather_code)
-    if (code <= 1)
+    if (code <= 1 && WeatherDetailLogic.clearSkiesHold(hourly, 4))
       return { lead: "Clear skies hold for the next few hours.", accent: "" }
     return { lead: String(weatherData.condition || "Conditions stay steady")
       + " for now.", accent: "" }
@@ -382,9 +382,7 @@ Item {
     if (!weatherData) return ""
     var feels = finite(weatherData.apparent_temperature_celsius)
     var humidity = finite(weatherData.relative_humidity_percent)
-    var lead = isFinite(feels) && feels >= 35 ? "It will feel hot and humid."
-      : (isFinite(humidity) && humidity >= 75 ? "Humidity stays high."
-        : "Conditions stay close to the current reading.")
+    var lead = WeatherDetailLogic.comfortNote(feels, humidity)
     var rainPeak = peakHourly("precipitation_probability_percent", 12)
     var clearWindow = isFinite(rainPeak.value) && rainPeak.value >= 35
       ? clearWindowAfter(rainPeak.index) : null

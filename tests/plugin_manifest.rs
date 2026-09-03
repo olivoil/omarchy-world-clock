@@ -863,6 +863,9 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(weather_detail.contains("return \"Icy mix possible\""));
     assert!(weather_detail.contains("return \"Rain builds through \""));
     assert!(weather_detail.contains("return \"Snow is most likely \""));
+    assert!(weather_detail.contains("endTemperature <= temperaturePeak.value - 2"));
+    assert!(weather_detail.contains("rainPeak.value >= 35"));
+    assert!(weather_detail.contains("probability < 30) && code <= 2"));
     let weather_signature = panel
         .split("function weatherSignature()")
         .nth(1)

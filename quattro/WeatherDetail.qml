@@ -319,7 +319,7 @@ Item {
     for (var index = Math.max(0, startIndex + 1); index < hourly.length; index++) {
       var probability = finite(hourly[index].precipitation_probability_percent)
       var code = Number(hourly[index].weather_code)
-      if ((!isFinite(probability) || probability < 30) && code <= 3)
+      if ((!isFinite(probability) || probability < 30) && code <= 2)
         return hourly[index]
     }
     return null
@@ -344,9 +344,17 @@ Item {
     if (isFinite(rainPeak.value) && rainPeak.value >= 35)
       return precipitationPassingTitle(precipitation, rainPeak.item)
     var temperaturePeak = peakHourly("temperature_celsius", 12)
-    if (isFinite(temperaturePeak.value) && temperaturePeak.value >= 32)
-      return "Heat holds through " + dayPart(temperaturePeak.item)
-        + ", then eases later."
+    if (isFinite(temperaturePeak.value) && temperaturePeak.value >= 32) {
+      var temperatureCount = Math.min(hourly.length, 12)
+      var endTemperature = temperatureCount > 0
+        ? finite(hourly[temperatureCount - 1].temperature_celsius) : NaN
+      var heatTitle = "Heat holds through " + dayPart(temperaturePeak.item)
+      if (temperaturePeak.index < temperatureCount - 1
+          && isFinite(endTemperature)
+          && endTemperature <= temperaturePeak.value - 2)
+        heatTitle += ", then eases later"
+      return heatTitle + "."
+    }
     var code = Number(weatherData.weather_code)
     if (code <= 1) return "Clear skies hold for the next few hours."
     return String(weatherData.condition || "Conditions stay steady") + " for now."
@@ -360,7 +368,8 @@ Item {
       : (isFinite(humidity) && humidity >= 75 ? "Humidity stays high."
         : "Conditions stay close to the current reading.")
     var rainPeak = peakHourly("precipitation_probability_percent", 12)
-    var clearWindow = clearWindowAfter(rainPeak.index)
+    var clearWindow = isFinite(rainPeak.value) && rainPeak.value >= 35
+      ? clearWindowAfter(rainPeak.index) : null
     return clearWindow
       ? lead + " The clearest window begins around "
         + controller.weatherLocalTime(clearWindow.time) + "."

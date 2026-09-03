@@ -653,7 +653,10 @@ Panel {
   }
 
   function moveKeyboardCursor(dx, dy) {
-    if (weatherDetailOpen) return
+    if (weatherDetailOpen) {
+      weatherDetailPage.scrollByDirection(dy)
+      return
+    }
     if (mode === "add") {
       if (mapSelection !== null) dismissMapSelection()
       mapClickPending = false
@@ -2269,7 +2272,8 @@ Panel {
       id: keyCatcher
       anchors.fill: parent
       blocked: root.editorActive || addField.activeFocus
-      directTextInput: (root.mode === "read" || root.mode === "add")
+      directTextInput: !root.weatherDetailOpen
+        && (root.mode === "read" || root.mode === "add")
         && !addField.activeFocus
       onMoveRequested: function(dx, dy) { root.moveKeyboardCursor(dx, dy) }
       onActivateRequested: root.activateKeyboardCursor()

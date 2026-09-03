@@ -19,6 +19,7 @@ Item {
     foreground, Qt.rgba(0.95, 0.48, 0.32, 1), 0.72)
   property color windColor: controller.mixColor(
     foreground, Qt.rgba(0.49, 0.82, 0.68, 1), 0.68)
+  readonly property var labelHours: sampleLabelHours(hours, 8)
 
   implicitHeight: Style.space(145)
   Accessible.role: Accessible.Chart
@@ -84,6 +85,19 @@ Item {
       if (isFinite(value)) maximum = Math.max(maximum, value)
     }
     return maximum
+  }
+
+  function sampleLabelHours(source, count) {
+    var values = source && source.length ? source : []
+    if (!values.length || count <= 0) return []
+    var labelCount = Math.min(values.length, count)
+    var sampled = []
+    for (var index = 0; index < labelCount; index++) {
+      var sourceIndex = labelCount === 1 ? 0
+        : Math.round(index * (values.length - 1) / (labelCount - 1))
+      sampled.push(values[sourceIndex])
+    }
+    return sampled
   }
 
   function canvasColor(color, alpha) {
@@ -281,13 +295,12 @@ Item {
     height: Style.space(30)
 
     Repeater {
-      model: graph.hours
+      model: graph.labelHours
 
       Item {
         id: valueCell
         required property var modelData
-        required property int index
-        width: valueRow.width / Math.max(1, graph.hours.length)
+        width: valueRow.width / Math.max(1, graph.labelHours.length)
         height: valueRow.height
 
         Column {

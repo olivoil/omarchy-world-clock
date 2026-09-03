@@ -801,6 +801,8 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(weather_detail.contains("text: \"OPEN-METEO  ·  \""));
     assert!(weather_detail.contains("? \"UPDATE UNAVAILABLE\" : \"UPDATED NOW\""));
     assert!(weather_detail.contains("function handleScrollWheel(event)"));
+    assert!(weather_detail.contains("function scrollByDirection(direction)"));
+    assert!(panel.contains("weatherDetailPage.scrollByDirection(dy)"));
     assert!(weather_detail.contains("event.pixelDelta.y"));
     assert!(weather_detail.contains("PointerDevice.Mouse | PointerDevice.TouchPad"));
     assert!(weather_detail.contains("id: hero"));
@@ -822,6 +824,10 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(weather_detail.contains("hasHourlyField(\"wind_speed_kmh\")"));
     assert!(weather_detail.contains("function precipitationRelevant()"));
     assert!(weather_detail.contains("WeatherMetricGraph {"));
+    assert!(weather_detail.contains("readonly property var graphHours: hourly"));
+    assert!(!weather_detail.contains("sampleHours(hourly, 8)"));
+    assert!(weather_graph.contains("function sampleLabelHours(source, count)"));
+    assert!(weather_graph.contains("model: graph.labelHours"));
     assert!(weather_graph.contains("item.precipitation_mm"));
     assert!(weather_graph.contains("item.precipitation_probability_percent"));
     let graph_paint = weather_graph
@@ -948,7 +954,8 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(key_catcher.contains("event.key >= Qt.Key_0 && event.key <= Qt.Key_9"));
     assert!(key_catcher.contains("Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier"));
     assert!(panel.contains("WorldClockKeyCatcher {"));
-    assert!(panel.contains("directTextInput: (root.mode === \"read\" || root.mode === \"add\")"));
+    assert!(panel.contains("directTextInput: !root.weatherDetailOpen"));
+    assert!(panel.contains("&& (root.mode === \"read\" || root.mode === \"add\")"));
     assert!(panel.contains("onMoveRequested: function(dx, dy)"));
     assert!(panel.contains("onActivateRequested: root.activateKeyboardCursor()"));
     assert!(panel.contains("onDeleteRequested: root.deleteKeyboardCursor()"));

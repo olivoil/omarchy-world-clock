@@ -17,7 +17,7 @@ Item {
   readonly property var today: controller.weatherDetailToday
   readonly property var hourly: controller.weatherDetailHourlyForecast || []
   readonly property var forecast: controller.weatherDetailForecast || []
-  readonly property var graphHours: sampleHours(hourly, 8)
+  readonly property var graphHours: hourly
   readonly property var phases: buildPhases(hourly)
   readonly property var metricOptions: buildMetricOptions()
   readonly property color foreground: controller.contentForeground
@@ -42,18 +42,6 @@ Item {
   function finite(value) {
     if (value === null || value === undefined || value === "") return NaN
     return Number(value)
-  }
-
-  function sampleHours(source, count) {
-    var values = source && source.length ? source : []
-    if (values.length <= count) return values.slice(0)
-    var sampled = []
-    for (var index = 0; index < count; index++) {
-      var sourceIndex = Math.round(index * (values.length - 1)
-        / Math.max(1, count - 1))
-      sampled.push(values[sourceIndex])
-    }
-    return sampled
   }
 
   function precipitationRelevant() {
@@ -451,6 +439,15 @@ Item {
     detailScroll.contentY = Math.max(0,
       Math.min(maximum, detailScroll.contentY - distance))
     event.accepted = true
+  }
+
+  function scrollByDirection(direction) {
+    var delta = Number(direction)
+    if (!isFinite(delta) || delta === 0) return
+    var maximum = Math.max(0, detailScroll.contentHeight - detailScroll.height)
+    detailScroll.cancelFlick()
+    detailScroll.contentY = Math.max(0, Math.min(maximum,
+      detailScroll.contentY + delta * Style.space(64)))
   }
 
   onDetailKeyChanged: {

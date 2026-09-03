@@ -48,6 +48,10 @@ normalized_slug=$(printf '%s' "$branch" |
   printf 'Could not derive a review ID from branch: %s\n' "$branch" >&2
   exit 1
 }
+# Leave room within Linux NAME_MAX for the plugin prefix, hash suffix, and
+# temporary-directory suffix. Normalization produces ASCII, so this character
+# bound is also a byte bound.
+normalized_slug=${normalized_slug:0:180}
 branch_hash=$(printf '%s' "$branch" | git hash-object --stdin)
 slug="${normalized_slug}-${branch_hash:0:10}"
 

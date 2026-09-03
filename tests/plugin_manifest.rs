@@ -1140,8 +1140,11 @@ fn review_installer_stages_safely_and_uses_collision_resistant_ids() {
     assert!(installer.contains("work_dir=$(mktemp -d \"$staging_root/${slug}.XXXXXX\")"));
     assert!(!installer.contains("mktemp -d \"$plugins_dir/"));
     assert!(!installer.contains("${destination}.replace"));
+    assert!(installer.contains("normalized_slug=${normalized_slug:0:180}"));
     assert!(installer.contains("branch_hash=$(printf '%s' \"$branch\" | git hash-object --stdin)"));
     assert!(installer.contains("slug=\"${normalized_slug}-${branch_hash:0:10}\""));
+    assert!("io.github.olivoil.world-clock-review-".len() + 180 + 1 + 10 <= 255);
+    assert!(180 + 1 + 10 + ".XXXXXX".len() <= 255);
 }
 
 #[test]

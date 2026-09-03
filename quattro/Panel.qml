@@ -2196,8 +2196,7 @@ Panel {
     open: root.opened
     centerOnBar: true
     focusTarget: keyCatcher
-    contentWidth: panel.fittedContentWidth(
-      Style.space(root.weatherDetailOpen ? 840 : 960))
+    contentWidth: panel.fittedContentWidth(Style.space(960))
     contentHeight: panel.fittedContentHeight(
       panelColumn.implicitHeight, Style.space(680))
 

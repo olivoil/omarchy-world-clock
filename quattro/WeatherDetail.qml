@@ -31,7 +31,8 @@ Item {
     foreground, Qt.rgba(0.95, 0.48, 0.32, 1), 0.72)
   readonly property color violet: controller.mixColor(
     foreground, Qt.rgba(0.66, 0.43, 0.87, 1), 0.72)
-  readonly property real sectionInset: Style.space(30)
+  readonly property string proseFontFamily: "sans-serif"
+  readonly property real sectionInset: Style.space(34)
 
   signal backRequested()
   signal attributionRequested()
@@ -194,12 +195,6 @@ Item {
     if (code >= 95) return violet
     if (code >= 51 || (isFinite(probability) && probability >= 35)) return blue
     return amber
-  }
-
-  function phaseBarOpacity(item) {
-    var probability = finite(item ? item.precipitation_probability_percent : null)
-    if (isFinite(probability)) return 0.25 + probability / 100 * 0.7
-    return 0.36
   }
 
   function dayPart(item) {
@@ -415,6 +410,49 @@ Item {
       : (meters >= 4000 ? "Moderate" : "Limited"))
   }
 
+  function localWeekday() {
+    var dateText = String(clockData && clockData.date ? clockData.date : "")
+    var date = new Date(dateText + "T12:00:00")
+    return !dateText || isNaN(date.getTime())
+      ? controller.clockDayLabel(clockData)
+      : Qt.formatDate(date, "dddd")
+  }
+
+  function compactWind(speedValue, directionValue, gustValue) {
+    var speed = finite(speedValue)
+    if (!isFinite(speed)) return "—"
+    var displaySpeed = controller.weatherUseImperial ? speed * 0.621371 : speed
+    var direction = controller.weatherWindDirection(directionValue)
+    var result = (direction ? direction + " " : "")
+      + String(Math.round(displaySpeed))
+    var gust = finite(gustValue)
+    if (isFinite(gust) && gust > speed + 1) {
+      var displayGust = controller.weatherUseImperial ? gust * 0.621371 : gust
+      result += "  ·  G" + String(Math.round(displayGust))
+    }
+    return result
+  }
+
+  function wheelDistance(event) {
+    var pixelY = Number(event.pixelDelta.y)
+    if (isFinite(pixelY) && pixelY !== 0) return pixelY
+    var angleY = Number(event.angleDelta.y)
+    return isFinite(angleY) ? angleY / 120 * Style.space(64) : 0
+  }
+
+  function handleScrollWheel(event) {
+    var distance = wheelDistance(event)
+    var maximum = Math.max(0, detailScroll.contentHeight - detailScroll.height)
+    if (!isFinite(distance) || distance === 0 || maximum <= 0) {
+      event.accepted = false
+      return
+    }
+    detailScroll.cancelFlick()
+    detailScroll.contentY = Math.max(0,
+      Math.min(maximum, detailScroll.contentY - distance))
+    event.accepted = true
+  }
+
   onDetailKeyChanged: {
     metricWasChosen = false
     chooseDefaultMetric()
@@ -430,10 +468,11 @@ Item {
     anchors.top: parent.top
     anchors.left: parent.left
     anchors.right: parent.right
-    height: Style.space(42)
+    height: Style.space(48)
 
     Button {
       anchors.left: parent.left
+      anchors.leftMargin: Style.space(20)
       anchors.verticalCenter: parent.verticalCenter
       iconText: "󰅁"
       foreground: detail.foreground
@@ -450,26 +489,27 @@ Item {
     Text {
       textFormat: Text.PlainText
       anchors.centerIn: parent
-      width: Math.max(0, parent.width - Style.space(220))
+      width: Math.max(0, parent.width - Style.space(320))
       horizontalAlignment: Text.AlignHCenter
       elide: Text.ElideRight
       text: detail.clockData ? String(detail.clockData.title
         || detail.clockData.label || "Weather") : "Weather"
       color: detail.foreground
       font.family: detail.controller.contentFontFamily
-      font.pixelSize: Style.space(16)
+      font.pixelSize: Style.fontPx(1.5)
       font.bold: true
     }
 
     Button {
       anchors.right: parent.right
+      anchors.rightMargin: Style.space(20)
       anchors.verticalCenter: parent.verticalCenter
-      text: "Open-Meteo" + (detail.controller.weatherError
-        ? "  ·  Update unavailable" : "")
+      text: "OPEN-METEO  ·  " + (detail.controller.weatherError
+        ? "UPDATE UNAVAILABLE" : "UPDATED NOW")
       foreground: Qt.darker(detail.foreground, 1.35)
       background: "transparent"
       fontFamily: detail.controller.contentFontFamily
-      fontSize: Style.fontPx(0.70)
+      fontSize: Style.font.caption
       focusable: true
       horizontalPadding: Style.space(4)
       verticalPadding: Style.space(1)
@@ -479,14 +519,6 @@ Item {
       onClicked: detail.attributionRequested()
     }
 
-    Rectangle {
-      anchors.left: parent.left
-      anchors.right: parent.right
-      anchors.bottom: parent.bottom
-      height: Style.spacing.hairline
-      color: detail.foreground
-      opacity: 0.08
-    }
   }
 
   Flickable {
@@ -500,6 +532,17 @@ Item {
     clip: true
     boundsBehavior: Flickable.StopAtBounds
     interactive: contentHeight > height
+    pixelAligned: true
+    maximumFlickVelocity: Style.space(5200)
+    flickDeceleration: Style.space(3000)
+
+    WheelHandler {
+      target: null
+      enabled: detailScroll.interactive
+      acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+      orientation: Qt.Vertical
+      onWheel: function(event) { detail.handleScrollWheel(event) }
+    }
 
     QQC.ScrollBar.vertical: QQC.ScrollBar {
       policy: QQC.ScrollBar.AsNeeded
@@ -514,7 +557,7 @@ Item {
       Item {
         id: hero
         width: parent.width
-        height: Style.space(154)
+        height: Style.space(184)
 
         Item {
           id: currentReading
@@ -522,11 +565,11 @@ Item {
           anchors.leftMargin: detail.sectionInset
           anchors.top: parent.top
           anchors.bottom: parent.bottom
-          width: Math.round((parent.width - detail.sectionInset * 2) * 0.38)
+          width: Math.round((parent.width - detail.sectionInset * 2) * 0.42)
 
           Row {
             anchors.centerIn: parent
-            spacing: Style.space(12)
+            spacing: Style.space(14)
 
             Text {
               textFormat: Text.PlainText
@@ -534,7 +577,7 @@ Item {
               text: detail.controller.weatherGlyph(detail.weatherData) || "—"
               color: detail.controller.weatherGlyphColor(detail.weatherData)
               font.family: detail.controller.contentFontFamily
-              font.pixelSize: Style.space(45)
+              font.pixelSize: Style.space(51)
             }
 
             Column {
@@ -552,7 +595,7 @@ Item {
                       detail.weatherData.temperature_celsius) : "—"
                   color: detail.foreground
                   font.family: detail.controller.contentFontFamily
-                  font.pixelSize: Style.space(45)
+                  font.pixelSize: Style.space(56)
                   font.bold: true
                 }
 
@@ -560,7 +603,7 @@ Item {
                   textFormat: Text.PlainText
                   visible: detail.weatherData !== null
                   anchors.top: heroTemperature.top
-                  anchors.topMargin: Style.space(7)
+                  anchors.topMargin: Style.space(8)
                   text: detail.controller.weatherUseImperial ? "F" : "C"
                   color: detail.foreground
                   font.family: detail.controller.contentFontFamily
@@ -569,16 +612,32 @@ Item {
                 }
               }
 
-              Text {
-                textFormat: Text.PlainText
-                text: detail.weatherData
-                  ? String(detail.weatherData.condition || "") + "  ·  "
-                    + String(detail.clockData ? detail.clockData.time || "" : "")
-                  : "Weather unavailable"
-                color: detail.muted
-                font.family: detail.controller.contentFontFamily
-                font.pixelSize: Style.font.caption
-                font.letterSpacing: 0.18
+              Row {
+                spacing: Style.space(8)
+
+                Text {
+                  textFormat: Text.PlainText
+                  text: detail.weatherData
+                    ? String(detail.weatherData.condition || "")
+                    : "Weather unavailable"
+                  color: detail.foreground
+                  opacity: 0.82
+                  font.family: detail.controller.contentFontFamily
+                  font.pixelSize: Style.font.bodySmall
+                }
+
+                Text {
+                  textFormat: Text.PlainText
+                  text: detail.weatherData && detail.clockData
+                    ? "·  " + String(detail.clockData.time || "")
+                      + (detail.clockData.notation
+                        ? "  ·  " + String(detail.clockData.notation) : "")
+                    : ""
+                  color: detail.muted
+                  font.family: detail.controller.contentFontFamily
+                  font.pixelSize: Style.font.caption
+                  font.letterSpacing: 0.18
+                }
               }
             }
           }
@@ -587,9 +646,9 @@ Item {
         Rectangle {
           anchors.left: currentReading.right
           anchors.top: parent.top
-          anchors.topMargin: Style.space(18)
+          anchors.topMargin: 0
           anchors.bottom: parent.bottom
-          anchors.bottomMargin: Style.space(18)
+          anchors.bottomMargin: 0
           width: Style.spacing.hairline
           color: detail.foreground
           opacity: 0.10
@@ -597,24 +656,23 @@ Item {
 
         Item {
           anchors.left: currentReading.right
-          anchors.leftMargin: Style.space(32)
+          anchors.leftMargin: Style.space(36)
           anchors.right: parent.right
           anchors.rightMargin: detail.sectionInset
           anchors.top: parent.top
-          anchors.topMargin: Style.space(19)
+          anchors.topMargin: Style.space(27)
           anchors.bottom: parent.bottom
-          anchors.bottomMargin: Style.space(16)
+          anchors.bottomMargin: Style.space(23)
 
           Text {
             id: localNoteLabel
             textFormat: Text.PlainText
             anchors.left: parent.left
             anchors.top: parent.top
-            text: "LOCAL NOTE  ·  " + detail.controller.clockDayLabel(
-              detail.clockData).toUpperCase()
+            text: "LOCAL NOTE  ·  " + detail.localWeekday().toUpperCase()
             color: detail.coral
             font.family: detail.controller.contentFontFamily
-            font.pixelSize: Style.fontPx(0.63)
+            font.pixelSize: Style.font.caption
             font.bold: true
             font.letterSpacing: 0.8
           }
@@ -625,14 +683,14 @@ Item {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.top: localNoteLabel.bottom
-            anchors.topMargin: Style.space(8)
+            anchors.topMargin: Style.space(10)
             text: detail.narrativeTitle()
             color: detail.foreground
             wrapMode: Text.WordWrap
             maximumLineCount: 2
             elide: Text.ElideRight
-            font.family: detail.controller.contentFontFamily
-            font.pixelSize: Style.space(17)
+            font.family: detail.proseFontFamily
+            font.pixelSize: Style.fontPx(1.8)
             font.bold: true
           }
 
@@ -642,14 +700,14 @@ Item {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.top: narrativeHeadline.bottom
-            anchors.topMargin: Style.space(5)
+            anchors.topMargin: Style.space(7)
             text: detail.narrativeNote()
             color: detail.muted
             wrapMode: Text.WordWrap
             maximumLineCount: 2
             elide: Text.ElideRight
-            font.family: detail.controller.contentFontFamily
-            font.pixelSize: Style.font.caption
+            font.family: detail.proseFontFamily
+            font.pixelSize: Style.font.bodySmall
           }
 
           Row {
@@ -657,7 +715,7 @@ Item {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.bottom: parent.bottom
-            height: Style.space(28)
+            height: Style.space(36)
 
             Repeater {
               model: [
@@ -667,7 +725,7 @@ Item {
                 { label: "RAIN NEXT HOUR", value:
                   detail.controller.weatherNextHourProbability() },
                 { label: "WIND", value: detail.weatherData
-                  ? detail.controller.weatherWindDetailed(
+                  ? detail.compactWind(
                     detail.weatherData.wind_speed_kmh,
                     detail.weatherData.wind_direction_degrees,
                     detail.weatherData.wind_gusts_kmh) : "—" },
@@ -682,14 +740,14 @@ Item {
                 height: heroFacts.height
 
                 Column {
-                  spacing: Style.space(3)
+                  spacing: Style.space(5)
 
                   Text {
                     textFormat: Text.PlainText
                     text: String(heroFact.modelData.label || "")
                     color: detail.dim
                     font.family: detail.controller.contentFontFamily
-                    font.pixelSize: Style.fontPx(0.58)
+                    font.pixelSize: Style.font.caption
                     font.letterSpacing: 0.65
                   }
 
@@ -700,7 +758,7 @@ Item {
                     color: detail.foreground
                     elide: Text.ElideRight
                     font.family: detail.controller.contentFontFamily
-                    font.pixelSize: Style.font.caption
+                    font.pixelSize: Style.font.bodySmall
                     font.bold: true
                   }
                 }
@@ -722,16 +780,16 @@ Item {
         id: phaseSection
         visible: detail.phases.length > 0
         width: parent.width
-        height: visible ? Style.space(110) : 0
+        height: visible ? Style.space(132) : 0
 
         Text {
           textFormat: Text.PlainText
           x: detail.sectionInset
-          y: Style.space(14)
+          y: Style.space(18)
           text: "TODAY BY PHASE"
           color: detail.muted
           font.family: detail.controller.contentFontFamily
-          font.pixelSize: Style.fontPx(0.68)
+          font.pixelSize: Style.font.caption
           font.bold: true
           font.letterSpacing: 0.75
         }
@@ -739,9 +797,9 @@ Item {
         Row {
           id: phaseRow
           x: detail.sectionInset
-          y: Style.space(36)
+          y: Style.space(48)
           width: parent.width - detail.sectionInset * 2
-          height: Style.space(62)
+          height: Style.space(68)
 
           Repeater {
             model: detail.phases
@@ -765,9 +823,9 @@ Item {
 
               Item {
                 anchors.fill: parent
-                anchors.leftMargin: phaseCell.index === 0 ? 0 : Style.space(20)
+                anchors.leftMargin: phaseCell.index === 0 ? 0 : Style.space(24)
                 anchors.rightMargin: phaseCell.index === detail.phases.length - 1
-                  ? 0 : Style.space(20)
+                  ? 0 : Style.space(24)
 
                 Text {
                   id: phaseRange
@@ -777,7 +835,7 @@ Item {
                   text: String(phaseCell.modelData.range || "")
                   color: detail.dim
                   font.family: detail.controller.contentFontFamily
-                  font.pixelSize: Style.fontPx(0.58)
+                  font.pixelSize: Style.font.caption
                   font.letterSpacing: 0.45
                 }
 
@@ -785,8 +843,8 @@ Item {
                   id: phaseTitle
                   anchors.left: parent.left
                   anchors.top: phaseRange.bottom
-                  anchors.topMargin: Style.space(5)
-                  spacing: Style.space(8)
+                  anchors.topMargin: Style.space(7)
+                  spacing: Style.space(9)
 
                   Text {
                     textFormat: Text.PlainText
@@ -796,7 +854,7 @@ Item {
                     color: detail.controller.weatherGlyphColor(
                       phaseCell.modelData.representative)
                     font.family: detail.controller.contentFontFamily
-                    font.pixelSize: Style.font.body
+                    font.pixelSize: Style.space(18)
                   }
 
                   Text {
@@ -804,8 +862,8 @@ Item {
                     anchors.verticalCenter: parent.verticalCenter
                     text: String(phaseCell.modelData.title || "")
                     color: detail.foreground
-                    font.family: detail.controller.contentFontFamily
-                    font.pixelSize: Style.font.bodySmall
+                    font.family: detail.proseFontFamily
+                    font.pixelSize: Style.font.body
                     font.bold: true
                   }
                 }
@@ -819,7 +877,7 @@ Item {
                   text: String(phaseCell.modelData.note || "")
                   color: detail.muted
                   font.family: detail.controller.contentFontFamily
-                  font.pixelSize: Style.fontPx(0.61)
+                  font.pixelSize: Style.font.caption
                 }
 
                 Row {
@@ -827,7 +885,7 @@ Item {
                   anchors.left: parent.left
                   anchors.right: parent.right
                   anchors.bottom: parent.bottom
-                  height: Style.space(3)
+                  height: Style.space(14)
                   spacing: Style.space(2)
 
                   Repeater {
@@ -839,9 +897,16 @@ Item {
                       width: (phaseBars.width - phaseBars.spacing
                         * Math.max(0, (phaseCell.modelData.points || []).length - 1))
                         / Math.max(1, (phaseCell.modelData.points || []).length)
-                      height: phaseBars.height
+                      anchors.bottom: phaseBars.bottom
+                      readonly property real probability: detail.finite(
+                        phaseBar.modelData
+                          ? phaseBar.modelData.precipitation_probability_percent
+                          : null)
+                      height: Math.max(Style.space(2), phaseBars.height
+                        * (isFinite(probability) ? 0.18 + probability / 100 * 0.82
+                          : 0.36))
                       color: detail.phaseColor(phaseCell.modelData)
-                      opacity: detail.phaseBarOpacity(phaseBar.modelData)
+                      opacity: 0.72
                     }
                   }
                 }
@@ -864,7 +929,7 @@ Item {
         id: outlookSection
         visible: detail.forecast.length > 0
         width: parent.width
-        height: visible ? Style.space(213) : 0
+        height: visible ? Style.space(244) : 0
         readonly property real contentLeft: detail.sectionInset
         readonly property real usableWidth: width - detail.sectionInset * 2
         readonly property real conditionX: Style.space(66)
@@ -875,11 +940,11 @@ Item {
         Text {
           textFormat: Text.PlainText
           x: outlookSection.contentLeft
-          y: Style.space(14)
+          y: Style.space(18)
           text: "4-DAY OUTLOOK"
           color: detail.muted
           font.family: detail.controller.contentFontFamily
-          font.pixelSize: Style.fontPx(0.68)
+          font.pixelSize: Style.font.caption
           font.bold: true
           font.letterSpacing: 0.75
         }
@@ -887,7 +952,7 @@ Item {
         Text {
           textFormat: Text.PlainText
           x: outlookSection.contentLeft
-          y: Style.space(14)
+          y: Style.space(18)
           width: outlookSection.usableWidth
           horizontalAlignment: Text.AlignRight
           text: "Shared temperature scale  ·  "
@@ -896,15 +961,15 @@ Item {
             + detail.controller.weatherTemperatureCompact(detail.dailyMaximum())
           color: detail.dim
           font.family: detail.controller.contentFontFamily
-          font.pixelSize: Style.fontPx(0.58)
+          font.pixelSize: Style.fontPx(0.75)
         }
 
         Item {
           id: outlookHeader
           x: outlookSection.contentLeft
-          y: Style.space(39)
+          y: Style.space(50)
           width: outlookSection.usableWidth
-          height: Style.space(20)
+          height: Style.space(26)
 
           Repeater {
             model: [
@@ -927,7 +992,7 @@ Item {
               text: modelData.label
               color: detail.dim
               font.family: detail.controller.contentFontFamily
-              font.pixelSize: Style.fontPx(0.56)
+              font.pixelSize: Style.fontPx(0.75)
               font.letterSpacing: 0.55
             }
           }
@@ -945,7 +1010,7 @@ Item {
         Column {
           id: outlookRows
           x: outlookSection.contentLeft
-          y: Style.space(59)
+          y: Style.space(76)
           width: outlookSection.usableWidth
 
           Repeater {
@@ -955,7 +1020,7 @@ Item {
               id: outlookDay
               required property var modelData
               width: outlookRows.width
-              height: Style.space(36)
+              height: Style.space(42)
               Accessible.role: Accessible.StaticText
               Accessible.name: detail.controller.weatherForecastDay(modelData.date)
                 + ", " + String(modelData.condition || "")
@@ -973,7 +1038,7 @@ Item {
                 text: detail.controller.weatherForecastDay(outlookDay.modelData.date)
                 color: detail.foreground
                 font.family: detail.controller.contentFontFamily
-                font.pixelSize: Style.font.caption
+                font.pixelSize: Style.font.bodySmall
                 font.bold: true
                 font.letterSpacing: 0.35
               }
@@ -987,7 +1052,7 @@ Item {
                 text: detail.controller.weatherForecastGlyph(outlookDay.modelData)
                 color: detail.controller.weatherForecastGlyphColor(outlookDay.modelData)
                 font.family: detail.controller.contentFontFamily
-                font.pixelSize: Style.font.body
+                font.pixelSize: Style.space(16)
               }
 
               Text {
@@ -999,8 +1064,8 @@ Item {
                 text: String(outlookDay.modelData.condition || "")
                 color: detail.muted
                 elide: Text.ElideRight
-                font.family: detail.controller.contentFontFamily
-                font.pixelSize: Style.font.caption
+                font.family: detail.proseFontFamily
+                font.pixelSize: Style.font.bodySmall
               }
 
               Text {
@@ -1013,7 +1078,7 @@ Item {
                 color: detail.finite(outlookDay.modelData
                   .precipitation_probability_percent) >= 30 ? detail.blue : detail.muted
                 font.family: detail.controller.contentFontFamily
-                font.pixelSize: Style.font.caption
+                font.pixelSize: Style.font.bodySmall
                 font.bold: true
               }
 
@@ -1038,7 +1103,7 @@ Item {
                     outlookDay.modelData.temperature_min_celsius)
                   color: detail.muted
                   font.family: detail.controller.contentFontFamily
-                  font.pixelSize: Style.fontPx(0.62)
+                  font.pixelSize: Style.font.caption
                 }
 
                 Rectangle {
@@ -1082,7 +1147,7 @@ Item {
                     outlookDay.modelData.temperature_max_celsius)
                   color: detail.foreground
                   font.family: detail.controller.contentFontFamily
-                  font.pixelSize: Style.fontPx(0.62)
+                  font.pixelSize: Style.font.caption
                   font.bold: true
                 }
               }
@@ -1091,7 +1156,7 @@ Item {
                 x: outlookSection.uvX
                 anchors.verticalCenter: parent.verticalCenter
                 width: Style.space(82)
-                height: Style.space(23)
+                height: Style.space(28)
 
                 Row {
                   anchors.left: parent.left
@@ -1103,7 +1168,7 @@ Item {
                     text: "UV"
                     color: detail.muted
                     font.family: detail.controller.contentFontFamily
-                    font.pixelSize: Style.fontPx(0.58)
+                    font.pixelSize: Style.fontPx(0.75)
                   }
 
                   Text {
@@ -1112,7 +1177,7 @@ Item {
                       ? String(Math.round(outlookDay.modelData.uv_index_max)) : "—"
                     color: detail.coral
                     font.family: detail.controller.contentFontFamily
-                    font.pixelSize: Style.font.caption
+                    font.pixelSize: Style.font.bodySmall
                     font.bold: true
                   }
                 }
@@ -1124,7 +1189,7 @@ Item {
                   text: detail.uvLevel(outlookDay.modelData.uv_index_max)
                   color: detail.dim
                   font.family: detail.controller.contentFontFamily
-                  font.pixelSize: Style.fontPx(0.54)
+                  font.pixelSize: Style.fontPx(0.75)
                 }
               }
 
@@ -1154,16 +1219,16 @@ Item {
         id: graphSection
         visible: detail.graphHours.length > 0
         width: parent.width
-        height: visible ? Style.space(218) : 0
+        height: visible ? Style.space(248) : 0
 
         Text {
           textFormat: Text.PlainText
           x: detail.sectionInset
-          y: Style.space(16)
+          y: Style.space(18)
           text: "24-HOUR DETAIL"
           color: detail.muted
           font.family: detail.controller.contentFontFamily
-          font.pixelSize: Style.fontPx(0.68)
+          font.pixelSize: Style.font.caption
           font.bold: true
           font.letterSpacing: 0.75
         }
@@ -1172,7 +1237,7 @@ Item {
           id: metricButtons
           anchors.right: parent.right
           anchors.rightMargin: detail.sectionInset
-          y: Style.space(9)
+          y: Style.space(11)
           spacing: Style.space(2)
 
           Repeater {
@@ -1189,7 +1254,7 @@ Item {
                 ? Style.normalFillFor(detail.foreground, Color.accent)
                 : "transparent"
               fontFamily: detail.controller.contentFontFamily
-              fontSize: Style.fontPx(0.58)
+              fontSize: Style.font.caption
               focusable: true
               horizontalPadding: Style.space(8)
               verticalPadding: Style.space(4)
@@ -1208,13 +1273,13 @@ Item {
         Text {
           textFormat: Text.PlainText
           x: detail.sectionInset
-          y: Style.space(48)
+          y: Style.space(56)
           width: parent.width * 0.58
           text: detail.graphTitle()
           color: detail.foreground
           elide: Text.ElideRight
-          font.family: detail.controller.contentFontFamily
-          font.pixelSize: Style.font.body
+          font.family: detail.proseFontFamily
+          font.pixelSize: Style.font.subtitle
           font.bold: true
         }
 
@@ -1222,14 +1287,14 @@ Item {
           textFormat: Text.PlainText
           anchors.right: parent.right
           anchors.rightMargin: detail.sectionInset
-          y: Style.space(51)
+          y: Style.space(59)
           width: parent.width * 0.37
           horizontalAlignment: Text.AlignRight
           text: detail.graphNote()
           color: detail.muted
           elide: Text.ElideRight
           font.family: detail.controller.contentFontFamily
-          font.pixelSize: Style.fontPx(0.61)
+          font.pixelSize: Style.font.caption
         }
 
         WeatherMetricGraph {
@@ -1237,7 +1302,7 @@ Item {
           anchors.leftMargin: detail.sectionInset
           anchors.right: parent.right
           anchors.rightMargin: detail.sectionInset
-          y: Style.space(76)
+          y: Style.space(86)
           controller: detail.controller
           hours: detail.graphHours
           metric: detail.selectedMetric
@@ -1260,16 +1325,16 @@ Item {
       Item {
         id: environmentSection
         width: parent.width
-        height: Style.space(133)
+        height: Style.space(160)
 
         Text {
           textFormat: Text.PlainText
           x: detail.sectionInset
-          y: Style.space(16)
+          y: Style.space(18)
           text: "SUN AND ATMOSPHERE"
           color: detail.muted
           font.family: detail.controller.contentFontFamily
-          font.pixelSize: Style.fontPx(0.68)
+          font.pixelSize: Style.font.caption
           font.bold: true
           font.letterSpacing: 0.75
         }
@@ -1277,16 +1342,16 @@ Item {
         Item {
           id: sunArea
           x: detail.sectionInset
-          y: Style.space(43)
+          y: Style.space(51)
           width: Math.round((parent.width - detail.sectionInset * 2) * 0.52)
-          height: Style.space(75)
+          height: Style.space(91)
 
           Canvas {
             id: sunCanvas
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.top: parent.top
-            height: Style.space(45)
+            height: Style.space(54)
             property real progress: detail.sunProgress()
             property color lineColor: detail.foreground
             property color progressColor: detail.amber
@@ -1359,7 +1424,7 @@ Item {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.bottom: parent.bottom
-            height: Style.space(25)
+            height: Style.space(30)
 
             Repeater {
               model: [
@@ -1392,7 +1457,7 @@ Item {
                     text: String(sunTime.modelData.label || "")
                     color: detail.muted
                     font.family: detail.controller.contentFontFamily
-                    font.pixelSize: Style.fontPx(0.56)
+                    font.pixelSize: Style.font.caption
                   }
 
                   Text {
@@ -1403,7 +1468,7 @@ Item {
                     text: String(sunTime.modelData.value || "—")
                     color: detail.foreground
                     font.family: detail.controller.contentFontFamily
-                    font.pixelSize: Style.fontPx(0.62)
+                    font.pixelSize: Style.font.bodySmall
                     font.bold: true
                   }
                 }
@@ -1418,8 +1483,8 @@ Item {
           anchors.leftMargin: Style.space(30)
           anchors.right: parent.right
           anchors.rightMargin: detail.sectionInset
-          y: Style.space(49)
-          height: Style.space(63)
+          y: Style.space(57)
+          height: Style.space(76)
 
           Repeater {
             model: [
@@ -1457,14 +1522,14 @@ Item {
                 anchors.left: parent.left
                 anchors.leftMargin: atmosphereCell.index === 0 ? 0 : Style.space(16)
                 anchors.verticalCenter: parent.verticalCenter
-                spacing: Style.space(6)
+                spacing: Style.space(7)
 
                 Text {
                   textFormat: Text.PlainText
                   text: String(atmosphereCell.modelData.label || "")
                   color: detail.dim
                   font.family: detail.controller.contentFontFamily
-                  font.pixelSize: Style.fontPx(0.56)
+                  font.pixelSize: Style.font.caption
                   font.letterSpacing: 0.55
                 }
 
@@ -1473,7 +1538,7 @@ Item {
                   text: String(atmosphereCell.modelData.value || "—")
                   color: detail.foreground
                   font.family: detail.controller.contentFontFamily
-                  font.pixelSize: Style.font.caption
+                  font.pixelSize: Style.font.bodySmall
                   font.bold: true
                 }
 
@@ -1482,7 +1547,7 @@ Item {
                   text: String(atmosphereCell.modelData.note || "")
                   color: detail.dim
                   font.family: detail.controller.contentFontFamily
-                  font.pixelSize: Style.fontPx(0.54)
+                  font.pixelSize: Style.fontPx(0.75)
                 }
               }
             }

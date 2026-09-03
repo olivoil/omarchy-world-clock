@@ -20,7 +20,7 @@ Item {
   property color windColor: controller.mixColor(
     foreground, Qt.rgba(0.49, 0.82, 0.68, 1), 0.68)
 
-  implicitHeight: Style.space(128)
+  implicitHeight: Style.space(145)
   Accessible.role: Accessible.Chart
   Accessible.name: "24-hour " + metric + " forecast"
 
@@ -98,7 +98,7 @@ Item {
     anchors.top: parent.top
     anchors.left: parent.left
     anchors.right: parent.right
-    height: Style.space(96)
+    height: Style.space(110)
     renderTarget: Canvas.Image
 
     property var forecastHours: graph.hours
@@ -185,7 +185,8 @@ Item {
           context.fillStyle = graph.canvasColor(uvLine, 0.065)
           context.fillRect(0, top, width, Math.max(0, thresholdY - top))
           context.fillStyle = graph.canvasColor(uvLine, 0.72)
-          context.font = String(Style.fontPx(0.58)) + "px " + controller.contentFontFamily
+          context.font = String(Style.font.caption) + "px "
+            + graph.controller.contentFontFamily
           context.fillText("VERY HIGH · 8+", Style.space(7), top + Style.space(8))
         } else {
           var range = maximum - minimum
@@ -252,7 +253,7 @@ Item {
       var currentIndex = -1
       for (var currentSearch = 0; currentSearch < forecastHours.length;
           currentSearch++) {
-        if (controller.weatherHourlyIsCurrent(forecastHours[currentSearch])) {
+        if (graph.controller.weatherHourlyIsCurrent(forecastHours[currentSearch])) {
           currentIndex = currentSearch
           break
         }
@@ -277,7 +278,7 @@ Item {
     anchors.left: parent.left
     anchors.right: parent.right
     anchors.bottom: parent.bottom
-    height: Style.space(27)
+    height: Style.space(30)
 
     Repeater {
       model: graph.hours
@@ -299,7 +300,7 @@ Item {
             text: graph.displayValue(valueCell.modelData)
             color: graph.foreground
             font.family: graph.controller.contentFontFamily
-            font.pixelSize: Style.font.caption
+            font.pixelSize: Style.font.bodySmall
             font.bold: true
           }
 
@@ -309,7 +310,7 @@ Item {
             text: graph.controller.weatherHourlyTime(valueCell.modelData)
             color: graph.muted
             font.family: graph.controller.contentFontFamily
-            font.pixelSize: Style.fontPx(0.62)
+            font.pixelSize: Style.font.caption
             font.letterSpacing: 0.25
           }
         }

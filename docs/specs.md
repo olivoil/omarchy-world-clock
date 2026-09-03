@@ -301,11 +301,10 @@ No separate World Clock 12/24-hour preference is stored.
   hourly UV, and wind before a final sun and atmosphere section. This is an
   inline panel state, not a nested popup or modal. The back action and `Escape`
   restore the clock surface.
-- Weather detail uses a modestly narrower, fixed-height frame with a stationary
-  location header and an internal scroll surface. It may resize once when
-  entering or leaving detail, remains bounded by the shell's normal height cap,
-  and preserves the approved spacing instead of compressing later sections to
-  avoid scrolling.
+- Weather detail keeps the clock panel's normal width in a fixed-height frame,
+  with a stationary location header and an internal scroll surface. It remains
+  bounded by the shell's normal height cap and preserves the approved spacing
+  instead of compressing later sections to avoid scrolling.
 - The summary timezone metadata, weather icon, and temperature share one
   centered row beneath the primary time.
 - Weather remains secondary to the clock and does not change card ordering.

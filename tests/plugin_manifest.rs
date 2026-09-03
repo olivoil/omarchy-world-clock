@@ -760,12 +760,17 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("readonly property var weatherDetailToday:"));
     assert!(panel.contains("function showWeatherDetail(clock)"));
     assert!(panel.contains("function dismissWeatherDetail()"));
-    assert!(panel.contains("Style.space(root.weatherDetailOpen ? 840 : 960)"));
+    assert!(panel.contains("contentWidth: panel.fittedContentWidth(Style.space(960))"));
     assert!(panel.contains("contentHeight: panel.fittedContentHeight("));
     assert!(panel.contains("if (root.weatherDetailOpen) root.dismissWeatherDetail()"));
     assert!(panel.contains("id: weatherDetailPage"));
     assert!(panel.contains("WeatherDetail {"));
     assert!(weather_detail.contains("id: detailScroll"));
+    assert!(weather_detail.contains("text: \"OPEN-METEO  ·  \""));
+    assert!(weather_detail.contains("? \"UPDATE UNAVAILABLE\" : \"UPDATED NOW\""));
+    assert!(weather_detail.contains("function handleScrollWheel(event)"));
+    assert!(weather_detail.contains("event.pixelDelta.y"));
+    assert!(weather_detail.contains("PointerDevice.Mouse | PointerDevice.TouchPad"));
     assert!(weather_detail.contains("id: hero"));
     assert!(weather_detail.contains("id: phaseSection"));
     assert!(weather_detail.contains("id: outlookSection"));

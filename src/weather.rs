@@ -1,4 +1,4 @@
-use crate::config::{place_coordinate, AppConfig};
+use crate::config::{place_coordinate, AppConfig, LocationKey};
 use crate::quattro::visible_location_entries;
 use crate::remote_response::{
     open_meteo_client, read_json_response, MAX_OPEN_METEO_RESPONSE_BYTES,
@@ -109,7 +109,17 @@ pub struct WeatherPayload {
     pub source: &'static str,
     pub attribution_url: &'static str,
     pub disabled: bool,
+    pub partial: bool,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub failed_locations: Vec<LocationKey>,
     pub locations: Vec<LocationWeather>,
+}
+
+#[derive(Debug)]
+struct WeatherBatchResult {
+    partial: bool,
+    failed_locations: Vec<LocationKey>,
+    locations: Vec<LocationWeather>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -183,6 +193,8 @@ pub fn current_weather(
         source: "Open-Meteo",
         attribution_url: OPEN_METEO_ATTRIBUTION_URL,
         disabled: config.disable_open_meteo_geolocation,
+        partial: false,
+        failed_locations: Vec::new(),
         locations: Vec::new(),
     };
     if payload.disabled {
@@ -196,7 +208,7 @@ pub fn current_weather(
 
     let client = open_meteo_client(Duration::from_secs(5))
         .context("could not initialize the weather client")?;
-    payload.locations = weather_in_batches(&locations, |batch| {
+    let batch_result = weather_in_batches(&locations, |batch| {
         let latitudes = batch
             .iter()
             .map(|location| location.latitude.to_string())
@@ -215,14 +227,18 @@ pub fn current_weather(
         )?;
         weather_from_response(response, batch, reference_utc)
     })?;
+    payload.partial = batch_result.partial;
+    payload.failed_locations = batch_result.failed_locations;
+    payload.locations = batch_result.locations;
     Ok(payload)
 }
 
 fn weather_in_batches(
     locations: &[WeatherLocation],
     mut fetch_batch: impl FnMut(&[WeatherLocation]) -> Result<Vec<LocationWeather>>,
-) -> Result<Vec<LocationWeather>> {
+) -> Result<WeatherBatchResult> {
     let mut weather = Vec::new();
+    let mut failed_locations = Vec::new();
     let mut successful_batch = false;
     let mut first_error = None;
 
@@ -233,6 +249,13 @@ fn weather_in_batches(
                 weather.append(&mut batch_weather);
             }
             Err(error) => {
+                failed_locations.extend(batch.iter().flat_map(|location| {
+                    location.targets.iter().map(|target| LocationKey {
+                        id: target.id,
+                        timezone: target.timezone.clone(),
+                        label: target.label.clone(),
+                    })
+                }));
                 if first_error.is_none() {
                     first_error = Some(error);
                 }
@@ -241,11 +264,19 @@ fn weather_in_batches(
     }
 
     if successful_batch {
-        Ok(weather)
+        Ok(WeatherBatchResult {
+            partial: !failed_locations.is_empty(),
+            failed_locations,
+            locations: weather,
+        })
     } else if let Some(error) = first_error {
         Err(error)
     } else {
-        Ok(weather)
+        Ok(WeatherBatchResult {
+            partial: false,
+            failed_locations,
+            locations: weather,
+        })
     }
 }
 
@@ -859,10 +890,16 @@ mod tests {
         .expect("an earlier successful batch should remain usable");
 
         assert_eq!(calls, 2);
-        assert_eq!(weather.len(), OPEN_METEO_BATCH_SIZE);
-        assert_eq!(weather.first().map(|item| item.id), Some(1));
+        assert!(weather.partial);
+        assert_eq!(weather.failed_locations.len(), 1);
         assert_eq!(
-            weather.last().map(|item| item.id),
+            weather.failed_locations[0].id,
+            OPEN_METEO_BATCH_SIZE as u64 + 1
+        );
+        assert_eq!(weather.locations.len(), OPEN_METEO_BATCH_SIZE);
+        assert_eq!(weather.locations.first().map(|item| item.id), Some(1));
+        assert_eq!(
+            weather.locations.last().map(|item| item.id),
             Some(OPEN_METEO_BATCH_SIZE as u64)
         );
     }

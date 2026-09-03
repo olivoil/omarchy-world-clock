@@ -7,6 +7,7 @@ import qs.Commons
 import qs.Ui
 import "TimelineHoverState.js" as TimelineHoverState
 import "TimeRail.js" as TimeRail
+import "WeatherState.js" as WeatherState
 
 // Quattro-native world-clock panel. Rust remains the timezone/config engine;
 // this already-loaded QML surface owns the interaction and visual lifecycle.
@@ -77,6 +78,8 @@ Panel {
     source: "Open-Meteo",
     attribution_url: "https://open-meteo.com/",
     disabled: false,
+    partial: false,
+    failed_locations: [],
     locations: []
   })
   property bool weatherError: false
@@ -1310,6 +1313,8 @@ Panel {
       source: "Open-Meteo",
       attribution_url: "https://open-meteo.com/",
       disabled: false,
+      partial: false,
+      failed_locations: [],
       locations: []
     })
     weatherError = false
@@ -2055,10 +2060,13 @@ Panel {
           var payload = JSON.parse(String(weatherOutput.text || ""))
           if (!payload || !Array.isArray(payload.locations))
             throw new Error("Unsupported weather response")
-          root.weather = payload
-          root.weatherError = false
-          root.weatherLoadedSignature = signature
-          root.weatherLastUpdatedAt = Date.now()
+          var partial = payload.partial === true
+          root.weather = WeatherState.mergePayload(root.weather, payload)
+          root.weatherError = partial
+          if (!partial) {
+            root.weatherLoadedSignature = signature
+            root.weatherLastUpdatedAt = Date.now()
+          }
         } catch (error) {
           root.weatherError = true
         }

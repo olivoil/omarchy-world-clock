@@ -133,6 +133,13 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
         weather_logic_path.display()
     );
     let weather_logic = fs::read_to_string(weather_logic_path).expect("read weather detail logic");
+    let weather_state_path = qml_path.parent().unwrap().join("WeatherState.js");
+    assert!(
+        weather_state_path.is_file(),
+        "missing {}",
+        weather_state_path.display()
+    );
+    let weather_state = fs::read_to_string(weather_state_path).expect("read weather state logic");
     let weather_graph_path = qml_path.parent().unwrap().join("WeatherMetricGraph.qml");
     assert!(
         weather_graph_path.is_file(),
@@ -789,6 +796,11 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("border.width: clockCell.hasKeyboardCursor"));
     assert!(panel.contains("radius: Style.cornerRadius"));
     assert!(panel.contains("backendCommand, \"weather\""));
+    assert!(panel.contains("import \"WeatherState.js\" as WeatherState"));
+    assert!(weather_state.contains("function mergePayload("));
+    assert!(panel.contains("WeatherState.mergePayload(root.weather, payload)"));
+    assert!(panel.contains("var partial = payload.partial === true"));
+    assert!(panel.contains("root.weatherError = partial"));
     assert!(panel.contains("property bool weatherRequestPending: false"));
     assert!(panel.contains("weatherRefreshMilliseconds: 15 * 60 * 1000"));
     assert!(panel.contains("weatherFreshnessCheckMilliseconds: 30 * 1000"));

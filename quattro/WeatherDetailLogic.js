@@ -52,10 +52,36 @@ function comfortNote(apparentTemperature, relativeHumidity) {
   var humidity = finite(relativeHumidity)
   if (isFinite(feels) && feels >= 35) {
     return isFinite(humidity) && humidity >= 60
-      ? "It will feel hot and humid." : "It will feel hot."
+      ? "It feels hot and humid right now." : "It feels hot right now."
   }
-  if (isFinite(humidity) && humidity >= 75) return "Humidity stays high."
-  return "Conditions stay close to the current reading."
+  if (isFinite(feels) && feels >= 28) {
+    return isFinite(humidity) && humidity >= 60
+      ? "It feels warm and humid right now." : "It feels warm right now."
+  }
+  if (isFinite(feels) && feels <= 0) return "It feels freezing right now."
+  if (isFinite(feels) && feels <= 10) return "It feels cool right now."
+  if (isFinite(humidity) && humidity >= 75)
+    return "Humidity is high right now."
+  if (isFinite(humidity) && humidity >= 55)
+    return "Humidity is elevated right now."
+  if (isFinite(humidity) && humidity < 30) return "The air is dry right now."
+  if (isFinite(feels) && isFinite(humidity))
+    return "Temperature and humidity are moderate right now."
+  if (isFinite(humidity)) return "Humidity is moderate right now."
+  if (isFinite(feels)) return "The apparent temperature is moderate right now."
+  return ""
+}
+
+function humidityDescription(relativeHumidity, temperature) {
+  var humidity = finite(relativeHumidity)
+  var currentTemperature = finite(temperature)
+  if (!isFinite(humidity)) return "Unavailable"
+  if (humidity >= 75) return "Very humid"
+  if (humidity >= 55) {
+    return isFinite(currentTemperature) && currentTemperature >= 22
+      ? "Warm and humid" : "Elevated humidity"
+  }
+  return humidity >= 30 ? "Moderate humidity" : "Dry"
 }
 
 function familyPriority(family) {

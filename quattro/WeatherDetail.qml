@@ -386,10 +386,10 @@ Item {
     var rainPeak = peakHourly("precipitation_probability_percent", 12)
     var clearWindow = isFinite(rainPeak.value) && rainPeak.value >= 35
       ? clearWindowAfter(rainPeak.index) : null
-    return clearWindow
-      ? lead + " The clearest window begins around "
-        + controller.weatherLocalTime(clearWindow.time) + "."
-      : lead
+    var timing = clearWindow
+      ? "The clearest window begins around "
+        + controller.weatherLocalTime(clearWindow.time) + "." : ""
+    return lead && timing ? lead + " " + timing : (lead || timing)
   }
 
   function uvLevel(value) {
@@ -516,9 +516,8 @@ Item {
 
   function humidityNote() {
     var humidity = finite(weatherData ? weatherData.relative_humidity_percent : null)
-    if (!isFinite(humidity)) return "Unavailable"
-    return humidity >= 75 ? "Very humid" : (humidity >= 55 ? "Warm and humid"
-      : (humidity >= 30 ? "Comfortable" : "Dry"))
+    var temperature = finite(weatherData ? weatherData.temperature_celsius : null)
+    return WeatherDetailLogic.humidityDescription(humidity, temperature)
   }
 
   function visibilityNote() {

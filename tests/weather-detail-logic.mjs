@@ -111,13 +111,27 @@ assert.equal(context.clearSkiesHold([
 assert.equal(context.clearSkiesHold(clearFewHours.slice(0, 2), 4), false,
   "too little forecast evidence cannot support a next-few-hours claim")
 
-assert.equal(context.comfortNote(38, 60), "It will feel hot and humid.",
+assert.equal(context.comfortNote(38, 60),
+  "It feels hot and humid right now.",
   "humid heat retains the combined description when humidity supports it")
-assert.equal(context.comfortNote(38, 24), "It will feel hot.",
+assert.equal(context.comfortNote(38, 24), "It feels hot right now.",
   "dry heat is not described as humid")
-assert.equal(context.comfortNote(38, null), "It will feel hot.",
+assert.equal(context.comfortNote(38, null), "It feels hot right now.",
   "missing humidity cannot produce a humidity claim")
-assert.equal(context.comfortNote(29, 82), "Humidity stays high.",
-  "high humidity remains useful outside extreme heat")
+assert.equal(context.comfortNote(29, 82),
+  "It feels warm and humid right now.",
+  "warm humid conditions use present-observation wording")
+assert.equal(context.comfortNote(21, 45),
+  "Temperature and humidity are moderate right now.",
+  "the ordinary fallback describes only the current observation")
+
+assert.equal(context.humidityDescription(62, 26), "Warm and humid",
+  "warm temperatures can support the combined atmosphere label")
+assert.equal(context.humidityDescription(62, 4), "Elevated humidity",
+  "cold weather is never labeled warm from humidity alone")
+assert.equal(context.humidityDescription(62, null), "Elevated humidity",
+  "missing temperature cannot support a warm atmosphere label")
+assert.equal(context.humidityDescription(42, -8), "Moderate humidity",
+  "midrange humidity uses temperature-neutral wording")
 
 console.log("Weather detail logic tests passed.")

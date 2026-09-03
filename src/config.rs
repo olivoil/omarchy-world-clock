@@ -23,6 +23,7 @@ use unicode_normalization::{char::is_combining_mark, UnicodeNormalization};
 pub const CONFIG_VERSION: u64 = 8;
 pub const LOCAL_TIMEZONE_MIGRATION_VERSION: u64 = 2;
 const SEPARATE_PLACE_LABEL_VERSION: u64 = 8;
+const MAX_SAFE_LOCATION_ID: u64 = 9_007_199_254_740_991;
 
 const STANDARD_TZ_REGIONS: [&str; 10] = [
     "Africa",
@@ -221,15 +222,15 @@ fn normalized_location_label(timezone: &str, label: &str) -> String {
 }
 
 fn next_unused_location_id(used: &HashSet<u64>) -> u64 {
-    (1..=u64::MAX)
+    (1..=MAX_SAFE_LOCATION_ID)
         .find(|candidate| !used.contains(candidate))
-        .expect("all World Clock location IDs are exhausted")
+        .expect("all JavaScript-safe World Clock location IDs are exhausted")
 }
 
 fn assign_missing_location_ids(entries: &mut [TimezoneEntry]) {
     let mut used = HashSet::with_capacity(entries.len());
     for entry in entries {
-        if entry.id == 0 || used.contains(&entry.id) {
+        if entry.id == 0 || entry.id > MAX_SAFE_LOCATION_ID || used.contains(&entry.id) {
             entry.id = next_unused_location_id(&used);
         }
         used.insert(entry.id);
@@ -889,8 +890,6 @@ impl ConfigManager {
             };
             entries.push(entry);
         }
-        assign_missing_location_ids(&mut entries);
-
         if config_version < LOCAL_TIMEZONE_MIGRATION_VERSION {
             let local_timezone = canonical_timezone_name(local_timezone);
             if !local_timezone.is_empty()
@@ -921,7 +920,11 @@ impl ConfigManager {
                     entries
                         .iter()
                         .find(|entry| entry.timezone == pinned_timezone)
-                        .map(TimezoneEntry::location_key)
+                        .map(|entry| LocationKey {
+                            id: entry.id,
+                            timezone: entry.timezone.clone(),
+                            label: entry.display_label(),
+                        })
                 });
                 singular_pin.into_iter().collect()
             }
@@ -1004,21 +1007,21 @@ impl ConfigManager {
 
             timezones.push(normalized);
         }
-        assign_missing_location_ids(&mut timezones);
-
-        let mut normalized_pins = Vec::new();
-        for pinned in pinned_locations {
-            let Some(key) = timezones
-                .iter()
-                .find(|entry| pinned.matches(entry))
-                .map(TimezoneEntry::location_key)
-            else {
+        let mut pinned_indexes = Vec::new();
+        for pinned in &pinned_locations {
+            let Some(index) = timezones.iter().position(|entry| pinned.matches(entry)) else {
                 continue;
             };
-            if !normalized_pins.contains(&key) {
-                normalized_pins.push(key);
+            if !pinned_indexes.contains(&index) {
+                pinned_indexes.push(index);
             }
         }
+        assign_missing_location_ids(&mut timezones);
+
+        let normalized_pins = pinned_indexes
+            .into_iter()
+            .map(|index| timezones[index].location_key())
+            .collect();
 
         AppConfig {
             timezones,
@@ -2260,7 +2263,7 @@ mod tests {
         canonical_timezone_name, detect_system_time_format_with_paths,
         load_omarchy_shell_weather_unit, merge_zone_tab_coordinates, parse_zone_tab_coordinate,
         AppConfig, ConfigManager, LocationKey, RemotePlaceResponse, RemotePlaceResult,
-        RemotePlaceSearch, TimezoneEntry, TimezoneResolver,
+        RemotePlaceSearch, TimezoneEntry, TimezoneResolver, MAX_SAFE_LOCATION_ID,
     };
     use crate::remote_response::{
         serve_http_redirect_to_response, serve_http_response_without_length,
@@ -2600,6 +2603,63 @@ mod tests {
         assert_eq!(duplicated.timezones[1].place, "Tokyo");
         assert_eq!(duplicated.timezones[2].place, "Tokyo");
         assert_ne!(duplicated.timezones[1].id, duplicated.timezones[2].id);
+    }
+
+    #[test]
+    fn unsafe_location_ids_are_repaired_without_moving_pins() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("config.json");
+        fs::write(
+            &path,
+            r#"{
+  "version": 8,
+  "pinned_locations": [
+    { "id": 9007199254740993 }
+  ],
+  "timezones": [
+    {
+      "id": 9007199254740992,
+      "timezone": "America/New_York",
+      "place": "Boston",
+      "label": "Office"
+    },
+    {
+      "id": 9007199254740993,
+      "timezone": "America/New_York",
+      "place": "Boston",
+      "label": "Sister"
+    }
+  ]
+}
+"#,
+        )
+        .unwrap();
+        let manager = ConfigManager::new(Some(path.clone()));
+
+        let repaired = manager.load_with_local_timezone("UTC").unwrap();
+
+        assert_eq!(
+            repaired
+                .timezones
+                .iter()
+                .map(|entry| entry.id)
+                .collect::<Vec<_>>(),
+            vec![1, 2]
+        );
+        assert!(repaired
+            .timezones
+            .iter()
+            .all(|entry| entry.id <= MAX_SAFE_LOCATION_ID));
+        assert_eq!(
+            repaired.pinned_locations,
+            vec![repaired.timezones[1].location_key()]
+        );
+
+        let stored: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+        assert_eq!(stored["timezones"][0]["id"], 1);
+        assert_eq!(stored["timezones"][1]["id"], 2);
+        assert_eq!(stored["pinned_locations"][0]["id"], 2);
     }
 
     #[test]

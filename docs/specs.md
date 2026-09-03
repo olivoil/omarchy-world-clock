@@ -436,7 +436,9 @@ Rules:
 - Any number of configured locations can be pinned; pinning another appends it
   without disturbing earlier pins, and pinning the same location is idempotent.
 - Each pin records a stable card ID so cards remain independently addressable
-  even when their timezone, actual place, or personal label is identical.
+  even when their timezone, actual place, or personal label is identical. Card
+  IDs are positive JavaScript-safe integers; config loading repairs missing,
+  repeated, or out-of-range IDs while preserving which cards were pinned.
 - `UNPIN` removes only the selected location. Removal or config normalization
   also discards only pins that no longer match configured locations.
 - The bar returns to icon-only display after the final pin is removed.

@@ -374,7 +374,8 @@ function mergeRecord(base, dynamic) {
 function locationIdentity(location) {
   if (!location) return ""
   var id = Number(location.id)
-  if (isFinite(id) && id > 0) return "id:" + String(id)
+  if (isFinite(id) && id > 0 && Math.floor(id) === id && id <= 9007199254740991)
+    return "id:" + String(id)
   var label = location.label !== null && location.label !== undefined
     ? location.label : location.title
   return String(location.timezone || "") + "\u001f" + String(label || "")

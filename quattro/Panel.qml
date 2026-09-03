@@ -736,11 +736,17 @@ Panel {
 
   function conversionSource(clock) {
     if (!clock) return ""
-    var id = Number(clock.id)
-    if (isFinite(id) && id > 0) return "id:" + String(id)
+    var id = safeLocationId(clock.id)
+    if (id > 0) return "id:" + String(id)
     var label = clock.label !== null && clock.label !== undefined
       ? clock.label : clock.title
     return String(clock.timezone || "") + "\u001f" + String(label || "")
+  }
+
+  function safeLocationId(value) {
+    var id = Number(value)
+    return isFinite(id) && id > 0 && Math.floor(id) === id
+      && id <= 9007199254740991 ? id : 0
   }
 
   function scrubLocationSignature() {
@@ -1265,8 +1271,8 @@ Panel {
       }
     } else if ((name === "pin" || name === "unpin" || name === "remove"
         || name === "rename") && result) {
-      var resultId = Number(result.id)
-      if (isFinite(resultId) && resultId > 0)
+      var resultId = safeLocationId(result.id)
+      if (resultId > 0)
         command.push("--id", String(resultId))
       var actionLabel = result.label !== null && result.label !== undefined
         ? result.label : result.title
@@ -1472,7 +1478,7 @@ Panel {
     var matches = []
     for (var index = 0; index < entries.length; index++) {
       var entry = entries[index]
-      if (Number(entry.id) > 0 && mapLocationKey(entry) === key) matches.push(entry)
+      if (safeLocationId(entry.id) > 0 && mapLocationKey(entry) === key) matches.push(entry)
     }
     return matches
   }

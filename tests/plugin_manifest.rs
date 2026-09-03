@@ -262,6 +262,10 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("command.push(String(timezone || \"\"))"));
     assert!(panel.contains("name === \"rename\""));
     assert!(panel.contains("result.id"));
+    assert!(panel.contains("function safeLocationId(value)"));
+    assert!(panel.contains("id <= 9007199254740991 ? id : 0"));
+    assert!(panel.contains("var resultId = safeLocationId(result.id)"));
+    assert!(panel.contains("safeLocationId(entry.id) > 0"));
     assert!(panel.contains("command.push(\"--id\", String(resultId))"));
     assert!(panel.contains("result.label !== null && result.label !== undefined"));
     assert!(panel.contains("command.push(\"--new-label\", String(value || \"\"))"));
@@ -553,7 +557,10 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("root.lockScrubSelection()"));
     assert!(panel.contains("if (activeFocus) root.selectScrubSource(root.summary)"));
     assert!(panel.contains("root.selectScrubSource(clockCell.clockData)"));
-    assert!(root.join("quattro/TimeRail.js").is_file());
+    let time_rail_path = root.join("quattro/TimeRail.js");
+    assert!(time_rail_path.is_file());
+    let time_rail = fs::read_to_string(time_rail_path).expect("read time rail helpers");
+    assert!(time_rail.contains("id <= 9007199254740991"));
     assert!(root.join("tests/time-rail.mjs").is_file());
     let apply_snapshot = panel
         .split("function applySnapshot(raw, manual)")

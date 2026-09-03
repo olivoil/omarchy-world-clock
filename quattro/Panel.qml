@@ -1181,7 +1181,7 @@ Panel {
     if (!match) return "—"
     var hour = Number(match[1])
     var minute = match[2]
-    if (String(snapshot.time_format || "24h") !== "12h")
+    if (String(snapshot.time_format || "24h").toLowerCase() !== "ampm")
       return String(match[1]) + ":" + minute
     var suffix = hour >= 12 ? "PM" : "AM"
     var displayHour = hour % 12

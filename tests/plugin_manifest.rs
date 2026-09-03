@@ -846,6 +846,12 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     );
     assert!(panel.contains("function weatherProbability(value)"));
     assert!(panel.contains("function weatherPrecipitation(value)"));
+    assert!(panel.contains(".toLowerCase() !== \"ampm\""));
+    assert!(!panel.contains("String(snapshot.time_format || \"24h\") !== \"12h\""));
+    assert!(weather_detail.contains("function precipitationKind(item)"));
+    assert!(weather_detail.contains("code === 95 || code === 96 || code === 99"));
+    assert!(weather_detail.contains("return \"Rain builds through \""));
+    assert!(weather_detail.contains("return \"Snow is most likely \""));
     let weather_signature = panel
         .split("function weatherSignature()")
         .nth(1)

@@ -196,6 +196,52 @@ Item {
     return "tonight"
   }
 
+  function precipitationKind(item) {
+    var code = Number(item ? item.weather_code : -1)
+    if (code === 95 || code === 96 || code === 99) return "storm"
+    if (code === 71 || code === 73 || code === 75 || code === 77
+        || code === 85 || code === 86) return "snow"
+    if (code === 56 || code === 57 || code === 66 || code === 67)
+      return "ice"
+    return "rain"
+  }
+
+  function precipitationBuildTitle(kind, peakItem, endItem) {
+    var peakPart = dayPart(peakItem)
+    var endPart = dayPart(endItem)
+    if (kind === "storm")
+      return "Storms build through " + peakPart
+        + ", then soften toward " + endPart + "."
+    if (kind === "snow")
+      return "Snow builds through " + peakPart
+        + ", then eases toward " + endPart + "."
+    if (kind === "ice")
+      return "Icy precipitation builds through " + peakPart
+        + ", then eases toward " + endPart + "."
+    return "Rain builds through " + peakPart
+      + ", then eases toward " + endPart + "."
+  }
+
+  function precipitationPeakTitle(kind, item) {
+    var part = dayPart(item)
+    var timing = part === "tonight" ? "tonight" : "in the " + part
+    if (kind === "storm") return "Storms are most likely " + timing + "."
+    if (kind === "snow") return "Snow is most likely " + timing + "."
+    if (kind === "ice")
+      return "Icy precipitation is most likely " + timing + "."
+    return "Rain is most likely " + timing + "."
+  }
+
+  function precipitationPassingTitle(kind, item) {
+    var part = dayPart(item)
+    var timing = part === "tonight" ? "tonight" : "in the " + part
+    if (kind === "storm") return "A passing storm may arrive " + timing + "."
+    if (kind === "snow") return "A spell of snow may arrive " + timing + "."
+    if (kind === "ice")
+      return "Icy precipitation may arrive " + timing + "."
+    return "A passing shower may arrive " + timing + "."
+  }
+
   function peakHourly(field, limit) {
     var count = Math.min(hourly.length, limit || hourly.length)
     var peak = null
@@ -227,17 +273,17 @@ Item {
       ? finite(hourly[0].precipitation_probability_percent) : NaN
     var lastProbability = hourly.length >= 12
       ? finite(hourly[11].precipitation_probability_percent) : NaN
+    var precipitation = precipitationKind(rainPeak.item)
     if (isFinite(rainPeak.value) && rainPeak.value >= 70) {
       if (isFinite(currentProbability) && isFinite(lastProbability)
           && rainPeak.value >= currentProbability + 15
           && rainPeak.value >= lastProbability + 15)
-        return "Storms build through " + dayPart(rainPeak.item)
-          + ", then soften toward " + dayPart(hourly[Math.min(11,
-            hourly.length - 1)]) + "."
-      return "Storms are most likely in the " + dayPart(rainPeak.item) + "."
+        return precipitationBuildTitle(precipitation, rainPeak.item,
+          hourly[Math.min(11, hourly.length - 1)])
+      return precipitationPeakTitle(precipitation, rainPeak.item)
     }
     if (isFinite(rainPeak.value) && rainPeak.value >= 35)
-      return "A passing shower may interrupt the " + dayPart(rainPeak.item) + "."
+      return precipitationPassingTitle(precipitation, rainPeak.item)
     var temperaturePeak = peakHourly("temperature_celsius", 12)
     if (isFinite(temperaturePeak.value) && temperaturePeak.value >= 32)
       return "Heat holds through " + dayPart(temperaturePeak.item)

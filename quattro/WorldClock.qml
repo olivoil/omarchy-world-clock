@@ -60,6 +60,7 @@ BarWidget {
   function injectPanel() {
     var target = panelLoader.item
     if (!target) return
+    if ("moduleName" in target) target.moduleName = root.moduleName
     if ("bar" in target) target.bar = root.bar
     if ("settings" in target) target.settings = root.settings
     if ("anchorItem" in target) target.anchorItem = root.activeButton
@@ -185,6 +186,7 @@ BarWidget {
 
   onBarChanged: injectPanel()
   onSettingsChanged: injectPanel()
+  onModuleNameChanged: injectPanel()
   onBackendCommandChanged: injectPanel()
   onActiveButtonChanged: injectPanel()
 

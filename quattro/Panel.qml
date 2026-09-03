@@ -211,19 +211,36 @@ Panel {
   readonly property var globeLocations: {
     var entries = []
     var seenPlaces = ({})
+    var savedMarkerIndexes = ({})
+    var collapsedSavedMarkers = []
     var preferredSavedMarkers = []
     var remainingSavedMarkers = []
     var summaryIdentity = root.conversionSource(summary)
     for (var savedIndex = 0; savedIndex < mapClocks.length; savedIndex++) {
       var saved = mapClocks[savedIndex]
       var savedKey = root.mapLocationKey(saved)
-      if (savedKey && seenPlaces[savedKey]) continue
-      if (savedKey) seenPlaces[savedKey] = true
-      var wrapper = { location: saved, configured: true }
-      if (root.conversionSource(saved) === summaryIdentity || saved.pinned === true)
-        preferredSavedMarkers.push(wrapper)
-      else
-        remainingSavedMarkers.push(wrapper)
+      var preferred = root.conversionSource(saved) === summaryIdentity
+        || saved.pinned === true
+      var candidate = { location: saved, preferred: preferred }
+      if (savedKey) {
+        var indexKey = "place:" + savedKey
+        var existingIndex = savedMarkerIndexes[indexKey]
+        if (existingIndex !== undefined) {
+          if (preferred && collapsedSavedMarkers[existingIndex].preferred !== true)
+            collapsedSavedMarkers[existingIndex] = candidate
+          continue
+        }
+        savedMarkerIndexes[indexKey] = collapsedSavedMarkers.length
+        seenPlaces[savedKey] = true
+      }
+      collapsedSavedMarkers.push(candidate)
+    }
+    for (var markerIndex = 0; markerIndex < collapsedSavedMarkers.length;
+        markerIndex++) {
+      var marker = collapsedSavedMarkers[markerIndex]
+      var wrapper = { location: marker.location, configured: true }
+      if (marker.preferred === true) preferredSavedMarkers.push(wrapper)
+      else remainingSavedMarkers.push(wrapper)
     }
     var savedMarkers = preferredSavedMarkers.concat(remainingSavedMarkers)
       .slice(0, maximumSavedGlobeMarkers)
@@ -464,6 +481,8 @@ Panel {
         && itemContainsPanelPoint(summaryLabelInput, panelX, panelY)) return true
     if (addField.activeFocus
         && itemContainsPanelPoint(addField, panelX, panelY)) return true
+    if (mapSelectionLabelField.activeFocus
+        && itemContainsPanelPoint(mapSelectionLabelField, panelX, panelY)) return true
     for (var clockIndex = 0; clockIndex < clocks.length; clockIndex++) {
       var cell = clockCellAt(clockIndex)
       if (cell && cell.pointerInsideActiveEditor(panelX, panelY)) return true

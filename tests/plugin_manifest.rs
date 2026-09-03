@@ -52,6 +52,8 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(qml.contains("property string buildLabel: \"\""));
     assert!(qml.contains("property color iconForeground:"));
     assert!(qml.contains("withBuildLabel(tooltip || \"World Clock\")"));
+    assert!(qml.contains("target.moduleName = root.moduleName"));
+    assert!(qml.contains("onModuleNameChanged: injectPanel()"));
     assert!(!qml.contains("setting(\"command\""));
     assert!(!qml.contains("Install omarchy-world-clock-bin"));
     let backend_path = root.join("bin/omarchy-world-clock-backend");
@@ -154,9 +156,12 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("function mapLocationSelected(location)"));
     assert!(panel.contains("readonly property int maximumSavedGlobeMarkers: 48"));
     assert!(panel.contains("var preferredSavedMarkers = []"));
+    assert!(panel.contains("var savedMarkerIndexes = ({})"));
+    assert!(panel.contains("var collapsedSavedMarkers = []"));
+    assert!(panel.contains("collapsedSavedMarkers[existingIndex] = candidate"));
     assert!(panel.contains("saved.pinned === true"));
     assert!(panel.contains(".slice(0, maximumSavedGlobeMarkers)"));
-    assert!(panel.contains("if (savedKey) seenPlaces[savedKey] = true"));
+    assert!(panel.contains("seenPlaces[savedKey] = true"));
     assert!(panel.contains("var mayPlaceLabel = !mapLocationSelected(location)"));
     assert!(panel.contains("visible: mapMarker.layout.labelVisible && !mapMarker.selected"));
     assert!(!panel.contains("featuredPlaced < 7"));
@@ -287,6 +292,8 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(!panel.contains("enabled: !root.labelEditorActive && !actionProcess.running"));
     assert!(panel.contains("function handlePanelPointerTap(panelX, panelY)"));
     assert!(panel.contains("function pointerInsideActiveEditor(panelX, panelY)"));
+    assert!(panel.contains("mapSelectionLabelField.activeFocus"));
+    assert!(panel.contains("itemContainsPanelPoint(mapSelectionLabelField, panelX, panelY)"));
     assert!(panel.contains("id: focusDismissHandler"));
     assert!(panel.contains("parent: keyCatcher"));
     assert!(panel.contains("onTapped: function(eventPoint)"));

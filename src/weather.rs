@@ -69,6 +69,8 @@ pub struct HourlyWeather {
     pub uv_index: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub wind_speed_kmh: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wind_gusts_kmh: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -151,6 +153,8 @@ struct OpenMeteoHourly {
     uv_index: Vec<Option<f64>>,
     #[serde(default)]
     wind_speed_10m: Vec<Option<f64>>,
+    #[serde(default)]
+    wind_gusts_10m: Vec<Option<f64>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -297,7 +301,7 @@ fn fetch_weather_response(
             ),
             (
                 "hourly",
-                "temperature_2m,precipitation_probability,precipitation,uv_index,wind_speed_10m,weather_code,is_day",
+                "temperature_2m,precipitation_probability,precipitation,uv_index,wind_speed_10m,wind_gusts_10m,weather_code,is_day",
             ),
             (
                 "daily",
@@ -536,6 +540,7 @@ fn hourly_weather_at(
         precipitation_mm: optional_finite(&hourly.precipitation, index),
         uv_index: optional_finite(&hourly.uv_index, index),
         wind_speed_kmh: optional_finite(&hourly.wind_speed_10m, index),
+        wind_gusts_kmh: optional_finite(&hourly.wind_gusts_10m, index),
     })
 }
 
@@ -660,6 +665,7 @@ mod tests {
                 "precipitation": [0, 0.1, 1.2, 0.2],
                 "uv_index": [8.1, 7.5, 6.0, 4.0],
                 "wind_speed_10m": [14.8, 16.2, 18.1, 15.4],
+                "wind_gusts_10m": [24.1, 28.4, 34.2, 27.0],
                 "weather_code": [1, 2, 61, 2],
                 "is_day": [1, 1, 1, 1]
               },
@@ -713,6 +719,7 @@ mod tests {
         assert_eq!(weather[0].hourly_forecast[2].precipitation_mm, Some(1.2));
         assert_eq!(weather[0].hourly_forecast[2].uv_index, Some(6.0));
         assert_eq!(weather[0].hourly_forecast[2].wind_speed_kmh, Some(18.1));
+        assert_eq!(weather[0].hourly_forecast[2].wind_gusts_kmh, Some(34.2));
         assert_eq!(weather[0].hourly_forecast[2].condition, "Rain");
         assert_eq!(weather[0].forecast.len(), 4);
         assert_eq!(weather[0].forecast[0].date, "2026-08-22");

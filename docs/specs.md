@@ -69,9 +69,12 @@ AUR package, `PATH` lookup, user-configured backend command, or install hook.
 - The panel height is bounded by the shell's available-card height and its
   normal 680-pixel cap. Lists that still exceed compact density scroll inside
   that bounded surface.
-- The current place uses an 18-pixel title at the default scale and sits close
-  to its summary time, keeping place and time as the primary read-mode
-  hierarchy.
+- The current place remains a compact, high-contrast native-font label in the
+  header. Edit mode expands the same title into an inline rename control.
+- A passive solar ruler beneath the summary time plots the place's calculated
+  solar elevation across its 24-hour day and marks the displayed local minute.
+  Its tint interpolates from cool night to warm daylight using the calculated
+  solar elevation.
 - Live read mode shows current temperature and conditions as secondary context
   for every visible location with a known coordinate.
 - Edit mode preserves the read layout and exposes pin/unpin and remove actions.
@@ -223,22 +226,29 @@ to the local summary place. While previewing or viewing a selected time, cards
 instead use `Previous day`, `Same day`, or `Next day` relative to the selected
 timeline source. The timeline selection includes that source's compact date and
 remains visible after the selected time is locked.
+Crossing into another day keeps that selection pill mounted while its text and
+the next day's rail data update. Background rail preparation does not add a
+transient loading caption; the upper-left source caption appears only when the
+rail represents a location other than the summary clock.
 
 While previewing or viewing a selected time, every location card also shows a
-passive local-day ruler seated on its bottom edge. The common left-to-right
-scale runs from 00:00 to 24:00. A clipped glow begins at apparent sunrise,
-follows the sun's calculated elevation to its solar-noon peak, and returns to
-the edge at sunset. Latitude, longitude, displayed local date, and that civil
+passive local-day solar arc seated on its bottom edge. The common left-to-right
+scale runs from 00:00 to 24:00. A thin curve rises at apparent sunrise, follows
+the sun's calculated elevation to its solar-noon peak, and returns to the edge
+at sunset. Latitude, longitude, displayed local date, and that civil
 day's time-zone offset transitions drive the NOAA-based profile locally,
 without an Open-Meteo request. Daylight cycles crossing midnight split cleanly
 at the ruler boundary. Square-root visual compression keeps low winter arcs
 legible while preserving their lower peak relative to summer and tropical arcs.
 Polar day retains its full-day elevation profile, polar night stays dim, and
-missing coordinates fall back to a neutral edge. A half-height marker rises
-from the edge at that card's
-`local_minutes`; its restrained color and contrast interpolate from cool, muted
-night through twilight to warm, bright daylight using the current solar
-elevation.
+missing coordinates fall back to a neutral edge. A small dot follows that curve
+at the card's `local_minutes`; its restrained color and contrast interpolate
+from cool, muted night through twilight to warm, bright daylight using the
+current solar elevation. The dot and curve share that tint and use the same
+day/night palette as the summary solar ruler. Marker positions track clock
+changes directly rather than easing between instants, so crossing local midnight
+wraps cleanly from one edge to the other instead of traversing the ruler
+backward.
 The rulers disappear in live and edit modes, never replace the printed time,
 and do not label or imply availability. They are not an additional
 time-scrubbing target.

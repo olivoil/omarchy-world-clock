@@ -38,6 +38,7 @@ ln -s "$OMARCHY_ROOT/shell" "$PLUGIN_LINT_ROOT/qs"
   -I "$PLUGIN_LINT_ROOT" \
   quattro/WorldClock.qml \
   quattro/Panel.qml \
+  quattro/SolarArc.qml \
   quattro/WorldClockKeyCatcher.qml \
   quattro/WeatherDetail.qml \
   quattro/WeatherMetricGraph.qml \

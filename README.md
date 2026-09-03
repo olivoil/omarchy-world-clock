@@ -79,6 +79,8 @@ the AUR package is no longer required.
   across every visible place.
 - Use **plus** to open the full-panel globe. Start typing or select **search**
   to find a city or timezone, or rotate the globe and choose a place directly.
+  Choosing a place that is already saved offers **Add another** and an optional
+  personal label for the new card.
 - Use **refresh** to return a converted view to live time.
 
 ## Features
@@ -93,11 +95,14 @@ the AUR package is no longer required.
   sunset, hourly UV and wind, a 24-hour forecast, and a four-day outlook for
   every place with a known coordinate.
 - Multiple named places in the same timezone, such as Boston and New York.
+- Multiple independent cards for the same place, such as Boston for a person
+  and Boston for an office.
 - Personal labels for saved locations, such as a person's name or "Home".
+  The actual place remains visible beside a personal label.
 - Multiple pinned place clocks in the bar, kept in pin order and identified by
   compact codes such as `TOK` or `NY`, with excess pins summarized as `+N`.
-- A compact bar tooltip showing up to twelve time-sorted places and a summary
-  count for any additional locations.
+- A compact bar tooltip showing up to twelve time-sorted places, pairing any
+  personal label with its actual place, plus a count for additional locations.
 - Manual time conversion with DST-aware IANA timezone handling.
 - Local timezone and alias search that works offline.
 - Optional Open-Meteo city search for queries not resolved locally.
@@ -136,39 +141,47 @@ Example:
 
 ```json
 {
-  "version": 7,
+  "version": 8,
   "pinned_locations": [
     {
-      "timezone": "Europe/Paris",
-      "label": "Rennes"
+      "id": 2
     },
     {
-      "timezone": "Asia/Tokyo",
-      "label": "Tokyo"
+      "id": 3
     }
   ],
   "timezones": [
     {
+      "id": 1,
       "timezone": "America/Cancun",
+      "place": "Cancun",
       "label": "Home",
       "latitude": 21.1619,
       "longitude": -86.8515
     },
     {
+      "id": 2,
       "timezone": "Europe/Paris",
-      "label": "Rennes",
+      "place": "Rennes",
       "latitude": 48.1173,
       "longitude": -1.6778
     },
     {
+      "id": 3,
       "timezone": "Asia/Tokyo",
-      "label": "Tokyo",
+      "place": "Tokyo",
+      "label": "Akiko",
       "latitude": 35.6764,
       "longitude": 139.65
     }
   ]
 }
 ```
+
+Each saved card has its own stable `id`. `place` is the geographic name used
+when the card was added; optional `label` is the personal name shown most
+prominently. Pins refer to card IDs, so duplicate places and duplicate personal
+labels remain independent.
 
 To prevent all Open-Meteo requests, add:
 
@@ -234,6 +247,17 @@ Rebuild checked-in artifacts after relevant source or dependency changes:
 scripts/build-timezone-grid.sh       # only when map source/data changes
 scripts/build-plugin-backend.sh      # whenever backend inputs change
 ```
+
+For a local branch review on an Omarchy workstation, install an isolated,
+visually marked copy without replacing the normal plugin:
+
+```bash
+scripts/install-review-preview.sh
+```
+
+The review copy gets a collision-resistant branch-derived plugin ID, a distinct
+icon color, a branch header in its tooltip, and its own seeded config file.
+Re-running the command updates that branch's copy in place.
 
 Artifact reproduction requires Podman or Docker. The scripts use a
 digest-pinned official Rust/Alpine image and produce a static x86-64 Linux

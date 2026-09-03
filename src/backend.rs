@@ -54,6 +54,16 @@ fn required_f64(args: &[String], flag: &str) -> Result<f64> {
     optional_f64(args, flag)?.ok_or_else(|| anyhow::anyhow!("missing required flag {flag}"))
 }
 
+fn optional_u64(args: &[String], flag: &str) -> Result<Option<u64>> {
+    optional_flag(args, flag)?
+        .map(|value| {
+            value
+                .parse::<u64>()
+                .with_context(|| format!("invalid location ID for {flag}: {value}"))
+        })
+        .transpose()
+}
+
 fn parse_reference_utc(raw: Option<String>) -> Result<DateTime<Utc>> {
     raw.map(|value| {
         DateTime::parse_from_rfc3339(&value)
@@ -192,15 +202,19 @@ pub fn execute(args: &[String]) -> Result<Option<String>> {
             let timezone = remaining_args
                 .first()
                 .ok_or_else(|| anyhow::anyhow!("missing timezone to add"))?;
-            let label = optional_flag(remaining_args, "--label")?.unwrap_or_default();
-            let outcome = ConfigManager::new(None).add_timezone_with_coordinate(
+            let legacy_label = optional_flag(remaining_args, "--label")?.unwrap_or_default();
+            let place = optional_flag(remaining_args, "--place-label")?
+                .unwrap_or_else(|| legacy_label.clone());
+            let custom_label = optional_flag(remaining_args, "--custom-label")?.unwrap_or_default();
+            let outcome = ConfigManager::new(None).add_location_with_coordinate(
                 timezone,
-                &label,
+                &place,
+                &custom_label,
                 optional_f64(remaining_args, "--latitude")?,
                 optional_f64(remaining_args, "--longitude")?,
             )?;
             if !outcome.added {
-                bail!("location is invalid or already configured: {timezone}");
+                bail!("location is invalid: {timezone}");
             }
             None
         }
@@ -208,39 +222,60 @@ pub fn execute(args: &[String]) -> Result<Option<String>> {
             let timezone = remaining_args
                 .first()
                 .ok_or_else(|| anyhow::anyhow!("missing timezone to rename"))?;
-            ConfigManager::new(None).rename_location(
-                timezone,
-                &required_flag(remaining_args, "--label")?,
-                &required_flag(remaining_args, "--new-label")?,
-            )?;
+            let manager = ConfigManager::new(None);
+            let new_label = required_flag(remaining_args, "--new-label")?;
+            if let Some(id) = optional_u64(remaining_args, "--id")? {
+                manager.rename_location_by_id(id, &new_label)?;
+            } else {
+                manager.rename_location(
+                    timezone,
+                    &required_flag(remaining_args, "--label")?,
+                    &new_label,
+                )?;
+            }
             None
         }
         "remove" => {
             let timezone = remaining_args
                 .first()
                 .ok_or_else(|| anyhow::anyhow!("missing timezone to remove"))?;
-            ConfigManager::new(None).remove_location(
-                timezone,
-                optional_flag(remaining_args, "--label")?.as_deref(),
-            )?;
+            let manager = ConfigManager::new(None);
+            if let Some(id) = optional_u64(remaining_args, "--id")? {
+                manager.remove_location_by_id(id)?;
+            } else {
+                manager.remove_location(
+                    timezone,
+                    optional_flag(remaining_args, "--label")?.as_deref(),
+                )?;
+            }
             None
         }
         "pin" => {
             let timezone = remaining_args
                 .first()
                 .ok_or_else(|| anyhow::anyhow!("missing timezone to pin"))?;
-            ConfigManager::new(None).pin_location(
-                timezone,
-                optional_flag(remaining_args, "--label")?.as_deref(),
-            )?;
+            let manager = ConfigManager::new(None);
+            if let Some(id) = optional_u64(remaining_args, "--id")? {
+                manager.pin_location_by_id(id)?;
+            } else {
+                manager.pin_location(
+                    timezone,
+                    optional_flag(remaining_args, "--label")?.as_deref(),
+                )?;
+            }
             None
         }
         "unpin" => {
             if let Some(timezone) = remaining_args.first() {
-                ConfigManager::new(None).unpin_location(
-                    timezone,
-                    optional_flag(remaining_args, "--label")?.as_deref(),
-                )?;
+                let manager = ConfigManager::new(None);
+                if let Some(id) = optional_u64(remaining_args, "--id")? {
+                    manager.unpin_location_by_id(id)?;
+                } else {
+                    manager.unpin_location(
+                        timezone,
+                        optional_flag(remaining_args, "--label")?.as_deref(),
+                    )?;
+                }
             } else {
                 // Keep the argument-free form as a compatibility shortcut for
                 // clearing every pin from scripts written before config v7.

@@ -95,11 +95,14 @@ transient identity, so equal places and equal labels do not merge. Weather
 requests are de-duplicated by exact coordinate and fanned back out by card ID.
 
 Weather is deliberately outside the snapshot path. Clock refreshes remain
-local and deterministic, while the panel requests all current conditions in a
-single HTTPS call and keeps the last successful response for 15 minutes. A
-lightweight 30-second freshness check refreshes that response at its original
-expiry even when the panel closes and reopens. A weather timeout therefore
-cannot delay panel opening, minute ticks, or time conversion.
+local and deterministic, while the panel requests current conditions in HTTPS
+batches of at most 50 unique coordinates and keeps the last successful
+combined response for 15 minutes. A lightweight 30-second freshness check
+refreshes that response at its original expiry even when the panel closes and
+reopens. The explicit return-to-live action bypasses the freshness window, but
+every attempt shares a two-minute cooldown so repeated clicks and failed
+retries cannot create a request burst. A weather timeout therefore cannot
+delay panel opening, minute ticks, or time conversion.
 
 Snapshots carry the effective unit inherited from `omarchy.weather`. An
 explicit `shell.json` unit wins; automatic mode resolves the configured Weather

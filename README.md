@@ -76,7 +76,8 @@ the AUR package is no longer required.
   to find a city or timezone, or rotate the globe and choose a place directly.
   Choosing a place that is already saved offers **Add another** and an optional
   personal label for the new card.
-- Use **refresh** to return a converted view to live time.
+- Use **refresh** at any time to return to live time and update the weather.
+  Its active fill still only indicates a scrubbed or converted time.
 
 ## Features
 
@@ -197,8 +198,10 @@ Local timezone searches and map clicks do not call a remote service. In live
 read mode, World Clock sends the saved coordinates for visible places directly
 from the user's machine to Open-Meteo in bounded batches. Results are cached
 for 15 minutes while the panel stays loaded and are attributed beside the
-weather display. When a typed place query has no local result, World Clock may
-also send that query to Open-Meteo's Geocoding API.
+weather display. An explicit refresh bypasses that freshness window, while a
+two-minute request cooldown coalesces rapid clicks and failed retries. When a
+typed place query has no local result, World Clock may also send that query to
+Open-Meteo's Geocoding API.
 
 Set `disable_open_meteo_geolocation` to `true` to disable both requests. Weather
 is hidden in converted-time views because it always represents current

@@ -714,7 +714,9 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("backendCommand, \"weather\""));
     assert!(panel.contains("property bool weatherRequestPending: false"));
     assert!(panel.contains("weatherRefreshMilliseconds: 15 * 60 * 1000"));
+    assert!(panel.contains("weatherAttemptCooldownMilliseconds: 2 * 60 * 1000"));
     assert!(panel.contains("weatherFreshnessCheckMilliseconds: 30 * 1000"));
+    assert!(panel.contains("WeatherRefresh.requestNeeded({"));
     assert!(panel.contains("function weatherFor(clock)"));
     assert!(panel.contains("function weatherGlyph(item)"));
     assert!(panel.contains("function weatherGlyphColor(item)"));
@@ -1064,6 +1066,36 @@ fn return_to_live_releases_the_active_editor_before_requesting_now() {
     assert!(
         invalidate < release_focus && release_focus < request_now,
         "converted work must be invalidated and editor focus released before requesting now"
+    );
+}
+
+#[test]
+fn return_to_live_control_always_accepts_clicks_and_refreshes_weather() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let panel =
+        fs::read_to_string(root.join("quattro/Panel.qml")).expect("read native panel source");
+    let reset_button = panel
+        .split("id: headerStart")
+        .nth(1)
+        .and_then(|source| source.split("Button {").nth(1))
+        .and_then(|source| source.split("\n              Button {").next())
+        .expect("top-left return-to-live button");
+
+    assert!(reset_button.contains("active: !root.live || root.scrubPreviewActive"));
+    assert!(
+        !reset_button.contains("enabled:"),
+        "the reset action should remain clickable while its active fill only indicates scrubbed time"
+    );
+    assert!(reset_button.contains("onClicked: root.returnToLive()"));
+
+    let return_to_live = panel
+        .split("function returnToLive() {")
+        .nth(1)
+        .and_then(|source| source.split("function resetTimeOnPanelClose() {").next())
+        .expect("returnToLive function body");
+    assert!(
+        return_to_live.contains("requestWeather(true)"),
+        "an explicit reset should request fresh weather even when the 15-minute cache is warm"
     );
 }
 

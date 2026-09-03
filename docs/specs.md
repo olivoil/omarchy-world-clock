@@ -298,6 +298,8 @@ No separate World Clock 12/24-hour preference is stored.
   an asynchronous response never changes its geometry.
 - Visible coordinates are fetched in bounded batches when the panel opens, so
   long location lists do not create an unbounded request URL or response.
+  Successful batches remain available when a separate batch fails; a total
+  upstream failure still reports the update as unavailable.
 - Cards with identical coordinates share one weather request, then receive
   separate results keyed by their stable card IDs.
 - A successful response is reused for 15 minutes. While the panel remains

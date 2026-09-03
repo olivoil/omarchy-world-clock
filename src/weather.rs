@@ -196,7 +196,7 @@ pub fn current_weather(
 
     let client = open_meteo_client(Duration::from_secs(5))
         .context("could not initialize the weather client")?;
-    for batch in locations.chunks(OPEN_METEO_BATCH_SIZE) {
+    payload.locations = weather_in_batches(&locations, |batch| {
         let latitudes = batch
             .iter()
             .map(|location| location.latitude.to_string())
@@ -213,11 +213,40 @@ pub fn current_weather(
             &latitudes,
             &longitudes,
         )?;
-        payload
-            .locations
-            .extend(weather_from_response(response, batch, reference_utc)?);
-    }
+        weather_from_response(response, batch, reference_utc)
+    })?;
     Ok(payload)
+}
+
+fn weather_in_batches(
+    locations: &[WeatherLocation],
+    mut fetch_batch: impl FnMut(&[WeatherLocation]) -> Result<Vec<LocationWeather>>,
+) -> Result<Vec<LocationWeather>> {
+    let mut weather = Vec::new();
+    let mut successful_batch = false;
+    let mut first_error = None;
+
+    for batch in locations.chunks(OPEN_METEO_BATCH_SIZE) {
+        match fetch_batch(batch) {
+            Ok(mut batch_weather) => {
+                successful_batch = true;
+                weather.append(&mut batch_weather);
+            }
+            Err(error) => {
+                if first_error.is_none() {
+                    first_error = Some(error);
+                }
+            }
+        }
+    }
+
+    if successful_batch {
+        Ok(weather)
+    } else if let Some(error) = first_error {
+        Err(error)
+    } else {
+        Ok(weather)
+    }
 }
 
 fn fetch_weather_response(
@@ -536,8 +565,8 @@ fn weather_condition(code: i64) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::{
-        fetch_weather_response, parse_weather_response, weather_condition, weather_locations,
-        WeatherLocation, WeatherTarget,
+        fetch_weather_response, parse_weather_response, weather_condition, weather_in_batches,
+        weather_locations, WeatherLocation, WeatherTarget, OPEN_METEO_BATCH_SIZE,
     };
     use crate::config::{AppConfig, LocationKey, TimezoneEntry};
     use crate::quattro::build_snapshot;
@@ -801,6 +830,50 @@ mod tests {
         .unwrap_err();
 
         assert!(error.to_string().contains("1 locations for 2 requests"));
+    }
+
+    #[test]
+    fn later_weather_batch_failure_preserves_earlier_successes() {
+        let locations = (1..=OPEN_METEO_BATCH_SIZE + 1)
+            .map(|index| location(index as u64, "Etc/UTC", &format!("Place {index}")))
+            .collect::<Vec<_>>();
+        let now = Utc.with_ymd_and_hms(2026, 8, 21, 15, 0, 0).unwrap();
+        let mut calls = 0;
+
+        let weather = weather_in_batches(&locations, |batch| {
+            calls += 1;
+            if calls == 2 {
+                return Err(anyhow::anyhow!("later batch failed"));
+            }
+            let response = format!(
+                "[{}]",
+                std::iter::repeat_n(
+                    r#"{"current":{"temperature_2m":20,"weather_code":0,"is_day":1}}"#,
+                    batch.len()
+                )
+                .collect::<Vec<_>>()
+                .join(",")
+            );
+            parse_weather_response(&response, batch, now)
+        })
+        .expect("an earlier successful batch should remain usable");
+
+        assert_eq!(calls, 2);
+        assert_eq!(weather.len(), OPEN_METEO_BATCH_SIZE);
+        assert_eq!(weather.first().map(|item| item.id), Some(1));
+        assert_eq!(
+            weather.last().map(|item| item.id),
+            Some(OPEN_METEO_BATCH_SIZE as u64)
+        );
+    }
+
+    #[test]
+    fn weather_batches_still_fail_when_none_succeed() {
+        let locations = vec![location(1, "Etc/UTC", "Place 1")];
+        let error = weather_in_batches(&locations, |_| Err(anyhow::anyhow!("only batch failed")))
+            .expect_err("a total upstream failure must remain visible");
+
+        assert!(error.to_string().contains("only batch failed"));
     }
 
     #[test]

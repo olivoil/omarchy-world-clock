@@ -9,6 +9,15 @@ function listLength(values) {
   return isFinite(length) && length > 0 ? length : 0
 }
 
+function sunProgress(sunriseMinutes, sunsetMinutes, currentMinutes) {
+  var sunrise = finite(sunriseMinutes)
+  var sunset = finite(sunsetMinutes)
+  var current = finite(currentMinutes)
+  if (!isFinite(sunrise) || !isFinite(sunset) || !isFinite(current)
+      || sunset <= sunrise) return NaN
+  return Math.max(0, Math.min(1, (current - sunrise) / (sunset - sunrise)))
+}
+
 function weatherFamily(item) {
   var code = Number(item ? item.weather_code : -1)
   if (code === 95 || code === 96 || code === 99) return "storm"

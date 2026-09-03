@@ -134,4 +134,13 @@ assert.equal(context.humidityDescription(62, null), "Elevated humidity",
 assert.equal(context.humidityDescription(42, -8), "Moderate humidity",
   "midrange humidity uses temperature-neutral wording")
 
+assert.equal(context.sunProgress(360, 1080, 720), 0.5,
+  "solar progress follows the interval between sunrise and sunset")
+assert.ok(Number.isNaN(context.sunProgress(Number.NaN, 1080, 720)),
+  "missing sunrise keeps solar progress unavailable")
+assert.ok(Number.isNaN(context.sunProgress(360, Number.NaN, 720)),
+  "missing sunset keeps solar progress unavailable")
+assert.ok(Number.isNaN(context.sunProgress(360, 360, 720)),
+  "a nonexistent daylight interval keeps solar progress unavailable")
+
 console.log("Weather detail logic tests passed.")

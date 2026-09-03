@@ -509,9 +509,7 @@ Item {
     var sunrise = minutesFromTime(today ? today.sunrise : null)
     var sunset = minutesFromTime(today ? today.sunset : null)
     var current = finite(clockData ? clockData.local_minutes : null)
-    if (!isFinite(sunrise) || !isFinite(sunset) || !isFinite(current)
-        || sunset <= sunrise) return 0
-    return Math.max(0, Math.min(1, (current - sunrise) / (sunset - sunrise)))
+    return WeatherDetailLogic.sunProgress(sunrise, sunset, current)
   }
 
   function humidityNote() {
@@ -1574,6 +1572,8 @@ Item {
               context.moveTo(left, baseline)
               context.quadraticCurveTo(controlX, controlY, right, baseline)
               context.stroke()
+
+              if (!isFinite(progress)) return
 
               var clamped = Math.max(0, Math.min(1, progress))
               context.lineWidth = Style.space(1.25)

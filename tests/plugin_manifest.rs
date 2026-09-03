@@ -880,6 +880,14 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(weather_detail.contains("text: \"4-DAY OUTLOOK\""));
     assert!(weather_detail.contains("text: \"24-HOUR DETAIL\""));
     assert!(weather_detail.contains("text: \"SUN AND ATMOSPHERE\""));
+    assert!(weather_logic.contains("function sunProgress("));
+    assert!(weather_detail.contains("WeatherDetailLogic.sunProgress("));
+    let sun_canvas = weather_detail
+        .split("id: sunCanvas")
+        .nth(1)
+        .and_then(|source| source.split("Row {").next())
+        .expect("sun canvas body");
+    assert!(sun_canvas.contains("if (!isFinite(progress)) return"));
     assert!(weather_detail.contains("detail.weatherData.apparent_temperature_celsius"));
     assert!(weather_detail.contains("detail.weatherData.wind_speed_kmh"));
     assert!(weather_detail.contains("detail.weatherData.wind_direction_degrees"));

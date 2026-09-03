@@ -112,22 +112,50 @@ Item {
     return representative
   }
 
+  function phasePrecipitationTitle(kind, state) {
+    if (state === "easing") {
+      if (kind === "storm") return "Storms easing"
+      if (kind === "snow") return "Snow easing"
+      if (kind === "ice") return "Icy mix easing"
+      return "Clearing slowly"
+    }
+    if (state === "building") {
+      if (kind === "storm") return "Storms building"
+      if (kind === "snow") return "Snow increasing"
+      if (kind === "ice") return "Icy mix increasing"
+      return "Rain gathering"
+    }
+    if (state === "likely") {
+      if (kind === "storm") return "Storms likely"
+      if (kind === "snow") return "Snow likely"
+      if (kind === "ice") return "Icy mix likely"
+      return "Rain likely"
+    }
+    if (kind === "storm") return "Passing storms"
+    if (kind === "snow") return "Periods of snow"
+    if (kind === "ice") return "Icy mix possible"
+    return "Passing showers"
+  }
+
   function phaseTitle(items) {
     if (!items.length) return "Conditions unavailable"
     var firstProbability = finite(items[0].precipitation_probability_percent)
     var lastProbability = finite(items[items.length - 1]
       .precipitation_probability_percent)
     var representative = phaseRepresentative(items)
-    var code = Number(representative ? representative.weather_code : 3)
     var maximum = phaseProbability(items, true)
+    var precipitation = precipitationKind(representative)
     if (isFinite(firstProbability) && isFinite(lastProbability)
         && firstProbability >= 35 && lastProbability <= firstProbability - 15)
-      return "Clearing slowly"
+      return phasePrecipitationTitle(precipitation, "easing")
     if (isFinite(firstProbability) && isFinite(lastProbability)
-        && lastProbability >= firstProbability + 15) return "Rain gathering"
-    if (code >= 95) return "Storm window"
-    if (isFinite(maximum) && maximum >= 60) return "Rain likely"
-    if (isFinite(maximum) && maximum >= 30) return "Passing showers"
+        && lastProbability >= firstProbability + 15)
+      return phasePrecipitationTitle(precipitation, "building")
+    if (precipitation === "storm") return "Storm window"
+    if (isFinite(maximum) && maximum >= 60)
+      return phasePrecipitationTitle(precipitation, "likely")
+    if (isFinite(maximum) && maximum >= 30)
+      return phasePrecipitationTitle(precipitation, "possible")
     return String(representative && representative.condition
       ? representative.condition : "Conditions steady")
   }

@@ -119,6 +119,13 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     let weather_detail =
         fs::read_to_string(weather_detail_path).expect("read weather detail component");
     assert_text_items_are_plain_text(&weather_detail, "quattro/WeatherDetail.qml");
+    let weather_logic_path = qml_path.parent().unwrap().join("WeatherDetailLogic.js");
+    assert!(
+        weather_logic_path.is_file(),
+        "missing {}",
+        weather_logic_path.display()
+    );
+    let weather_logic = fs::read_to_string(weather_logic_path).expect("read weather detail logic");
     let weather_graph_path = qml_path.parent().unwrap().join("WeatherMetricGraph.qml");
     assert!(
         weather_graph_path.is_file(),
@@ -580,6 +587,7 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     let time_rail = fs::read_to_string(time_rail_path).expect("read time rail helpers");
     assert!(time_rail.contains("id <= 9007199254740991"));
     assert!(root.join("tests/time-rail.mjs").is_file());
+    assert!(root.join("tests/weather-detail-logic.mjs").is_file());
     let apply_snapshot = panel
         .split("function applySnapshot(raw, manual)")
         .nth(1)
@@ -809,12 +817,16 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("weatherDetailPage.scrollByDirection(dy)"));
     assert!(panel.contains("weatherDetailPage.focusInitialControl()"));
     assert!(weather_detail.contains("event.pixelDelta.y"));
+    assert!(weather_detail.contains("easing.type: Easing.OutQuint"));
+    assert!(weather_logic.contains("function wheelDistance("));
+    assert!(weather_logic.contains("function nextScrollTarget("));
     assert!(weather_detail.contains("PointerDevice.Mouse | PointerDevice.TouchPad"));
     assert!(weather_detail.contains("id: hero"));
     assert!(weather_detail.contains("id: phaseSection"));
     assert!(weather_detail.contains("id: outlookSection"));
     assert!(weather_detail.contains("id: graphSection"));
-    assert!(weather_detail.contains("text: \"TODAY BY PHASE\""));
+    assert!(weather_detail.contains("text: detail.phaseSectionTitle()"));
+    assert!(weather_logic.contains("function segmentPhases("));
     assert!(weather_detail.contains("text: \"4-DAY OUTLOOK\""));
     assert!(weather_detail.contains("text: \"24-HOUR DETAIL\""));
     assert!(weather_detail.contains("text: \"SUN AND ATMOSPHERE\""));
@@ -861,8 +873,11 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(weather_detail.contains("return \"Storms building\""));
     assert!(weather_detail.contains("return \"Snow likely\""));
     assert!(weather_detail.contains("return \"Icy mix possible\""));
-    assert!(weather_detail.contains("return \"Rain builds through \""));
+    assert!(weather_detail.contains("lead: \"Rain builds through \""));
     assert!(weather_detail.contains("return \"Snow is most likely \""));
+    assert!(weather_detail.contains("model: detail.narrativeWordModel"));
+    assert!(weather_detail.contains("modelData.accent ? detail.coral"));
+    assert!(weather_logic.contains("function defaultMetric("));
     assert!(weather_detail.contains("endTemperature <= temperaturePeak.value - 2"));
     assert!(weather_detail.contains("rainPeak.value >= 35"));
     assert!(weather_detail.contains("probability < 30) && code <= 2"));
@@ -1137,6 +1152,7 @@ fn globe_artifact_freshness_checks_are_mandatory_and_reproducible() {
     let ci = fs::read_to_string(root.join("scripts/ci.sh")).expect("read local CI script");
     assert!(ci.contains("run node scripts/build-world-map-source.mjs --check"));
     assert!(ci.contains("run node scripts/build-featured-cities.mjs --check"));
+    assert!(ci.contains("run node tests/weather-detail-logic.mjs"));
     assert!(ci.contains("run scripts/check-globe-artifacts.sh"));
     assert!(!ci.contains("command -v qsb"));
     assert!(!ci.contains("command -v rsvg-convert"));

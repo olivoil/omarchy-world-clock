@@ -4,6 +4,7 @@ import QtQuick
 import QtQuick.Controls as QQC
 import qs.Commons
 import qs.Ui
+import "WeatherDetailLogic.js" as WeatherDetailLogic
 
 Item {
   id: detail
@@ -11,6 +12,7 @@ Item {
   required property var controller
   property string selectedMetric: "uv"
   property bool metricWasChosen: false
+  property real scrollTargetY: 0
   readonly property string detailKey: String(controller.weatherDetailKey || "")
   readonly property var weatherData: controller.weatherDetailData
   readonly property var clockData: controller.weatherDetailClock
@@ -20,6 +22,7 @@ Item {
   readonly property var graphHours: hourly
   readonly property var phases: buildPhases(hourly)
   readonly property var metricOptions: buildMetricOptions()
+  readonly property var narrativeWordModel: buildNarrativeWords()
   readonly property color foreground: controller.contentForeground
   readonly property color muted: Qt.darker(foreground, 1.46)
   readonly property color dim: Qt.darker(foreground, 1.65)
@@ -100,9 +103,8 @@ Item {
   }
 
   function chooseDefaultMetric() {
-    if (hasHourlyField("uv_index")) selectedMetric = "uv"
-    else if (precipitationRelevant()) selectedMetric = "precipitation"
-    else selectedMetric = "temperature"
+    var preferred = WeatherDetailLogic.defaultMetric(hourly)
+    selectedMetric = metricAvailable(preferred) ? preferred : "temperature"
   }
 
   function phaseProbability(items, maximum) {
@@ -118,20 +120,7 @@ Item {
   }
 
   function phaseRepresentative(items) {
-    if (!items.length) return null
-    var representative = items[Math.floor(items.length / 2)]
-    var bestScore = -1
-    for (var index = 0; index < items.length; index++) {
-      var code = Number(items[index].weather_code)
-      var probability = finite(items[index].precipitation_probability_percent)
-      var score = (code >= 95 ? 300 : (code >= 51 ? 200 : code))
-        + (isFinite(probability) ? probability : 0)
-      if (score > bestScore) {
-        bestScore = score
-        representative = items[index]
-      }
-    }
-    return representative
+    return WeatherDetailLogic.phaseRepresentative(items)
   }
 
   function phasePrecipitationTitle(kind, state) {
@@ -207,14 +196,10 @@ Item {
   }
 
   function buildPhases(source) {
-    var values = source && source.length ? source.slice(0, 12) : []
-    if (!values.length) return []
-    var count = Math.min(3, values.length)
-    var chunkSize = Math.ceil(values.length / count)
+    var groups = WeatherDetailLogic.segmentPhases(source, 12, 3)
     var result = []
-    for (var phaseIndex = 0; phaseIndex < count; phaseIndex++) {
-      var start = phaseIndex * chunkSize
-      var items = values.slice(start, Math.min(values.length, start + chunkSize))
+    for (var phaseIndex = 0; phaseIndex < groups.length; phaseIndex++) {
+      var items = groups[phaseIndex]
       if (!items.length) continue
       result.push({
         range: phaseRange(items, phaseIndex),
@@ -225,6 +210,10 @@ Item {
       })
     }
     return result
+  }
+
+  function phaseSectionTitle() {
+    return phases.length === 1 ? "TODAY'S PATTERN" : "TODAY BY PHASE"
   }
 
   function phaseColor(phase) {
@@ -265,20 +254,25 @@ Item {
       || code === 95 || code === 96 || code === 99
   }
 
-  function precipitationBuildTitle(kind, peakItem, endItem) {
+  function precipitationBuildParts(kind, peakItem, endItem) {
     var peakPart = dayPart(peakItem)
     var endPart = dayPart(endItem)
     if (kind === "storm")
-      return "Storms build through " + peakPart
-        + ", then soften toward " + endPart + "."
+      return { lead: "Storms build through " + peakPart + ", then",
+        accent: "soften toward " + endPart + "." }
     if (kind === "snow")
-      return "Snow builds through " + peakPart
-        + ", then eases toward " + endPart + "."
+      return { lead: "Snow builds through " + peakPart + ", then",
+        accent: "eases toward " + endPart + "." }
     if (kind === "ice")
-      return "Icy precipitation builds through " + peakPart
-        + ", then eases toward " + endPart + "."
-    return "Rain builds through " + peakPart
-      + ", then eases toward " + endPart + "."
+      return { lead: "Icy precipitation builds through " + peakPart + ", then",
+        accent: "eases toward " + endPart + "." }
+    return { lead: "Rain builds through " + peakPart + ", then",
+      accent: "eases toward " + endPart + "." }
+  }
+
+  function precipitationBuildTitle(kind, peakItem, endItem) {
+    var parts = precipitationBuildParts(kind, peakItem, endItem)
+    return parts.lead + " " + parts.accent
   }
 
   function precipitationPeakTitle(kind, item) {
@@ -325,8 +319,9 @@ Item {
     return null
   }
 
-  function narrativeTitle() {
-    if (!weatherData) return "Current conditions are unavailable."
+  function narrativeParts() {
+    if (!weatherData)
+      return { lead: "Current conditions are unavailable.", accent: "" }
     var rainPeak = peakHourly("precipitation_probability_percent", 12)
     var currentProbability = hourly.length
       ? finite(hourly[0].precipitation_probability_percent) : NaN
@@ -337,12 +332,14 @@ Item {
       if (isFinite(currentProbability) && isFinite(lastProbability)
           && rainPeak.value >= currentProbability + 15
           && rainPeak.value >= lastProbability + 15)
-        return precipitationBuildTitle(precipitation, rainPeak.item,
+        return precipitationBuildParts(precipitation, rainPeak.item,
           hourly[Math.min(11, hourly.length - 1)])
-      return precipitationPeakTitle(precipitation, rainPeak.item)
+      return { lead: precipitationPeakTitle(precipitation, rainPeak.item),
+        accent: "" }
     }
     if (isFinite(rainPeak.value) && rainPeak.value >= 35)
-      return precipitationPassingTitle(precipitation, rainPeak.item)
+      return { lead: precipitationPassingTitle(precipitation, rainPeak.item),
+        accent: "" }
     var temperaturePeak = peakHourly("temperature_celsius", 12)
     if (isFinite(temperaturePeak.value) && temperaturePeak.value >= 32) {
       var temperatureCount = Math.min(hourly.length, 12)
@@ -352,12 +349,33 @@ Item {
       if (temperaturePeak.index < temperatureCount - 1
           && isFinite(endTemperature)
           && endTemperature <= temperaturePeak.value - 2)
-        heatTitle += ", then eases later"
-      return heatTitle + "."
+        return { lead: heatTitle + ", then", accent: "eases later." }
+      return { lead: heatTitle + ".", accent: "" }
     }
     var code = Number(weatherData.weather_code)
-    if (code <= 1) return "Clear skies hold for the next few hours."
-    return String(weatherData.condition || "Conditions stay steady") + " for now."
+    if (code <= 1)
+      return { lead: "Clear skies hold for the next few hours.", accent: "" }
+    return { lead: String(weatherData.condition || "Conditions stay steady")
+      + " for now.", accent: "" }
+  }
+
+  function narrativeTitle() {
+    var parts = narrativeParts()
+    return parts.lead + (parts.accent ? " " + parts.accent : "")
+  }
+
+  function buildNarrativeWords() {
+    var parts = narrativeParts()
+    var result = []
+    function appendWords(value, accented) {
+      var words = String(value || "").split(/\s+/)
+      for (var index = 0; index < words.length; index++) {
+        if (words[index]) result.push({ text: words[index], accent: accented })
+      }
+    }
+    appendWords(parts.lead, false)
+    appendWords(parts.accent, true)
+    return result
   }
 
   function narrativeNote() {
@@ -536,10 +554,25 @@ Item {
   }
 
   function wheelDistance(event) {
-    var pixelY = Number(event.pixelDelta.y)
-    if (isFinite(pixelY) && pixelY !== 0) return pixelY
-    var angleY = Number(event.angleDelta.y)
-    return isFinite(angleY) ? angleY / 120 * Style.space(64) : 0
+    return WeatherDetailLogic.wheelDistance(event.pixelDelta.y,
+      event.angleDelta.y, detailScroll.height, Style.space(64))
+  }
+
+  function animateScrollTo(target) {
+    var maximum = Math.max(0, detailScroll.contentHeight - detailScroll.height)
+    var clamped = Math.max(0, Math.min(maximum, Number(target)))
+    var travel = Math.abs(clamped - detailScroll.contentY)
+    scrollAnimation.stop()
+    scrollTargetY = clamped
+    if (travel < 0.5) {
+      detailScroll.contentY = clamped
+      return
+    }
+    scrollAnimation.from = detailScroll.contentY
+    scrollAnimation.to = clamped
+    scrollAnimation.duration = Math.round(Math.max(150,
+      Math.min(290, 145 + travel * 0.34)))
+    scrollAnimation.start()
   }
 
   function handleScrollWheel(event) {
@@ -550,9 +583,12 @@ Item {
       return
     }
     detailScroll.cancelFlick()
-    detailScroll.contentY = Math.max(0,
-      Math.min(maximum, detailScroll.contentY - distance))
-    event.accepted = true
+    var target = WeatherDetailLogic.nextScrollTarget(detailScroll.contentY,
+      scrollTargetY, scrollAnimation.running, distance, maximum)
+    var moved = Math.abs(target - (scrollAnimation.running
+      ? scrollTargetY : detailScroll.contentY)) >= 0.5
+    animateScrollTo(target)
+    event.accepted = moved
   }
 
   function scrollByDirection(direction) {
@@ -560,8 +596,11 @@ Item {
     if (!isFinite(delta) || delta === 0) return
     var maximum = Math.max(0, detailScroll.contentHeight - detailScroll.height)
     detailScroll.cancelFlick()
-    detailScroll.contentY = Math.max(0, Math.min(maximum,
-      detailScroll.contentY + delta * Style.space(64)))
+    var distance = Math.abs(delta) >= 4
+      ? detailScroll.height * 0.82 * (delta < 0 ? -1 : 1)
+      : delta * Style.space(96)
+    var origin = scrollAnimation.running ? scrollTargetY : detailScroll.contentY
+    animateScrollTo(Math.max(0, Math.min(maximum, origin + distance)))
   }
 
   function focusInitialControl() {
@@ -571,6 +610,8 @@ Item {
   onDetailKeyChanged: {
     metricWasChosen = false
     chooseDefaultMetric()
+    scrollAnimation.stop()
+    scrollTargetY = 0
     detailScroll.contentY = 0
   }
   onHourlyChanged: {
@@ -580,6 +621,14 @@ Item {
     if (visible) Qt.callLater(detail.focusInitialControl)
   }
   Component.onCompleted: chooseDefaultMetric()
+
+  NumberAnimation {
+    id: scrollAnimation
+    target: detailScroll
+    property: "contentY"
+    easing.type: Easing.OutQuint
+    onStopped: detail.scrollTargetY = detailScroll.contentY
+  }
 
   Item {
     id: header
@@ -654,6 +703,13 @@ Item {
     pixelAligned: true
     maximumFlickVelocity: Style.space(5200)
     flickDeceleration: Style.space(3000)
+    onDraggingChanged: {
+      if (dragging) {
+        scrollAnimation.stop()
+        detail.scrollTargetY = contentY
+      }
+    }
+    onFlickStarted: detail.scrollTargetY = contentY
 
     WheelHandler {
       target: null
@@ -676,7 +732,7 @@ Item {
       Item {
         id: hero
         width: parent.width
-        height: Style.space(184)
+        height: Style.space(214)
 
         Item {
           id: currentReading
@@ -796,21 +852,31 @@ Item {
             font.letterSpacing: 0.8
           }
 
-          Text {
+          Flow {
             id: narrativeHeadline
-            textFormat: Text.PlainText
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.top: localNoteLabel.bottom
             anchors.topMargin: Style.space(10)
-            text: detail.narrativeTitle()
-            color: detail.foreground
-            wrapMode: Text.WordWrap
-            maximumLineCount: 2
-            elide: Text.ElideRight
-            font.family: detail.proseFontFamily
-            font.pixelSize: Style.fontPx(1.8)
-            font.bold: true
+            height: childrenRect.height
+            spacing: Style.space(6)
+            Accessible.role: Accessible.StaticText
+            Accessible.name: detail.narrativeTitle()
+
+            Repeater {
+              model: detail.narrativeWordModel
+
+              Text {
+                required property var modelData
+                textFormat: Text.PlainText
+                text: String(modelData.text || "")
+                color: modelData.accent ? detail.coral : detail.foreground
+                font.family: detail.proseFontFamily
+                font.pixelSize: Style.fontPx(1.72)
+                font.bold: true
+                Accessible.ignored: true
+              }
+            }
           }
 
           Text {
@@ -819,7 +885,7 @@ Item {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.top: narrativeHeadline.bottom
-            anchors.topMargin: Style.space(7)
+            anchors.topMargin: Style.space(9)
             text: detail.narrativeNote()
             color: detail.muted
             wrapMode: Text.WordWrap
@@ -899,13 +965,13 @@ Item {
         id: phaseSection
         visible: detail.phases.length > 0
         width: parent.width
-        height: visible ? Style.space(132) : 0
+        height: visible ? Style.space(154) : 0
 
         Text {
           textFormat: Text.PlainText
           x: detail.sectionInset
           y: Style.space(18)
-          text: "TODAY BY PHASE"
+          text: detail.phaseSectionTitle()
           color: detail.muted
           font.family: detail.controller.contentFontFamily
           font.pixelSize: Style.font.caption
@@ -918,7 +984,7 @@ Item {
           x: detail.sectionInset
           y: Style.space(48)
           width: parent.width - detail.sectionInset * 2
-          height: Style.space(68)
+          height: Style.space(92)
 
           Repeater {
             model: detail.phases
@@ -961,11 +1027,13 @@ Item {
                 Row {
                   id: phaseTitle
                   anchors.left: parent.left
+                  anchors.right: parent.right
                   anchors.top: phaseRange.bottom
                   anchors.topMargin: Style.space(7)
                   spacing: Style.space(9)
 
                   Text {
+                    id: phaseGlyph
                     textFormat: Text.PlainText
                     anchors.verticalCenter: parent.verticalCenter
                     text: detail.controller.weatherGlyph(
@@ -979,8 +1047,11 @@ Item {
                   Text {
                     textFormat: Text.PlainText
                     anchors.verticalCenter: parent.verticalCenter
+                    width: Math.max(0, phaseTitle.width - phaseGlyph.implicitWidth
+                      - phaseTitle.spacing)
                     text: String(phaseCell.modelData.title || "")
                     color: detail.foreground
+                    elide: Text.ElideRight
                     font.family: detail.proseFontFamily
                     font.pixelSize: Style.font.body
                     font.bold: true
@@ -991,10 +1062,12 @@ Item {
                   id: phaseNote
                   textFormat: Text.PlainText
                   anchors.left: parent.left
+                  anchors.right: parent.right
                   anchors.top: phaseTitle.bottom
                   anchors.topMargin: Style.space(2)
                   text: String(phaseCell.modelData.note || "")
                   color: detail.muted
+                  elide: Text.ElideRight
                   font.family: detail.controller.contentFontFamily
                   font.pixelSize: Style.font.caption
                 }
@@ -1003,7 +1076,8 @@ Item {
                   id: phaseBars
                   anchors.left: parent.left
                   anchors.right: parent.right
-                  anchors.bottom: parent.bottom
+                  anchors.top: phaseNote.bottom
+                  anchors.topMargin: Style.space(10)
                   height: Style.space(14)
                   spacing: Style.space(2)
 

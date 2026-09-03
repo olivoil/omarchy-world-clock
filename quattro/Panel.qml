@@ -2118,7 +2118,9 @@ Panel {
               Button {
                 iconText: "󰑐"
                 active: !root.live || root.scrubPreviewActive
-                tooltipText: "Return to live time and refresh weather (Home)"
+                tooltipText: root.live && !root.scrubPreviewActive
+                  ? "Refresh weather"
+                  : "Return to current time"
                 horizontalPadding: Style.space(8)
                 verticalPadding: Style.space(5)
                 onClicked: root.returnToLive()

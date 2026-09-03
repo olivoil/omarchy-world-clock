@@ -1082,6 +1082,10 @@ fn return_to_live_control_always_accepts_clicks_and_refreshes_weather() {
         .expect("top-left return-to-live button");
 
     assert!(reset_button.contains("active: !root.live || root.scrubPreviewActive"));
+    assert!(reset_button.contains("root.live && !root.scrubPreviewActive"));
+    assert!(reset_button.contains("? \"Refresh weather\""));
+    assert!(reset_button.contains(": \"Return to current time\""));
+    assert!(!reset_button.contains("(Home)"));
     assert!(
         !reset_button.contains("enabled:"),
         "the reset action should remain clickable while its active fill only indicates scrubbed time"

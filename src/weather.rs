@@ -14,15 +14,22 @@ const OPEN_METEO_ATTRIBUTION_URL: &str = "https://open-meteo.com/";
 const OPEN_METEO_BATCH_SIZE: usize = 50;
 
 #[derive(Debug, Clone, PartialEq)]
-struct WeatherLocation {
+struct WeatherTarget {
+    id: u64,
     timezone: String,
     label: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct WeatherLocation {
+    targets: Vec<WeatherTarget>,
     latitude: f64,
     longitude: f64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct LocationWeather {
+    pub id: u64,
     pub timezone: String,
     pub label: String,
     pub temperature_celsius: f64,
@@ -136,19 +143,31 @@ fn weather_locations(
     reference_utc: DateTime<Utc>,
 ) -> Vec<WeatherLocation> {
     let (_, entries) = visible_location_entries(config, reference_utc, local_timezone);
-    entries
-        .into_iter()
-        .filter_map(|entry| {
-            let (latitude, longitude) = place_coordinate(&entry)?;
-            let label = entry.display_label();
-            Some(WeatherLocation {
-                timezone: entry.timezone,
-                label,
+    let mut locations: Vec<WeatherLocation> = Vec::new();
+    for entry in entries {
+        let Some((latitude, longitude)) = place_coordinate(&entry) else {
+            continue;
+        };
+        let label = entry.display_label();
+        let target = WeatherTarget {
+            id: entry.id,
+            timezone: entry.timezone,
+            label,
+        };
+        if let Some(location) = locations.iter_mut().find(|location| {
+            location.latitude.to_bits() == latitude.to_bits()
+                && location.longitude.to_bits() == longitude.to_bits()
+        }) {
+            location.targets.push(target);
+        } else {
+            locations.push(WeatherLocation {
+                targets: vec![target],
                 latitude,
                 longitude,
-            })
-        })
-        .collect()
+            });
+        }
+    }
+    locations
 }
 
 #[cfg(test)]
@@ -177,24 +196,27 @@ fn weather_from_response(
         );
     }
 
-    Ok(locations
-        .iter()
-        .zip(forecasts)
-        .filter_map(|(location, forecast)| {
-            let current = forecast.current?;
-            if !current.temperature_2m.is_finite() {
-                return None;
-            }
-            Some(LocationWeather {
-                timezone: location.timezone.clone(),
-                label: location.label.clone(),
+    let mut weather = Vec::new();
+    for (location, forecast) in locations.iter().zip(forecasts) {
+        let Some(current) = forecast.current else {
+            continue;
+        };
+        if !current.temperature_2m.is_finite() {
+            continue;
+        }
+        for target in &location.targets {
+            weather.push(LocationWeather {
+                id: target.id,
+                timezone: target.timezone.clone(),
+                label: target.label.clone(),
                 temperature_celsius: current.temperature_2m,
                 weather_code: current.weather_code,
                 condition: weather_condition(current.weather_code),
                 is_day: current.is_day != 0,
-            })
-        })
-        .collect())
+            });
+        }
+    }
+    Ok(weather)
 }
 
 fn weather_condition(code: i64) -> &'static str {
@@ -220,7 +242,7 @@ fn weather_condition(code: i64) -> &'static str {
 mod tests {
     use super::{
         fetch_weather_response, parse_weather_response, weather_condition, weather_locations,
-        WeatherLocation,
+        WeatherLocation, WeatherTarget,
     };
     use crate::config::{AppConfig, LocationKey, TimezoneEntry};
     use crate::quattro::build_snapshot;
@@ -232,10 +254,13 @@ mod tests {
     use reqwest::blocking::Client;
     use std::time::Duration;
 
-    fn location(timezone: &str, label: &str) -> WeatherLocation {
+    fn location(id: u64, timezone: &str, label: &str) -> WeatherLocation {
         WeatherLocation {
-            timezone: timezone.to_string(),
-            label: label.to_string(),
+            targets: vec![WeatherTarget {
+                id,
+                timezone: timezone.to_string(),
+                label: label.to_string(),
+            }],
             latitude: 0.0,
             longitude: 0.0,
         }
@@ -253,7 +278,7 @@ mod tests {
 
     #[test]
     fn single_location_weather_preserves_location_identity() {
-        let locations = vec![location("America/Cancun", "Home")];
+        let locations = vec![location(1, "America/Cancun", "Home")];
         let weather = parse_weather_response(
             r#"{"current":{"temperature_2m":29.4,"weather_code":1,"is_day":1}}"#,
             &locations,
@@ -261,6 +286,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(weather.len(), 1);
+        assert_eq!(weather[0].id, 1);
         assert_eq!(weather[0].timezone, "America/Cancun");
         assert_eq!(weather[0].label, "Home");
         assert_eq!(weather[0].temperature_celsius, 29.4);
@@ -271,9 +297,9 @@ mod tests {
     #[test]
     fn batched_weather_maps_responses_by_request_order_and_skips_missing_current_data() {
         let locations = vec![
-            location("America/Cancun", "Home"),
-            location("Europe/Paris", "Rennes"),
-            location("Asia/Tokyo", "Tokyo"),
+            location(1, "America/Cancun", "Home"),
+            location(2, "Europe/Paris", "Rennes"),
+            location(3, "Asia/Tokyo", "Tokyo"),
         ];
         let weather = parse_weather_response(
             r#"[
@@ -295,8 +321,8 @@ mod tests {
     #[test]
     fn batched_weather_rejects_a_response_count_mismatch() {
         let locations = vec![
-            location("America/Cancun", "Home"),
-            location("Europe/Paris", "Rennes"),
+            location(1, "America/Cancun", "Home"),
+            location(2, "Europe/Paris", "Rennes"),
         ];
         let error = parse_weather_response(
             r#"{"current":{"temperature_2m":29.4,"weather_code":1,"is_day":1}}"#,
@@ -367,13 +393,16 @@ mod tests {
                 .iter()
                 .enumerate()
                 .map(|(index, (timezone, label))| TimezoneEntry {
+                    id: index as u64 + 1,
                     timezone: (*timezone).to_string(),
-                    label: (*label).to_string(),
+                    place: (*label).to_string(),
+                    label: String::new(),
                     latitude: Some(index as f64),
                     longitude: Some(index as f64),
                 })
                 .collect(),
             pinned_locations: vec![LocationKey {
+                id: 11,
                 timezone: "Asia/Tokyo".to_string(),
                 label: "Tokyo".to_string(),
             }],
@@ -389,11 +418,62 @@ mod tests {
             .collect::<Vec<_>>();
         let actual = requested
             .iter()
-            .map(|location| (location.timezone.clone(), location.label.clone()))
+            .flat_map(|location| location.targets.iter())
+            .map(|target| (target.timezone.clone(), target.label.clone()))
             .collect::<Vec<_>>();
 
         assert_eq!(actual, expected);
         assert_eq!(requested.len(), config.timezones.len());
-        assert!(requested.iter().any(|location| location.label == "Tokyo"));
+        assert!(requested
+            .iter()
+            .flat_map(|location| location.targets.iter())
+            .any(|target| target.label == "Tokyo"));
+    }
+
+    #[test]
+    fn duplicate_cards_share_one_weather_request_and_receive_separate_results() {
+        let config = AppConfig {
+            timezones: vec![
+                TimezoneEntry {
+                    id: 7,
+                    timezone: "America/New_York".to_string(),
+                    place: "Boston".to_string(),
+                    label: "Sister".to_string(),
+                    latitude: Some(42.3601),
+                    longitude: Some(-71.0589),
+                },
+                TimezoneEntry {
+                    id: 8,
+                    timezone: "America/New_York".to_string(),
+                    place: "Boston".to_string(),
+                    label: "Office".to_string(),
+                    latitude: Some(42.3601),
+                    longitude: Some(-71.0589),
+                },
+            ],
+            pinned_locations: vec![],
+            disable_open_meteo_geolocation: false,
+        };
+        let now = Utc.with_ymd_and_hms(2026, 8, 11, 15, 0, 0).unwrap();
+        let locations = weather_locations(&config, "America/New_York", now);
+
+        assert_eq!(locations.len(), 1);
+        assert_eq!(locations[0].targets.len(), 2);
+
+        let weather = parse_weather_response(
+            r#"{"current":{"temperature_2m":18.5,"weather_code":2,"is_day":1}}"#,
+            &locations,
+        )
+        .unwrap();
+
+        assert_eq!(weather.len(), 2);
+        assert_eq!(weather[0].id, 7);
+        assert_eq!(weather[0].label, "Sister");
+        assert_eq!(weather[1].id, 8);
+        assert_eq!(weather[1].label, "Office");
+        assert_eq!(
+            weather[0].temperature_celsius,
+            weather[1].temperature_celsius
+        );
     }
 }

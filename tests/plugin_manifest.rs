@@ -47,7 +47,13 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     let qml = fs::read_to_string(&qml_path).expect("read QML entry point");
     assert_text_items_are_plain_text(&qml, "quattro/WorldClock.qml");
     assert!(qml.contains("moduleName: \"io.github.olivoil.world-clock\""));
-    assert!(qml.contains("Qt.resolvedUrl(\"../bin/omarchy-world-clock-backend\")"));
+    assert!(qml.contains("property string backendExecutableName: \"omarchy-world-clock-backend\""));
+    assert!(qml.contains("Qt.resolvedUrl(\"../bin/\" + backendExecutableName)"));
+    assert!(qml.contains("property string buildLabel: \"\""));
+    assert!(qml.contains("property color iconForeground:"));
+    assert!(qml.contains("withBuildLabel(tooltip || \"World Clock\")"));
+    assert!(qml.contains("target.moduleName = root.moduleName"));
+    assert!(qml.contains("onModuleNameChanged: injectPanel()"));
     assert!(!qml.contains("setting(\"command\""));
     assert!(!qml.contains("Install omarchy-world-clock-bin"));
     let backend_path = root.join("bin/omarchy-world-clock-backend");
@@ -74,7 +80,7 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(qml.contains("property var pinnedClocks: []"));
     assert!(qml.contains("readonly property bool hasPinnedClocks:"));
     assert!(qml.contains("property bool moduleRefreshPending: false"));
-    assert!(qml.contains("readonly property int supportedBackendProtocol: 5"));
+    assert!(qml.contains("readonly property int supportedBackendProtocol: 6"));
     assert!(qml.contains("function markBackendUnavailable(detail)"));
     assert!(qml.contains("function validPinnedClocks(value)"));
     assert!(qml.contains("!payload || typeof payload !== \"object\" || Array.isArray(payload)"));
@@ -150,9 +156,12 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("function mapLocationSelected(location)"));
     assert!(panel.contains("readonly property int maximumSavedGlobeMarkers: 48"));
     assert!(panel.contains("var preferredSavedMarkers = []"));
+    assert!(panel.contains("var savedMarkerIndexes = ({})"));
+    assert!(panel.contains("var collapsedSavedMarkers = []"));
+    assert!(panel.contains("collapsedSavedMarkers[existingIndex] = candidate"));
     assert!(panel.contains("saved.pinned === true"));
     assert!(panel.contains(".slice(0, maximumSavedGlobeMarkers)"));
-    assert!(panel.contains("if (savedKey) seenPlaces[savedKey] = true"));
+    assert!(panel.contains("seenPlaces[savedKey] = true"));
     assert!(panel.contains("var mayPlaceLabel = !mapLocationSelected(location)"));
     assert!(panel.contains("visible: mapMarker.layout.labelVisible && !mapMarker.selected"));
     assert!(!panel.contains("featuredPlaced < 7"));
@@ -221,7 +230,10 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("selectMapLocation(searchResults[activeIndex])"));
     assert!(panel.contains("root.selectMapLocation(root.searchResults[0])"));
     assert!(panel.contains("root.runAction(\"add\", root.mapSelection.timezone,"));
-    assert!(panel.contains("message = \"That location is already added.\""));
+    assert!(!panel.contains("That location is already added."));
+    assert!(panel.contains("Already added as "));
+    assert!(panel.contains("Label this clock (optional)"));
+    assert!(panel.contains("Add another"));
     assert!(!panel.contains("root.runAction(\"add\", mapMarker.location.timezone"));
     assert!(!panel.contains("root.runAction(\"add\", payload.timezone, payload)"));
     assert!(panel.contains("if (root.mapSelection !== null) root.dismissMapSelection()"));
@@ -249,6 +261,12 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("name === \"pin\" || name === \"unpin\" || name === \"remove\""));
     assert!(panel.contains("command.push(String(timezone || \"\"))"));
     assert!(panel.contains("name === \"rename\""));
+    assert!(panel.contains("result.id"));
+    assert!(panel.contains("function safeLocationId(value)"));
+    assert!(panel.contains("id <= 9007199254740991 ? id : 0"));
+    assert!(panel.contains("var resultId = safeLocationId(result.id)"));
+    assert!(panel.contains("safeLocationId(entry.id) > 0"));
+    assert!(panel.contains("command.push(\"--id\", String(resultId))"));
     assert!(panel.contains("result.label !== null && result.label !== undefined"));
     assert!(panel.contains("command.push(\"--new-label\", String(value || \"\"))"));
     assert!(panel.contains("function renameClock(clock, label)"));
@@ -256,6 +274,14 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("cell.focusLabelEditor(Qt.ShortcutFocusReason)"));
     assert!(panel.contains("id: summaryLabelInput"));
     assert!(panel.contains("id: cardLabelInput"));
+    assert!(panel.contains("text = String(root.summary.custom_label || \"\")"));
+    assert!(panel.contains("text = String(clockCell.clockData.custom_label || \"\")"));
+    assert!(!panel.contains("text = String(root.summary.label || root.currentLocationTitle)"));
+    assert!(!panel.contains("text = String(clockCell.clockData.label"));
+    assert_eq!(
+        panel.matches("Accessible.name: \"Custom label\"").count(),
+        2
+    );
     assert!(panel.contains("id: editModeButton"));
     assert!(panel.contains("property bool labelEditing: false"));
     assert!(panel.contains("id: summaryLabelMouse"));
@@ -270,6 +296,8 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(!panel.contains("enabled: !root.labelEditorActive && !actionProcess.running"));
     assert!(panel.contains("function handlePanelPointerTap(panelX, panelY)"));
     assert!(panel.contains("function pointerInsideActiveEditor(panelX, panelY)"));
+    assert!(panel.contains("mapSelectionLabelField.activeFocus"));
+    assert!(panel.contains("itemContainsPanelPoint(mapSelectionLabelField, panelX, panelY)"));
     assert!(panel.contains("id: focusDismissHandler"));
     assert!(panel.contains("parent: keyCatcher"));
     assert!(panel.contains("onTapped: function(eventPoint)"));
@@ -384,7 +412,7 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
         .nth(1)
         .and_then(|source| source.split("Button {").next())
         .expect("local-day ruler marker body");
-    assert!(local_day_marker.contains("height: Math.round(parent.height * 0.5)"));
+    assert!(local_day_marker.contains("height: Math.round(cardLocalDayRuler.height * 0.5)"));
     assert!(local_day_marker.contains("readonly property color nightTint:"));
     assert!(local_day_marker.contains("nightTint, clockSurface.color"));
     assert!(local_day_marker.contains("readonly property real restingOpacity:"));
@@ -493,6 +521,7 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(clock_rows.contains("QQC.ScrollBar.vertical: QQC.ScrollBar"));
     assert!(panel.contains("ListView.onPooled: clockRow.resetRecycledState()"));
     assert!(panel.contains("ListView.onReused: clockRow.resetRecycledState()"));
+    assert!(panel.contains("root.clocks[clockRow.startIndex + index] || ({})"));
     assert!(panel.contains("keyCatcher.forceActiveFocus(Qt.OtherFocusReason)"));
     assert!(panel.contains("cardTimeInput.text = String(clockData.time || \"\")"));
     assert!(panel.contains("readonly property real clockViewportHeight:"));
@@ -528,7 +557,10 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("root.lockScrubSelection()"));
     assert!(panel.contains("if (activeFocus) root.selectScrubSource(root.summary)"));
     assert!(panel.contains("root.selectScrubSource(clockCell.clockData)"));
-    assert!(root.join("quattro/TimeRail.js").is_file());
+    let time_rail_path = root.join("quattro/TimeRail.js");
+    assert!(time_rail_path.is_file());
+    let time_rail = fs::read_to_string(time_rail_path).expect("read time rail helpers");
+    assert!(time_rail.contains("id <= 9007199254740991"));
     assert!(root.join("tests/time-rail.mjs").is_file());
     let apply_snapshot = panel
         .split("function applySnapshot(raw, manual)")
@@ -1113,6 +1145,26 @@ fn escape_unwinds_preview_and_locked_time_before_closing() {
 }
 
 #[test]
+fn review_installer_stages_safely_and_uses_collision_resistant_ids() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let installer = fs::read_to_string(root.join("scripts/install-review-preview.sh"))
+        .expect("read review installer");
+
+    assert!(installer.contains("staging_root=\"$config_home/omarchy/.plugin-review-installs\""));
+    assert!(installer.contains("work_dir=$(mktemp -d \"$staging_root/${slug}.XXXXXX\")"));
+    assert!(!installer.contains("mktemp -d \"$plugins_dir/"));
+    assert!(!installer.contains("${destination}.replace"));
+    assert!(installer.contains("normalized_slug=${normalized_slug:0:180}"));
+    assert!(installer.contains("branch_hash=$(printf '%s' \"$branch\" | git hash-object --stdin)"));
+    assert!(installer.contains("slug=\"${normalized_slug}-${branch_hash:0:10}\""));
+    assert!("io.github.olivoil.world-clock-review-".len() + 180 + 1 + 10 <= 255);
+    assert!(180 + 1 + 10 + ".XXXXXX".len() <= 255);
+    assert!(installer.contains("if ! omarchy plugin enable \"$plugin_id\" \"${placement[@]}\""));
+    assert!(installer.contains("rollback_preview"));
+    assert!(installer.contains("Could not enable the plugin; restored the previous review copy."));
+}
+
+#[test]
 fn add_confirmation_and_core_actions_are_keyboard_reachable() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let panel =
@@ -1136,9 +1188,11 @@ fn add_confirmation_and_core_actions_are_keyboard_reachable() {
         .expect("keyboard activation body");
     assert!(activate_cursor.contains("if (mapSelection !== null) addMapSelection()"));
     assert!(panel.contains("function addMapSelection()"));
+    assert!(panel.contains("root.mapSelection, root.mapSelectionLabelDraft"));
     assert!(panel.contains("function focusMapSelectionAction()"));
     assert!(panel.contains("mapSelectionAddButton.forceActiveFocus(Qt.ShortcutFocusReason)"));
     assert!(panel.contains("onClicked: root.addMapSelection()"));
+    assert!(panel.contains("onAccepted: root.addMapSelection()"));
 
     assert!(key_catcher.contains("signal editRequested()"));
     assert!(key_catcher.contains("signal liveRequested()"));

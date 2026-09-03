@@ -802,7 +802,12 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(weather_detail.contains("? \"UPDATE UNAVAILABLE\" : \"UPDATED NOW\""));
     assert!(weather_detail.contains("function handleScrollWheel(event)"));
     assert!(weather_detail.contains("function scrollByDirection(direction)"));
+    assert!(weather_detail.contains("function focusInitialControl()"));
+    assert!(weather_detail.contains("id: backButton"));
+    assert!(weather_detail.contains("Keys.onPressed: function(event)"));
+    assert!(weather_detail.contains("event.key === Qt.Key_PageDown"));
     assert!(panel.contains("weatherDetailPage.scrollByDirection(dy)"));
+    assert!(panel.contains("weatherDetailPage.focusInitialControl()"));
     assert!(weather_detail.contains("event.pixelDelta.y"));
     assert!(weather_detail.contains("PointerDevice.Mouse | PointerDevice.TouchPad"));
     assert!(weather_detail.contains("id: hero"));
@@ -850,6 +855,8 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(!panel.contains("String(snapshot.time_format || \"24h\") !== \"12h\""));
     assert!(weather_detail.contains("function precipitationKind(item)"));
     assert!(weather_detail.contains("function phasePrecipitationTitle(kind, state)"));
+    assert!(weather_detail.contains("function isPrecipitationCondition(item)"));
+    assert!(weather_detail.contains("maximum >= 30"));
     assert!(weather_detail.contains("code === 95 || code === 96 || code === 99"));
     assert!(weather_detail.contains("return \"Storms building\""));
     assert!(weather_detail.contains("return \"Snow likely\""));
@@ -964,6 +971,7 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(key_catcher.contains("event.key >= Qt.Key_0 && event.key <= Qt.Key_9"));
     assert!(key_catcher.contains("Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier"));
     assert!(panel.contains("WorldClockKeyCatcher {"));
+    assert!(panel.contains("blocked: root.weatherDetailOpen || root.editorActive"));
     assert!(panel.contains("directTextInput: !root.weatherDetailOpen"));
     assert!(panel.contains("&& (root.mode === \"read\" || root.mode === \"add\")"));
     assert!(panel.contains("onMoveRequested: function(dx, dy)"));

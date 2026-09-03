@@ -38,6 +38,28 @@ Item {
   signal attributionRequested()
 
   height: Style.space(460)
+  Keys.priority: Keys.BeforeItem
+  Keys.onPressed: function(event) {
+    var text = String(event.text || "").toLowerCase()
+    var commandModifiers = Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier
+    var plainText = !(event.modifiers & commandModifiers)
+    if (event.key === Qt.Key_Escape) {
+      detail.backRequested()
+      event.accepted = true
+    } else if (event.key === Qt.Key_Down || (plainText && text === "j")) {
+      detail.scrollByDirection(1)
+      event.accepted = true
+    } else if (event.key === Qt.Key_Up || (plainText && text === "k")) {
+      detail.scrollByDirection(-1)
+      event.accepted = true
+    } else if (event.key === Qt.Key_PageDown) {
+      detail.scrollByDirection(4)
+      event.accepted = true
+    } else if (event.key === Qt.Key_PageUp) {
+      detail.scrollByDirection(-4)
+      event.accepted = true
+    }
+  }
 
   function finite(value) {
     if (value === null || value === undefined || value === "") return NaN
@@ -149,7 +171,9 @@ Item {
         && firstProbability >= 35 && lastProbability <= firstProbability - 15)
       return phasePrecipitationTitle(precipitation, "easing")
     if (isFinite(firstProbability) && isFinite(lastProbability)
-        && lastProbability >= firstProbability + 15)
+        && lastProbability >= firstProbability + 15
+        && ((isFinite(maximum) && maximum >= 30)
+          || isPrecipitationCondition(representative)))
       return phasePrecipitationTitle(precipitation, "building")
     if (precipitation === "storm") return "Storm window"
     if (isFinite(maximum) && maximum >= 60)
@@ -232,6 +256,13 @@ Item {
     if (code === 56 || code === 57 || code === 66 || code === 67)
       return "ice"
     return "rain"
+  }
+
+  function isPrecipitationCondition(item) {
+    var code = Number(item ? item.weather_code : -1)
+    return (code >= 51 && code <= 67) || (code >= 71 && code <= 77)
+      || (code >= 80 && code <= 86)
+      || code === 95 || code === 96 || code === 99
   }
 
   function precipitationBuildTitle(kind, peakItem, endItem) {
@@ -524,6 +555,10 @@ Item {
       detailScroll.contentY + delta * Style.space(64)))
   }
 
+  function focusInitialControl() {
+    if (detail.visible) backButton.forceActiveFocus(Qt.ShortcutFocusReason)
+  }
+
   onDetailKeyChanged: {
     metricWasChosen = false
     chooseDefaultMetric()
@@ -531,6 +566,9 @@ Item {
   }
   onHourlyChanged: {
     if (!metricWasChosen || !metricAvailable(selectedMetric)) chooseDefaultMetric()
+  }
+  onVisibleChanged: {
+    if (visible) Qt.callLater(detail.focusInitialControl)
   }
   Component.onCompleted: chooseDefaultMetric()
 
@@ -542,6 +580,7 @@ Item {
     height: Style.space(48)
 
     Button {
+      id: backButton
       anchors.left: parent.left
       anchors.leftMargin: Style.space(20)
       anchors.verticalCenter: parent.verticalCenter

@@ -743,7 +743,10 @@ Panel {
   }
 
   function activateKeyboardCursor() {
-    if (weatherDetailOpen) return
+    if (weatherDetailOpen) {
+      weatherDetailPage.focusInitialControl()
+      return
+    }
     if (mode === "add") {
       if (mapSelection !== null) addMapSelection()
       else openSearch()
@@ -821,7 +824,7 @@ Panel {
     panelScroll.contentY = 0
     Qt.callLater(function() {
       if (opened && root.weatherDetailOpen)
-        keyCatcher.forceActiveFocus(Qt.ShortcutFocusReason)
+        weatherDetailPage.focusInitialControl()
     })
   }
 
@@ -2271,7 +2274,7 @@ Panel {
     WorldClockKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
-      blocked: root.editorActive || addField.activeFocus
+      blocked: root.weatherDetailOpen || root.editorActive || addField.activeFocus
       directTextInput: !root.weatherDetailOpen
         && (root.mode === "read" || root.mode === "add")
         && !addField.activeFocus

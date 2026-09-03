@@ -660,6 +660,10 @@ function selectionLabel(payload, frame, unavailable) {
   return date || time
 }
 
+function selectionLabelVisible(interacting, label) {
+  return interacting === true && String(label || "").length > 0
+}
+
 function relativeDayOffset(clock, sourceClock) {
   if (!clock) return 0
   var clockHasOffset = clock.source_day_offset !== undefined

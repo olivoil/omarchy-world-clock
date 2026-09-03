@@ -869,7 +869,11 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("WeatherDetail {"));
     assert!(weather_detail.contains("id: detailScroll"));
     assert!(weather_detail.contains("text: \"OPEN-METEO  ·  \""));
-    assert!(weather_detail.contains("? \"UPDATE UNAVAILABLE\" : \"UPDATED NOW\""));
+    assert!(weather_logic.contains("function weatherUpdateLabel("));
+    assert!(weather_detail.contains("detail.weatherUpdateLabel()"));
+    assert!(weather_detail.contains("property double updateAgeNow: Date.now()"));
+    assert!(weather_detail.contains("interval: 30 * 1000"));
+    assert!(weather_detail.contains("detail.updateAgeNow = Date.now()"));
     assert!(weather_detail.contains("function handleScrollWheel(event)"));
     assert!(weather_detail.contains("function scrollByDirection(direction)"));
     assert!(weather_detail.contains("function focusInitialControl()"));

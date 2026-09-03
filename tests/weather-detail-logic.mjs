@@ -143,4 +143,19 @@ assert.ok(Number.isNaN(context.sunProgress(360, Number.NaN, 720)),
 assert.ok(Number.isNaN(context.sunProgress(360, 360, 720)),
   "a nonexistent daylight interval keeps solar progress unavailable")
 
+const updateTime = Date.UTC(2026, 8, 3, 12, 0, 0)
+assert.equal(context.weatherUpdateLabel(updateTime, updateTime + 30_000,
+  false, false), "UPDATED NOW",
+"a sub-minute-old observation keeps the concise mockup wording")
+assert.equal(context.weatherUpdateLabel(updateTime, updateTime + 4 * 60_000,
+  false, false), "UPDATED 4 MIN AGO",
+"cached observations expose their actual age")
+assert.equal(context.weatherUpdateLabel(updateTime, updateTime + 60 * 60_000,
+  false, false), "UPDATED 1 HR AGO",
+"older cached observations remain readable")
+assert.equal(context.weatherUpdateLabel(0, updateTime, false, true), "UPDATING",
+  "the first request does not claim to have just updated")
+assert.equal(context.weatherUpdateLabel(updateTime, updateTime, true, false),
+  "UPDATE UNAVAILABLE", "a failed refresh keeps its explicit status")
+
 console.log("Weather detail logic tests passed.")

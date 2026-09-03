@@ -18,6 +18,24 @@ function sunProgress(sunriseMinutes, sunsetMinutes, currentMinutes) {
   return Math.max(0, Math.min(1, (current - sunrise) / (sunset - sunrise)))
 }
 
+function weatherUpdateLabel(updatedAt, currentTime, unavailable, loading) {
+  if (unavailable === true) return "UPDATE UNAVAILABLE"
+  var updated = finite(updatedAt)
+  var current = finite(currentTime)
+  if (!isFinite(updated) || updated <= 0 || !isFinite(current))
+    return loading === true ? "UPDATING" : "AWAITING UPDATE"
+
+  var minutes = Math.floor(Math.max(0, current - updated) / 60000)
+  if (minutes < 1) return "UPDATED NOW"
+  if (minutes < 60)
+    return "UPDATED " + String(minutes) + " MIN AGO"
+  var hours = Math.floor(minutes / 60)
+  if (hours < 24)
+    return "UPDATED " + String(hours) + " HR AGO"
+  var days = Math.floor(hours / 24)
+  return "UPDATED " + String(days) + (days === 1 ? " DAY AGO" : " DAYS AGO")
+}
+
 function weatherFamily(item) {
   var code = Number(item ? item.weather_code : -1)
   if (code === 95 || code === 96 || code === 99) return "storm"

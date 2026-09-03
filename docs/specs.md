@@ -307,7 +307,9 @@ No separate World Clock 12/24-hour preference is stored.
   separate results keyed by their stable card IDs.
 - A successful response is reused for 15 minutes. While the panel remains
   open, a lightweight freshness check runs every 30 seconds so reopening the
-  panel cannot restart the full cache interval.
+  panel cannot restart the full cache interval. Weather detail attribution
+  reports the age of the cached response instead of describing every reused
+  response as updated now.
 - Temperature inherits an explicit `metric` or `imperial` unit from the
   `omarchy.weather` widget. In automatic mode, the configured Omarchy Weather
   location's country decides first; United States, Liberia, and Myanmar use

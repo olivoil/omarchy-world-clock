@@ -13,6 +13,7 @@ Item {
   property string selectedMetric: "uv"
   property bool metricWasChosen: false
   property real scrollTargetY: 0
+  property double updateAgeNow: Date.now()
   readonly property string detailKey: String(controller.weatherDetailKey || "")
   readonly property var weatherData: controller.weatherDetailData
   readonly property var clockData: controller.weatherDetailClock
@@ -518,6 +519,12 @@ Item {
     return WeatherDetailLogic.humidityDescription(humidity, temperature)
   }
 
+  function weatherUpdateLabel() {
+    return WeatherDetailLogic.weatherUpdateLabel(
+      controller.weatherLastUpdatedAt, updateAgeNow,
+      controller.weatherError, controller.weatherLoading)
+  }
+
   function visibilityNote() {
     var meters = finite(weatherData ? weatherData.visibility_meters : null)
     if (!isFinite(meters)) return "Unavailable"
@@ -613,9 +620,19 @@ Item {
     if (!metricWasChosen || !metricAvailable(selectedMetric)) chooseDefaultMetric()
   }
   onVisibleChanged: {
-    if (visible) Qt.callLater(detail.focusInitialControl)
+    if (visible) {
+      updateAgeNow = Date.now()
+      Qt.callLater(detail.focusInitialControl)
+    }
   }
   Component.onCompleted: chooseDefaultMetric()
+
+  Timer {
+    interval: 30 * 1000
+    running: detail.visible
+    repeat: true
+    onTriggered: detail.updateAgeNow = Date.now()
+  }
 
   NumberAnimation {
     id: scrollAnimation
@@ -667,8 +684,7 @@ Item {
       anchors.right: parent.right
       anchors.rightMargin: Style.space(20)
       anchors.verticalCenter: parent.verticalCenter
-      text: "OPEN-METEO  ·  " + (detail.controller.weatherError
-        ? "UPDATE UNAVAILABLE" : "UPDATED NOW")
+      text: "OPEN-METEO  ·  " + detail.weatherUpdateLabel()
       foreground: Qt.darker(detail.foreground, 1.35)
       background: "transparent"
       fontFamily: detail.controller.contentFontFamily

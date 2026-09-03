@@ -1159,6 +1159,9 @@ fn review_installer_stages_safely_and_uses_collision_resistant_ids() {
     assert!(installer.contains("slug=\"${normalized_slug}-${branch_hash:0:10}\""));
     assert!("io.github.olivoil.world-clock-review-".len() + 180 + 1 + 10 <= 255);
     assert!(180 + 1 + 10 + ".XXXXXX".len() <= 255);
+    assert!(installer.contains("if ! omarchy plugin enable \"$plugin_id\" \"${placement[@]}\""));
+    assert!(installer.contains("rollback_preview"));
+    assert!(installer.contains("Could not enable the plugin; restored the previous review copy."));
 }
 
 #[test]

@@ -81,6 +81,18 @@ cleanup() {
     rm -rf -- "$work_dir"
   fi
 }
+restore_previous() {
+  rm -rf -- "$destination"
+  if [[ $had_previous == true ]]; then
+    mv -- "$previous" "$destination"
+  fi
+}
+rollback_preview() {
+  restore_previous
+  if ! omarchy-shell shell rescanPlugins >/dev/null; then
+    printf '%s\n' 'Warning: could not rescan plugins after restoring the previous review copy.' >&2
+  fi
+}
 trap cleanup EXIT
 
 rsync -a \
@@ -134,17 +146,21 @@ fi
 mv -- "$stage" "$destination"
 
 if ! omarchy-shell shell rescanPlugins >/dev/null; then
-  rm -rf -- "$destination"
-  if [[ $had_previous == true ]]; then mv -- "$previous" "$destination"; fi
+  rollback_preview
   printf '%s\n' 'Could not rescan plugins; restored the previous review copy.' >&2
   exit 1
 fi
 
 if omarchy plugin list --json | jq -e --arg id "$after_id" \
   'any(.[]; .id == $id and .enabled == true)' >/dev/null; then
-  omarchy plugin enable "$plugin_id" --after "$after_id"
+  placement=(--after "$after_id")
 else
-  omarchy plugin enable "$plugin_id" --section center
+  placement=(--section center)
+fi
+if ! omarchy plugin enable "$plugin_id" "${placement[@]}"; then
+  rollback_preview
+  printf '%s\n' 'Could not enable the plugin; restored the previous review copy.' >&2
+  exit 1
 fi
 
 printf 'Installed %s\n' "$plugin_id"

@@ -1008,8 +1008,9 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(weather_detail.contains("return \"Storms building\""));
     assert!(weather_detail.contains("return \"Snow likely\""));
     assert!(weather_detail.contains("return \"Icy mix possible\""));
-    assert!(weather_detail.contains("lead: \"Rain builds through \""));
-    assert!(weather_detail.contains("return \"Snow is most likely \""));
+    assert!(weather_detail.contains("WeatherDetailLogic.precipitationBuildParts("));
+    assert!(weather_logic.contains("return { lead: \"Rain builds \""));
+    assert!(weather_logic.contains("return \"Snow is most likely \""));
     assert!(weather_detail.contains("model: detail.narrativeWordModel"));
     assert!(weather_detail.contains("modelData.accent ? detail.coral"));
     assert!(weather_logic.contains("function defaultMetric("));

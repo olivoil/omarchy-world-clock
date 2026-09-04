@@ -11,7 +11,11 @@ run() {
 
 run cargo fmt --all -- --check
 run bash -n scripts/install-review-preview.sh
+run bash -n scripts/review-current-branch.sh
 run bash tests/install-review-preview.sh
+run bash tests/install-review-pruning.sh
+run bash tests/review-current-branch.sh
+run bash tests/signoff.sh
 run cargo clippy --locked --all-targets -- -D warnings
 run cargo test --locked
 run node tests/timeline-hover-state.mjs

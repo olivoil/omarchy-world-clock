@@ -20,7 +20,7 @@ use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use unicode_normalization::{char::is_combining_mark, UnicodeNormalization};
 
-pub const CONFIG_VERSION: u64 = 8;
+pub const CONFIG_VERSION: u64 = 9;
 pub const LOCAL_TIMEZONE_MIGRATION_VERSION: u64 = 2;
 const SEPARATE_PLACE_LABEL_VERSION: u64 = 8;
 const MAX_SAFE_LOCATION_ID: u64 = 9_007_199_254_740_991;
@@ -42,6 +42,7 @@ const STANDARD_TZ_REGIONS: [&str; 10] = [
 pub struct AppConfig {
     pub timezones: Vec<TimezoneEntry>,
     pub pinned_locations: Vec<LocationKey>,
+    pub groups: Vec<LocationGroup>,
     pub disable_open_meteo_geolocation: bool,
 }
 
@@ -49,6 +50,21 @@ pub struct AppConfig {
 pub struct AddLocationOutcome {
     pub config: AppConfig,
     pub added: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AddGroupOutcome {
+    pub config: AppConfig,
+    pub group_id: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LocationGroup {
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub id: u64,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub location_ids: Vec<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -242,6 +258,34 @@ fn next_location_id(entries: &[TimezoneEntry]) -> u64 {
     next_unused_location_id(&used)
 }
 
+fn next_group_id(groups: &[LocationGroup]) -> u64 {
+    let used = groups.iter().map(|group| group.id).collect::<HashSet<_>>();
+    next_unused_location_id(&used)
+}
+
+fn normalized_group_name(name: &str) -> String {
+    let name = name.trim();
+    if name.is_empty() {
+        "Untitled group".to_string()
+    } else {
+        name.to_string()
+    }
+}
+
+fn unique_group_name(groups: &[LocationGroup], requested: &str) -> String {
+    let base = normalized_group_name(requested);
+    if !groups.iter().any(|group| group.name == base) {
+        return base;
+    }
+    for suffix in 2.. {
+        let candidate = format!("{base} {suffix}");
+        if !groups.iter().any(|group| group.name == candidate) {
+            return candidate;
+        }
+    }
+    unreachable!("an unused group name should always be available")
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct TimezoneSearchResult {
     pub timezone: String,
@@ -337,6 +381,7 @@ struct RawConfig {
     pinned_location: Option<LocationKey>,
     // v5 and earlier identified the pin only by timezone.
     pinned_timezone: Option<String>,
+    groups: Option<Vec<LocationGroup>>,
     disable_open_meteo_geolocation: Option<bool>,
 }
 
@@ -346,6 +391,8 @@ struct StoredConfig<'a> {
     timezones: &'a [TimezoneEntry],
     #[serde(skip_serializing_if = "Option::is_none")]
     pinned_locations: Option<&'a [LocationKey]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    groups: Option<&'a [LocationGroup]>,
     #[serde(skip_serializing_if = "is_false")]
     disable_open_meteo_geolocation: bool,
 }
@@ -470,6 +517,7 @@ impl ConfigManager {
             timezones: &config.timezones,
             pinned_locations: (!config.pinned_locations.is_empty())
                 .then_some(config.pinned_locations.as_slice()),
+            groups: (!config.groups.is_empty()).then_some(config.groups.as_slice()),
             disable_open_meteo_geolocation: config.disable_open_meteo_geolocation,
         };
         let text = serde_json::to_string_pretty(&payload)?;
@@ -832,6 +880,102 @@ impl ConfigManager {
         .map(|(config, _)| config)
     }
 
+    pub fn add_group(&self, name: &str) -> anyhow::Result<AddGroupOutcome> {
+        let local_timezone = detect_local_timezone();
+        let requested_name = name.to_string();
+        let mut group_id = 0;
+        let (config, _) = self.mutate_with_local_timezone(&local_timezone, |config| {
+            group_id = next_group_id(&config.groups);
+            let name = unique_group_name(&config.groups, &requested_name);
+            config.groups.push(LocationGroup {
+                id: group_id,
+                name,
+                location_ids: Vec::new(),
+            });
+            Ok(true)
+        })?;
+        Ok(AddGroupOutcome { config, group_id })
+    }
+
+    pub fn rename_group_by_id(&self, id: u64, name: &str) -> anyhow::Result<AppConfig> {
+        let local_timezone = detect_local_timezone();
+        let name = normalized_group_name(name);
+        self.mutate_with_local_timezone(&local_timezone, move |config| {
+            let Some(group) = config.groups.iter_mut().find(|group| group.id == id) else {
+                anyhow::bail!("group is not in the World Clock list: {id}");
+            };
+            if group.name == name {
+                return Ok(false);
+            }
+            group.name = name;
+            Ok(true)
+        })
+        .map(|(config, _)| config)
+    }
+
+    pub fn remove_group_by_id(&self, id: u64) -> anyhow::Result<AppConfig> {
+        let local_timezone = detect_local_timezone();
+        self.mutate_with_local_timezone(&local_timezone, move |config| {
+            let previous_len = config.groups.len();
+            config.groups.retain(|group| group.id != id);
+            if config.groups.len() == previous_len {
+                anyhow::bail!("group is not in the World Clock list: {id}");
+            }
+            Ok(true)
+        })
+        .map(|(config, _)| config)
+    }
+
+    pub fn move_group_by_id(&self, id: u64, direction: i32) -> anyhow::Result<AppConfig> {
+        let local_timezone = detect_local_timezone();
+        self.mutate_with_local_timezone(&local_timezone, move |config| {
+            let Some(index) = config.groups.iter().position(|group| group.id == id) else {
+                anyhow::bail!("group is not in the World Clock list: {id}");
+            };
+            let target = if direction < 0 {
+                index.saturating_sub(1)
+            } else if direction > 0 {
+                (index + 1).min(config.groups.len().saturating_sub(1))
+            } else {
+                index
+            };
+            if target == index {
+                return Ok(false);
+            }
+            config.groups.swap(index, target);
+            Ok(true)
+        })
+        .map(|(config, _)| config)
+    }
+
+    pub fn set_group_location(
+        &self,
+        group_id: u64,
+        location_id: u64,
+        included: bool,
+    ) -> anyhow::Result<AppConfig> {
+        let local_timezone = detect_local_timezone();
+        self.mutate_with_local_timezone(&local_timezone, move |config| {
+            if !config.timezones.iter().any(|entry| entry.id == location_id) {
+                anyhow::bail!("location is not in the World Clock list: {location_id}");
+            }
+            let Some(group) = config.groups.iter_mut().find(|group| group.id == group_id) else {
+                anyhow::bail!("group is not in the World Clock list: {group_id}");
+            };
+            let already_included = group.location_ids.contains(&location_id);
+            if included == already_included {
+                return Ok(false);
+            }
+            if included {
+                group.location_ids.push(location_id);
+            } else {
+                group.location_ids.retain(|id| *id != location_id);
+            }
+            Ok(true)
+        })
+        .map(|(config, _)| config)
+    }
+
     // Retain the setter's replace semantics for API compatibility. Interactive
     // pinning uses `pin_location` so existing pins remain selected.
     pub fn set_pinned_location(
@@ -879,6 +1023,7 @@ impl ConfigManager {
             pinned_locations,
             pinned_location,
             pinned_timezone,
+            groups,
             disable_open_meteo_geolocation,
         } = raw;
         let config_version = version.unwrap_or(1);
@@ -933,6 +1078,7 @@ impl ConfigManager {
         self.normalize_config(AppConfig {
             timezones: entries,
             pinned_locations,
+            groups: groups.unwrap_or_default(),
             disable_open_meteo_geolocation: disable_open_meteo_geolocation.unwrap_or(false),
         })
     }
@@ -987,6 +1133,7 @@ impl ConfigManager {
 
     fn normalize_config(&self, config: AppConfig) -> AppConfig {
         let pinned_locations = config.pinned_locations;
+        let groups = config.groups;
         let mut timezones = Vec::new();
 
         for entry in config.timezones {
@@ -1023,9 +1170,32 @@ impl ConfigManager {
             .map(|index| timezones[index].location_key())
             .collect();
 
+        let location_ids = timezones
+            .iter()
+            .map(|entry| entry.id)
+            .collect::<HashSet<_>>();
+        let mut used_group_ids = HashSet::with_capacity(groups.len());
+        let mut normalized_groups = Vec::with_capacity(groups.len());
+        for mut group in groups {
+            if group.id == 0
+                || group.id > MAX_SAFE_LOCATION_ID
+                || used_group_ids.contains(&group.id)
+            {
+                group.id = next_unused_location_id(&used_group_ids);
+            }
+            used_group_ids.insert(group.id);
+            group.name = normalized_group_name(&group.name);
+            let mut seen_location_ids = HashSet::with_capacity(group.location_ids.len());
+            group
+                .location_ids
+                .retain(|id| location_ids.contains(id) && seen_location_ids.insert(*id));
+            normalized_groups.push(group);
+        }
+
         AppConfig {
             timezones,
             pinned_locations: normalized_pins,
+            groups: normalized_groups,
             disable_open_meteo_geolocation: config.disable_open_meteo_geolocation,
         }
     }
@@ -1049,6 +1219,7 @@ impl ConfigManager {
         AppConfig {
             timezones,
             pinned_locations: Vec::new(),
+            groups: Vec::new(),
             disable_open_meteo_geolocation: false,
         }
     }
@@ -2299,6 +2470,7 @@ mod tests {
                     longitude: None,
                 }],
                 pinned_locations: vec![],
+                groups: Vec::new(),
                 disable_open_meteo_geolocation: false,
             }
         );
@@ -2385,6 +2557,7 @@ mod tests {
                 longitude: None,
             }],
             pinned_locations: vec![],
+            groups: Vec::new(),
             disable_open_meteo_geolocation: false,
         };
         fs::write(&path, manager.serialize(&expected).unwrap()).unwrap();
@@ -2432,7 +2605,7 @@ mod tests {
         assert!(!rewritten.contains("\"locked\""));
         assert!(!rewritten.contains("\"sort_mode\""));
         assert!(!rewritten.contains("\"time_format\""));
-        assert!(rewritten.contains("\"version\": 8"));
+        assert!(rewritten.contains("\"version\": 9"));
     }
 
     #[test]
@@ -3111,6 +3284,48 @@ mod tests {
     }
 
     #[test]
+    fn named_groups_round_trip_reorder_and_drop_removed_locations() {
+        let temp_dir = TempDir::new().unwrap();
+        let manager = manager_in(&temp_dir);
+        manager.load_with_local_timezone("UTC").unwrap();
+        manager.add_timezone("Asia/Tokyo", "Tokyo").unwrap();
+        manager.add_timezone("Europe/Paris", "Rennes").unwrap();
+
+        let project = manager.add_group("Project").unwrap();
+        let recurring = manager.add_group("Project").unwrap();
+        assert_eq!(project.group_id, 1);
+        assert_eq!(recurring.group_id, 2);
+        assert_eq!(recurring.config.groups[1].name, "Project 2");
+        assert!(project.config.groups[0].location_ids.is_empty());
+
+        manager
+            .set_group_location(project.group_id, 2, true)
+            .unwrap();
+        manager
+            .set_group_location(project.group_id, 3, true)
+            .unwrap();
+        manager
+            .set_group_location(project.group_id, 3, true)
+            .unwrap();
+        manager.move_group_by_id(recurring.group_id, -1).unwrap();
+        manager
+            .rename_group_by_id(project.group_id, "Launch crew")
+            .unwrap();
+        manager.remove_location_by_id(2).unwrap();
+        manager.remove_group_by_id(recurring.group_id).unwrap();
+
+        let loaded = manager.load_with_local_timezone("UTC").unwrap();
+        assert_eq!(loaded.groups.len(), 1);
+        assert_eq!(loaded.groups[0].id, project.group_id);
+        assert_eq!(loaded.groups[0].name, "Launch crew");
+        assert_eq!(loaded.groups[0].location_ids, vec![3]);
+
+        let stored = fs::read_to_string(manager.path()).unwrap();
+        assert!(stored.contains("\"version\": 9"));
+        assert!(stored.contains("\"groups\""));
+    }
+
+    #[test]
     fn pinned_locations_round_trip_and_can_be_removed_individually() {
         let temp_dir = TempDir::new().unwrap();
         let manager = manager_in(&temp_dir);
@@ -3185,7 +3400,7 @@ mod tests {
             }]
         );
         let stored = fs::read_to_string(path).unwrap();
-        assert!(stored.contains("\"version\": 8"));
+        assert!(stored.contains("\"version\": 9"));
         assert!(stored.contains("\"pinned_locations\""));
         assert!(stored.contains("\"id\": 2"));
         assert!(!stored.contains("\"pinned_location\":"));
@@ -3228,7 +3443,7 @@ mod tests {
             vec![migrated.timezones[1].location_key()]
         );
         let stored = fs::read_to_string(path).unwrap();
-        assert!(stored.contains("\"version\": 8"));
+        assert!(stored.contains("\"version\": 9"));
         assert!(stored.contains("\"place\": \"Sister\""));
     }
 

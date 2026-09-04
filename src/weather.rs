@@ -993,6 +993,7 @@ mod tests {
                 timezone: "Asia/Tokyo".to_string(),
                 label: "Tokyo".to_string(),
             }],
+            groups: Vec::new(),
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 8, 21, 15, 0, 0).unwrap();
@@ -1039,6 +1040,7 @@ mod tests {
                 },
             ],
             pinned_locations: vec![],
+            groups: Vec::new(),
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 8, 11, 15, 0, 0).unwrap();

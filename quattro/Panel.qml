@@ -23,7 +23,7 @@ Panel {
   property string backendCommand:
     String(Qt.resolvedUrl("../bin/omarchy-world-clock-backend")).replace(/^file:\/\//, "")
   property var snapshot: ({
-    schema_version: 2,
+    schema_version: 3,
     reference_utc: "",
     local_timezone: "",
     time_format: "24h",
@@ -34,6 +34,7 @@ Panel {
     pinned_location: null,
     summary: ({ id: 0, timezone: "", label: "", title: "", place: "", place_title: "", custom_label: "", time: "--:--", date: "", day: "", notation: "", local_minutes: 0, relative_minutes: 0, relative_label: "Same time" }),
     clocks: [],
+    groups: [],
     timeline: [],
     featured_cities: []
   })
@@ -59,6 +60,11 @@ Panel {
   property string statusText: ""
   property bool statusError: false
   property string actionName: ""
+  property double activeGroupId: 0
+  property double pendingActiveGroupId: 0
+  property double pendingGroupRenameId: 0
+  property string pendingGroupRenameName: ""
+  property bool groupNameFocusPending: false
   property string searchQueryInFlight: ""
   property string searchResultsQuery: ""
   property string searchSubmitQuery: ""
@@ -122,9 +128,32 @@ Panel {
     var mixed = root.mixColor(Color.popups.background, root.contentForeground, 0.025)
     return Qt.rgba(mixed.r, mixed.g, mixed.b, 1)
   }
-  readonly property var clocks: snapshot && Array.isArray(snapshot.clocks) ? snapshot.clocks : []
+  readonly property var allClocks:
+    snapshot && Array.isArray(snapshot.clocks) ? snapshot.clocks : []
+  readonly property var groups:
+    snapshot && Array.isArray(snapshot.groups) ? snapshot.groups : []
+  readonly property var activeGroup: groupById(activeGroupId)
+  readonly property int activeGroupIndex: groupIndexById(activeGroupId)
+  readonly property bool groupViewActive: activeGroup !== null
+  readonly property bool groupEditActive: mode === "edit" && groupViewActive
+  readonly property bool canMoveActiveGroupLeft:
+    groupEditActive && activeGroupIndex > 0
+  readonly property bool canMoveActiveGroupRight:
+    groupEditActive && activeGroupIndex >= 0
+      && activeGroupIndex < groups.length - 1
+  readonly property var viewClocks: {
+    if (!groupViewActive) return allClocks
+    var visible = []
+    for (var index = 0; index < allClocks.length; index++)
+      if (groupContainsLocation(activeGroup, allClocks[index]))
+        visible.push(allClocks[index])
+    return visible
+  }
+  readonly property var clocks: groupEditActive ? allClocks : viewClocks
+  readonly property var timelineSnapshot:
+    ({ summary: summary, clocks: viewClocks })
   readonly property var timeline:
-    TimeRail.buildMarkers(snapshot, scrubSourceTimezone, scrubViewportMinute)
+    TimeRail.buildMarkers(timelineSnapshot, scrubSourceTimezone, scrubViewportMinute)
   readonly property var featuredCities: snapshot && Array.isArray(snapshot.featured_cities)
     ? snapshot.featured_cities : []
   readonly property var summary: snapshot && snapshot.summary ? snapshot.summary : ({ time: "--:--", title: "", timezone: "", day: "", notation: "" })
@@ -227,6 +256,7 @@ Panel {
   readonly property real comfortableRequiredHeight: panelHeader.height
     + panelColumn.spacing + summaryClock.height
     + (timelineView.visible ? Style.space(18) + Style.space(128) : 0)
+    + Style.space(18) + groupBar.height
     + (clocks.length > 0 ? Style.space(18) + comfortableClockGridHeight : 0)
   readonly property real readHeightLimit: {
     var available = Number(panel.availableCardHeight || 0)
@@ -249,6 +279,7 @@ Panel {
   readonly property real readChromeHeight: panelHeader.height
     + panelColumn.spacing + summaryClock.height
     + (timelineView.visible ? readPage.spacing + timelineView.height : 0)
+    + readPage.spacing + groupBar.height
     + (clocks.length > 0 ? readPage.spacing : 0)
   readonly property real clockViewportHeight: clocks.length <= 0 ? 0
     : Math.min(clockGridHeight, Math.max(0, readHeightLimit - readChromeHeight))
@@ -262,8 +293,8 @@ Panel {
   readonly property var mapClocks: {
     var entries = []
     if (root.hasMapCoordinate(summary)) entries.push(summary)
-    for (var i = 0; i < clocks.length; i++)
-      if (root.hasMapCoordinate(clocks[i])) entries.push(clocks[i])
+    for (var i = 0; i < allClocks.length; i++)
+      if (root.hasMapCoordinate(allClocks[i])) entries.push(allClocks[i])
     return entries
   }
   readonly property int maximumSavedGlobeMarkers: 48
@@ -353,6 +384,11 @@ Panel {
 
   onLocalTimezoneConfiguredChanged:
     Qt.callLater(root.normalizeEditKeyboardCursor)
+
+  onGroupsChanged: {
+    if (activeGroupId > 0 && groupById(activeGroupId) === null)
+      activeGroupId = 0
+  }
 
   onMapSelectionChanged: mapSelectionLabelDraft = ""
 
@@ -546,6 +582,10 @@ Panel {
         && itemContainsPanelPoint(addField, panelX, panelY)) return true
     if (mapSelectionLabelField.activeFocus
         && itemContainsPanelPoint(mapSelectionLabelField, panelX, panelY)) return true
+    for (var groupIndex = 0; groupIndex < groups.length; groupIndex++) {
+      var groupItem = groupRepeater.itemAt(groupIndex)
+      if (groupItem && groupItem.pointerInsideEditor(panelX, panelY)) return true
+    }
     for (var clockIndex = 0; clockIndex < clocks.length; clockIndex++) {
       var cell = clockCellAt(clockIndex)
       if (cell && cell.pointerInsideActiveEditor(panelX, panelY)) return true
@@ -605,8 +645,8 @@ Panel {
       }
     }
 
-    for (var clockIndex = 0; clockIndex < clocks.length; clockIndex++)
-      if (hasMapCoordinate(clocks[clockIndex])) return clocks[clockIndex]
+    for (var clockIndex = 0; clockIndex < allClocks.length; clockIndex++)
+      if (hasMapCoordinate(allClocks[clockIndex])) return allClocks[clockIndex]
 
     // UTC has no geographic extent. Greenwich is the least surprising visual
     // anchor when neither a place nor a configured timezone has a coordinate.
@@ -732,12 +772,15 @@ Panel {
         return
       }
       if (mode === "read") cell.focusTimeEditor()
+      else if (groupEditActive)
+        root.toggleClockInActiveGroup(clocks[clockIndex])
       else cell.focusLabelEditor(Qt.ShortcutFocusReason)
     })
   }
 
   function focusSummaryLabelEditor() {
-    if (!opened || mode !== "edit" || !localTimezoneConfigured) return
+    if (!opened || mode !== "edit" || groupViewActive
+        || !localTimezoneConfigured) return
     headerTitle.beginLabelEdit(Qt.ShortcutFocusReason)
   }
 
@@ -751,17 +794,23 @@ Panel {
     var hadCursor = keyboardCursorActive
     mode = "edit"
     keyboardCursorActive = true
-    if (!hadCursor || keyboardClockIndex < -1 || keyboardClockIndex >= clocks.length)
+    if (groupViewActive) {
+      if (!hadCursor || keyboardClockIndex < 0 || keyboardClockIndex >= clocks.length)
+        keyboardClockIndex = clocks.length > 0 ? 0 : -1
+    } else if (!hadCursor || keyboardClockIndex < -1
+        || keyboardClockIndex >= clocks.length) {
       keyboardClockIndex = localTimezoneConfigured
         ? -1 : (clocks.length > 0 ? 0 : -1)
-    else if (!localTimezoneConfigured && keyboardClockIndex < 0)
+    } else if (!localTimezoneConfigured && keyboardClockIndex < 0) {
       keyboardClockIndex = clocks.length > 0 ? 0 : -1
+    }
     Qt.callLater(root.ensureKeyboardCursorVisible)
     return true
   }
 
   function toggleKeyboardCursorPin() {
-    if (mode !== "edit" || !keyboardCursorActive || actionProcess.running)
+    if (mode !== "edit" || groupViewActive || !keyboardCursorActive
+        || actionProcess.running)
       return false
     var clock = null
     if (keyboardClockIndex < 0) {
@@ -795,6 +844,7 @@ Panel {
     }
     if (keyboardClockIndex < 0) {
       if (mode === "read") focusSummaryEditor()
+      else if (mode === "edit" && groupViewActive) focusActiveGroupName()
       else if (mode === "edit") focusSummaryLabelEditor()
       return
     }
@@ -803,7 +853,8 @@ Panel {
   }
 
   function deleteKeyboardCursor() {
-    if (weatherDetailOpen || mode !== "edit" || !keyboardCursorActive
+    if (weatherDetailOpen || mode !== "edit" || groupViewActive
+        || !keyboardCursorActive
         || keyboardClockIndex < 0 || keyboardClockIndex >= clocks.length
         || !canRemove || actionProcess.running) return
     removeClock(clocks[keyboardClockIndex])
@@ -876,9 +927,123 @@ Panel {
       && id <= 9007199254740991 ? id : 0
   }
 
+  function groupById(value) {
+    var id = safeLocationId(value)
+    if (id <= 0) return null
+    for (var index = 0; index < groups.length; index++)
+      if (safeLocationId(groups[index] && groups[index].id) === id)
+        return groups[index]
+    return null
+  }
+
+  function groupIndexById(value) {
+    var id = safeLocationId(value)
+    if (id <= 0) return -1
+    for (var index = 0; index < groups.length; index++)
+      if (safeLocationId(groups[index] && groups[index].id) === id)
+        return index
+    return -1
+  }
+
+  function groupContainsLocation(group, clock) {
+    if (!group || !Array.isArray(group.location_ids) || !clock) return false
+    var id = safeLocationId(clock.id)
+    return id > 0 && group.location_ids.indexOf(id) !== -1
+  }
+
+  function groupLocationCount(group) {
+    if (!group) return 0
+    var count = 0
+    for (var index = 0; index < allClocks.length; index++)
+      if (groupContainsLocation(group, allClocks[index])) count++
+    return count
+  }
+
+  function selectGroup(value) {
+    var id = safeLocationId(value)
+    if (id > 0 && groupById(id) === null) id = 0
+    if (activeGroupId === id) return
+    cancelScrubPreview()
+    clearTimelineHover()
+    activeGroupId = id
+    keyboardCursorActive = false
+    keyboardClockIndex = -1
+    if (snapshotLoaded) selectScrubSource(summary)
+  }
+
+  function focusActiveGroupName() {
+    if (!opened || !groupEditActive) return
+    for (var index = 0; index < groups.length; index++) {
+      if (safeLocationId(groups[index] && groups[index].id) !== activeGroupId)
+        continue
+      var item = groupRepeater.itemAt(index)
+      if (item) item.focusEditor()
+      return
+    }
+  }
+
+  function runGroupAction(name, groupId, value, clock) {
+    if (actionProcess.running) return false
+    var command = [backendCommand, name]
+    if (name === "group-add") {
+      command.push("--name", String(value || "New group"))
+    } else {
+      command.push("--group-id", String(safeLocationId(groupId)))
+      if (name === "group-rename")
+        command.push("--name", String(value || ""))
+      else if (name === "group-move")
+        command.push("--direction", String(value || ""))
+      else if (name === "group-set-location") {
+        command.push("--location-id", String(safeLocationId(clock && clock.id)))
+        command.push("--included", value === true ? "true" : "false")
+      }
+    }
+    actionName = name
+    actionProcess.command = command
+    actionProcess.running = true
+    return true
+  }
+
+  function addGroup() {
+    return runGroupAction("group-add", 0, "New group", null)
+  }
+
+  function clearPendingGroupRename() {
+    pendingGroupRenameId = 0
+    pendingGroupRenameName = ""
+  }
+
+  function renameActiveGroup(name) {
+    if (!activeGroup) return false
+    var nextName = String(name || "").trim()
+    if (!nextName || nextName === String(activeGroup.name || "")) return false
+    pendingGroupRenameId = activeGroupId
+    pendingGroupRenameName = nextName
+    if (runGroupAction("group-rename", activeGroupId, nextName, null))
+      return true
+    clearPendingGroupRename()
+    return false
+  }
+
+  function moveActiveGroup(direction) {
+    if (!activeGroup) return false
+    return runGroupAction("group-move", activeGroupId, direction, null)
+  }
+
+  function removeActiveGroup() {
+    if (!activeGroup) return false
+    return runGroupAction("group-remove", activeGroupId, "", null)
+  }
+
+  function toggleClockInActiveGroup(clock) {
+    if (!groupEditActive || !activeGroup || !clock) return false
+    return runGroupAction("group-set-location", activeGroupId,
+      !groupContainsLocation(activeGroup, clock), clock)
+  }
+
   function scrubLocationSignature() {
     if (!snapshotLoaded) return ""
-    var entries = [summary].concat(clocks)
+    var entries = [summary].concat(allClocks)
     var values = []
     for (var index = 0; index < entries.length; index++)
       values.push(conversionSource(entries[index]))
@@ -886,7 +1051,7 @@ Panel {
   }
 
   function clockForScrubSource() {
-    var entries = [summary].concat(clocks)
+    var entries = [summary].concat(viewClocks)
     for (var index = 0; index < entries.length; index++)
       if (conversionSource(entries[index]) === scrubSourceKey) return entries[index]
     for (var timezoneIndex = 0; timezoneIndex < entries.length; timezoneIndex++)
@@ -1097,7 +1262,7 @@ Panel {
 
   function weatherSignature() {
     if (!snapshotLoaded) return ""
-    var entries = [summary].concat(clocks)
+    var entries = [summary].concat(allClocks)
     var signatures = []
     for (var i = 0; i < entries.length; i++) {
       var entry = entries[i]
@@ -1417,17 +1582,38 @@ Panel {
   function applySnapshot(raw, manual) {
     try {
       var payload = JSON.parse(String(raw || ""))
-      if (!payload || Number(payload.schema_version) !== 2 || !payload.summary)
+      if (!payload || Number(payload.schema_version) !== 3 || !payload.summary
+          || !Array.isArray(payload.groups))
         throw new Error("Unsupported snapshot")
       snapshot = payload
       snapshotLoaded = true
+      if (pendingGroupRenameId > 0) {
+        var renamedGroup = groupById(pendingGroupRenameId)
+        if (renamedGroup !== null
+            && String(renamedGroup.name || "") === pendingGroupRenameName)
+          clearPendingGroupRename()
+      }
+      if (pendingActiveGroupId > 0) {
+        if (groupById(pendingActiveGroupId) !== null) {
+          activeGroupId = pendingActiveGroupId
+          groupNameFocusPending = true
+        }
+        pendingActiveGroupId = 0
+      }
+      if (activeGroupId > 0 && groupById(activeGroupId) === null)
+        activeGroupId = 0
       invalidConversionSource = ""
       summaryInput.text = String(payload.summary.time || "--:--")
       if (manual !== true && live) live = true
-      if (clocks.length === 0 && mode !== "add" && !summaryFocusPending)
+      if (allClocks.length === 0 && mode !== "add" && !summaryFocusPending
+          && groups.length === 0)
         mode = "add"
       clearStatus()
       if (summaryFocusPending) Qt.callLater(root.focusSummaryEditor)
+      if (groupNameFocusPending) {
+        groupNameFocusPending = false
+        Qt.callLater(root.focusActiveGroupName)
+      }
       Qt.callLater(root.ensureScrubSource)
       requestWeather(false)
       if (mode === "add") Qt.callLater(root.initializeGlobe)
@@ -1766,7 +1952,7 @@ Panel {
   function savedLocationsForPlace(location) {
     var key = mapLocationKey(location)
     if (!key) return []
-    var entries = [summary].concat(clocks)
+    var entries = [summary].concat(allClocks)
     var matches = []
     for (var index = 0; index < entries.length; index++) {
       var entry = entries[index]
@@ -2044,7 +2230,7 @@ Panel {
       if (exitCode === 0 && current) {
         try {
           var payload = JSON.parse(String(scrubOutput.text || ""))
-          if (!payload || Number(payload.schema_version) !== 2
+          if (!payload || Number(payload.schema_version) !== 3
               || payload.source_timezone !== root.scrubActiveTimezone
               || (payload.time_format !== "24h" && payload.time_format !== "ampm")
               || !TimeRail.payloadMatchesSnapshot(payload, root.snapshot)
@@ -2134,12 +2320,16 @@ Panel {
 
   Process {
     id: actionProcess
-    stdout: StdioCollector { waitForEnd: true }
+    stdout: StdioCollector { id: actionOutput; waitForEnd: true }
     stderr: StdioCollector { id: actionError; waitForEnd: true }
     onExited: function(exitCode) {
       if (exitCode !== 0) {
         var message = String(actionError.text || "Could not update World Clock.").trim()
         root.setStatus(message, true)
+        if (root.actionName === "group-rename") {
+          root.clearPendingGroupRename()
+          Qt.callLater(root.focusActiveGroupName)
+        }
         if (root.actionName === "add" && root.mapSelection !== null)
           root.focusMapSelectionAction()
         return
@@ -2159,6 +2349,10 @@ Panel {
         // with the mode change, so explicitly return focus to the read-mode
         // dispatcher before the user begins another quick entry.
         Qt.callLater(root.restoreReadModeFocus)
+      } else if (root.actionName === "group-add") {
+        var createdGroupId = root.safeLocationId(
+          String(actionOutput.text || "").trim())
+        if (createdGroupId > 0) root.pendingActiveGroupId = createdGroupId
       }
       root.invalidateSnapshotRequests()
       root.requestSnapshot(root.live ? "" : String(root.snapshot.reference_utc || ""))
@@ -2441,6 +2635,7 @@ Panel {
 
               Button {
                 visible: root.summary.pinned === true
+                  && !root.groupEditActive
                 enabled: !actionProcess.running
                 text: "UNPIN"
                 selected: true
@@ -2456,7 +2651,8 @@ Panel {
               id: headerTitle
               anchors.centerIn: parent
               readonly property bool editable:
-                root.mode === "edit" && root.localTimezoneConfigured
+                root.mode === "edit" && !root.groupViewActive
+                  && root.localTimezoneConfigured
               property bool labelEditing: false
               function beginLabelEdit(focusReason) {
                 if (!editable || actionProcess.running) return
@@ -2584,7 +2780,10 @@ Panel {
                 active: root.mode === "edit"
                 enabled: !actionProcess.running
                 tooltipText: root.mode === "edit"
-                  ? "Finish editing (F2)" : "Rename, pin, or remove locations (F2)"
+                  ? "Finish editing (F2)"
+                  : root.groupViewActive
+                  ? "Edit this group (F2)"
+                  : "Rename, pin, or remove locations (F2)"
                 horizontalPadding: Style.space(8)
                 verticalPadding: Style.space(5)
                 onClicked: root.toggleEditMode()
@@ -2779,7 +2978,7 @@ Panel {
 
             Item {
               id: timelineView
-              visible: root.clocks.length > 0
+              visible: root.allClocks.length > 0
               width: parent.width
               height: visible ? Style.space(128) : 0
               readonly property real railInset: Style.space(54)
@@ -3205,6 +3404,308 @@ Panel {
               }
             }
 
+            Item {
+              id: groupBar
+              width: parent.width - Style.space(36)
+              height: Style.space(30)
+              anchors.horizontalCenter: parent.horizontalCenter
+              clip: true
+
+              Flickable {
+                anchors.fill: parent
+                contentWidth: groupBarContent.implicitWidth
+                contentHeight: height
+                interactive: contentWidth > width
+                boundsBehavior: Flickable.StopAtBounds
+                clip: true
+
+                Row {
+                  id: groupBarContent
+                  anchors.verticalCenter: parent.verticalCenter
+                  spacing: Style.space(4)
+
+                  Rectangle {
+                    id: groupSwitcher
+                    width: groupSegments.implicitWidth + Style.space(6)
+                    height: groupBar.height
+                    radius: Style.cornerRadius
+                    color: root.mixColor(
+                      Color.popups.background, root.contentForeground, 0.035)
+                    border.width: Style.spacing.hairline
+                    border.color: root.mixColor(
+                      Color.popups.background, root.contentForeground, 0.18)
+                    readonly property color segmentHoverFill:
+                      Style.normalFillFor(
+                        root.contentForeground, Color.accent)
+
+                    Row {
+                      id: groupSegments
+                      anchors.centerIn: parent
+                      spacing: 0
+
+                      Button {
+                        id: allGroupButton
+                        text: "ALL (" + String(root.allClocks.length) + ")"
+                        selected: root.activeGroupId === 0
+                        enabled: !actionProcess.running
+                        fontFamily: root.contentFontFamily
+                        fontSize: Style.font.caption
+                        horizontalPadding: Style.space(9)
+                        verticalPadding: Style.space(3)
+                        radius: Math.max(0,
+                          groupSwitcher.radius - Style.space(2))
+                        color: allGroupButton.selected
+                          ? Style.selectedFillFor(
+                            root.contentForeground, Color.accent)
+                          : (allGroupButton.hot
+                            ? groupSwitcher.segmentHoverFill : "transparent")
+                        borderSpec: Border.none()
+                        onClicked: root.selectGroup(0)
+                      }
+
+                      Repeater {
+                        id: groupRepeater
+                        model: root.groups
+
+                        Item {
+                          id: groupItem
+                          required property int index
+                          required property var modelData
+                          readonly property double groupId:
+                            root.safeLocationId(modelData && modelData.id)
+                          readonly property int memberCount:
+                            root.groupLocationCount(root.groupById(groupId))
+                          readonly property bool editing:
+                            root.groupEditActive
+                              && root.activeGroupId === groupId
+                          width: editing
+                            ? groupNameEditor.width : groupButton.implicitWidth
+                          height: allGroupButton.implicitHeight
+
+                          function focusEditor() {
+                            if (!editing) return
+                            groupNameInput.resetText()
+                            groupNameInput.forceActiveFocus(Qt.ShortcutFocusReason)
+                            groupNameInput.selectAll()
+                          }
+
+                          function pointerInsideEditor(panelX, panelY) {
+                            return groupNameInput.activeFocus
+                              && root.itemContainsPanelPoint(
+                                groupNameInput, panelX, panelY)
+                          }
+
+                          onModelDataChanged: {
+                            if (!groupNameInput.activeFocus)
+                              groupNameInput.resetText()
+                          }
+
+                          TextMetrics {
+                            id: groupOriginalNameMetrics
+                            font.family: root.contentFontFamily
+                            font.pixelSize: Style.font.caption
+                            font.bold: true
+                            text: String(groupItem.modelData.name
+                              || "Untitled group")
+                          }
+
+                          TextMetrics {
+                            id: groupDraftNameMetrics
+                            font: groupOriginalNameMetrics.font
+                            text: groupNameInput.text
+                          }
+
+                          Button {
+                            id: groupButton
+                            visible: !groupItem.editing
+                            anchors.left: parent.left
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: String(groupItem.modelData.name
+                              || "Untitled group")
+                              + " (" + String(groupItem.memberCount) + ")"
+                            selected:
+                              root.activeGroupId === groupItem.groupId
+                            enabled: !actionProcess.running
+                            fontFamily: root.contentFontFamily
+                            fontSize: Style.font.caption
+                            horizontalPadding: Style.space(9)
+                            verticalPadding: Style.space(3)
+                            radius: Math.max(0,
+                              groupSwitcher.radius - Style.space(2))
+                            color: groupButton.selected
+                              ? Style.selectedFillFor(
+                                root.contentForeground, Color.accent)
+                              : (groupButton.hot
+                                ? groupSwitcher.segmentHoverFill : "transparent")
+                            borderSpec: Border.none()
+                            onClicked: root.selectGroup(groupItem.groupId)
+                          }
+
+                          Rectangle {
+                            id: groupNameEditor
+                            visible: groupItem.editing
+                            anchors.left: parent.left
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: groupButton.implicitWidth + Math.ceil(Math.max(
+                              0, groupDraftNameMetrics.advanceWidth
+                                - groupOriginalNameMetrics.advanceWidth))
+                            height: allGroupButton.implicitHeight
+                            radius: Math.max(0,
+                              groupSwitcher.radius - Style.space(2))
+                            color: Style.selectedFillFor(
+                              root.contentForeground, Color.accent)
+
+                            Text {
+                              id: groupNameCount
+                              textFormat: Text.PlainText
+                              anchors.right: parent.right
+                              anchors.rightMargin: Style.space(9)
+                              anchors.verticalCenter: parent.verticalCenter
+                              text: "(" + String(groupItem.memberCount) + ")"
+                              color: Qt.rgba(
+                                root.contentForeground.r,
+                                root.contentForeground.g,
+                                root.contentForeground.b, 0.58)
+                              font.family: root.contentFontFamily
+                              font.pixelSize: Style.font.caption
+                            }
+
+                            TextInput {
+                              id: groupNameInput
+                              function resetText() {
+                                text = root.pendingGroupRenameId === groupItem.groupId
+                                  ? root.pendingGroupRenameName
+                                  : String(groupItem.modelData.name || "")
+                              }
+                              anchors.left: parent.left
+                              anchors.leftMargin: Style.space(9)
+                              anchors.right: groupNameCount.left
+                              anchors.rightMargin: Style.space(5)
+                              anchors.top: parent.top
+                              anchors.bottom: parent.bottom
+                              verticalAlignment: TextInput.AlignVCenter
+                              color: root.contentForeground
+                              selectionColor: Style.selectionFill
+                              selectedTextColor: root.contentForeground
+                              font.family: root.contentFontFamily
+                              font.pixelSize: Style.font.caption
+                              font.bold: true
+                              selectByMouse: true
+                              clip: true
+                              enabled: visible && !actionProcess.running
+                              Accessible.name: "Group name"
+                              Accessible.description:
+                                "Press Enter to save or Escape to cancel"
+                              Component.onCompleted: resetText()
+                              onVisibleChanged: {
+                                if (visible && !activeFocus) resetText()
+                              }
+                              onAccepted: {
+                                root.renameActiveGroup(text)
+                                keyCatcher.forceActiveFocus(
+                                  Qt.ShortcutFocusReason)
+                              }
+                              onActiveFocusChanged: {
+                                root.editorActive = activeFocus
+                                root.labelEditorActive = activeFocus
+                                if (!activeFocus) resetText()
+                              }
+                              Keys.onEscapePressed: function(event) {
+                                resetText()
+                                keyCatcher.forceActiveFocus(
+                                  Qt.ShortcutFocusReason)
+                                event.accepted = true
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+
+                  Row {
+                    id: groupEditActions
+                    visible: root.groupEditActive
+                    height: groupBar.height
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: Style.space(2)
+
+                    PanelActionButton {
+                      id: moveGroupLeftButton
+                      anchors.verticalCenter: parent.verticalCenter
+                      iconText: "󰅁"
+                      foreground: root.contentForeground
+                      enabled: root.canMoveActiveGroupLeft
+                        && !actionProcess.running
+                      tooltipText: "Move group left"
+                      onClicked: root.moveActiveGroup("left")
+                    }
+
+                    PanelActionButton {
+                      id: moveGroupRightButton
+                      anchors.verticalCenter: parent.verticalCenter
+                      iconText: "󰅂"
+                      foreground: root.contentForeground
+                      enabled: root.canMoveActiveGroupRight
+                        && !actionProcess.running
+                      tooltipText: "Move group right"
+                      onClicked: root.moveActiveGroup("right")
+                    }
+
+                    Item {
+                      id: removeGroupAction
+                      anchors.verticalCenter: parent.verticalCenter
+                      width: removeGroupButton.implicitWidth
+                      height: removeGroupButton.implicitHeight
+
+                      PanelActionButton {
+                        id: removeGroupButton
+                        anchors.fill: parent
+                        enabled: !actionProcess.running
+                        tooltipText: "Delete group"
+                        foreground: root.contentForeground
+                        hoverColor: Color.urgent
+                        Accessible.name: "Delete group"
+                        onClicked: root.removeActiveGroup()
+                      }
+
+                      HoverHandler {
+                        id: removeGroupHoverHandler
+                        enabled: removeGroupButton.enabled
+                      }
+
+                      Text {
+                        id: removeGroupIcon
+                        textFormat: Text.PlainText
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.verticalCenterOffset: Style.space(4)
+                        text: "󰆴"
+                        color: removeGroupButton.enabled
+                          ? (removeGroupHoverHandler.hovered
+                            ? Color.urgent : root.contentForeground)
+                          : Qt.darker(root.contentForeground, 2.0)
+                        font.family: root.contentFontFamily
+                        font.pixelSize: Style.font.icon
+                        Accessible.ignored: true
+                      }
+                    }
+                  }
+
+                  PanelActionButton {
+                    id: addGroupButton
+                    visible: root.mode === "edit"
+                    anchors.verticalCenter: parent.verticalCenter
+                    iconText: "󰐕"
+                    foreground: root.contentForeground
+                    enabled: !actionProcess.running
+                    tooltipText: "New group"
+                    onClicked: root.addGroup()
+                  }
+                }
+              }
+            }
+
             ListView {
               id: clockRows
               anchors.horizontalCenter: parent.horizontalCenter
@@ -3269,6 +3770,9 @@ Panel {
                           && root.keyboardClockIndex === clockIndex
                       readonly property bool linkedHovered:
                         root.timelineHoverMatches(clockData)
+                      readonly property bool selectedForGroup:
+                        root.groupEditActive
+                          && root.groupContainsLocation(root.activeGroup, clockData)
                       readonly property var localDaylight:
                         TimeRail.localDaylight(clockData, root.snapshot.reference_utc)
                       property bool labelEditing: false
@@ -3285,7 +3789,8 @@ Panel {
                         cardTimeInput.selectAll()
                       }
                       function focusLabelEditor(focusReason) {
-                        if (root.mode !== "edit" || actionProcess.running) return
+                        if (root.mode !== "edit" || root.groupViewActive
+                            || actionProcess.running) return
                         labelEditing = true
                         cardLabelInput.resetText()
                         Qt.callLater(function() {
@@ -3334,14 +3839,18 @@ Panel {
                           Style.normalFillFor(root.contentForeground, Color.accent)
                         readonly property color hoverFill:
                           Style.hoverFillFor(root.contentForeground, Color.accent)
-                        color: clockCell.hasKeyboardCursor ? hoverFill
+                        color: clockCell.selectedForGroup
+                          ? Style.selectedFillFor(root.contentForeground, Color.accent)
+                          : clockCell.hasKeyboardCursor ? hoverFill
                           : (clockCell.linkedHovered
                             ? root.mixColorWithAlpha(restingFill, hoverFill, 0.18)
                             : restingFill)
-                        border.width: clockCell.hasKeyboardCursor
+                        border.width: clockCell.selectedForGroup
+                          || clockCell.hasKeyboardCursor
                           ? Style.spacing.hairline : 0
-                        border.color:
-                          Style.focusStateColor(root.contentForeground, Color.accent)
+                        border.color: clockCell.selectedForGroup
+                          ? Style.selectedStateColor(root.contentForeground, Color.accent)
+                          : Style.focusStateColor(root.contentForeground, Color.accent)
 
                         Behavior on color { ColorAnimation { duration: 150 } }
                       }
@@ -3354,6 +3863,12 @@ Panel {
                         anchors.topMargin: Style.space(root.compactDensity ? 5 : 7)
                         anchors.bottomMargin: Style.space(root.compactDensity ? 5 : 7)
                         spacing: Style.space(root.compactDensity ? 1 : 4)
+                        opacity: root.groupEditActive && !clockCell.selectedForGroup
+                          ? 0.48 : 1
+
+                        Behavior on opacity {
+                          NumberAnimation { duration: 150; easing.type: Easing.OutQuart }
+                        }
 
                         Item {
                           width: parent.width
@@ -3365,7 +3880,9 @@ Panel {
                             visible: !clockCell.labelEditing
                             anchors.left: parent.left
                             anchors.right: cardControls.visible
-                              ? cardControls.left : cardNotation.left
+                              ? cardControls.left
+                              : groupSelectedCheck.visible
+                              ? groupSelectedCheck.left : cardNotation.left
                             anchors.rightMargin: Style.space(6)
                             anchors.verticalCenter: parent.verticalCenter
                             readonly property string primaryTitle:
@@ -3435,7 +3952,8 @@ Panel {
                             function resetText() {
                               text = String(clockCell.clockData.custom_label || "")
                             }
-                            visible: root.mode === "edit" && clockCell.labelEditing
+                            visible: root.mode === "edit" && !root.groupViewActive
+                              && clockCell.labelEditing
                             anchors.left: parent.left
                             anchors.right: cardControls.left
                             anchors.rightMargin: Style.space(6)
@@ -3476,7 +3994,8 @@ Panel {
 
                           MouseArea {
                             id: cardLabelMouse
-                            visible: root.mode === "edit" && !clockCell.labelEditing
+                            visible: root.mode === "edit" && !root.groupViewActive
+                              && !clockCell.labelEditing
                             anchors.left: parent.left
                             anchors.right: cardControls.left
                             anchors.top: parent.top
@@ -3487,6 +4006,19 @@ Panel {
                               + String(clockCell.clockData.title || "location")
                             Accessible.role: Accessible.Button
                             onClicked: clockCell.focusLabelEditor(Qt.MouseFocusReason)
+                          }
+
+                          Text {
+                            textFormat: Text.PlainText
+                            id: groupSelectedCheck
+                            visible: clockCell.selectedForGroup
+                            anchors.right: cardNotation.left
+                            anchors.rightMargin: Style.space(5)
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: "✓"
+                            color: root.contentForeground
+                            font.family: root.contentFontFamily
+                            font.pixelSize: Style.font.bodySmall
                           }
 
                           Text {
@@ -3504,7 +4036,7 @@ Panel {
 
                           Row {
                             id: cardControls
-                            visible: root.mode === "edit"
+                            visible: root.mode === "edit" && !root.groupViewActive
                             anchors.right: parent.right
                             anchors.verticalCenter: parent.verticalCenter
                             spacing: Style.space(2)
@@ -3680,6 +4212,19 @@ Panel {
                         }
                       }
 
+                      MouseArea {
+                        anchors.fill: parent
+                        z: 20
+                        visible: root.groupEditActive
+                        enabled: visible && !actionProcess.running
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        Accessible.role: Accessible.CheckBox
+                        Accessible.name: String(clockCell.clockData.title || "Location")
+                        Accessible.checked: clockCell.selectedForGroup
+                        onClicked: root.toggleClockInActiveGroup(clockCell.clockData)
+                      }
+
                       SolarArc {
                         id: cardLocalDayRuler
                         anchors.left: parent.left
@@ -3709,6 +4254,7 @@ Panel {
                           NumberAnimation { duration: 150; easing.type: Easing.OutQuart }
                         }
                       }
+
                     }
                   }
               }
@@ -3718,10 +4264,18 @@ Panel {
             Button {
               visible: root.clocks.length === 0
               anchors.horizontalCenter: parent.horizontalCenter
-              text: "Add a location"
-              iconText: "󰐕"
+              text: root.groupViewActive && root.mode === "read"
+                ? "Choose locations" : "Add a location"
+              iconText: root.groupViewActive && root.mode === "read"
+                ? "󰏫" : "󰐕"
+              foreground: root.contentForeground
               bordered: true
-              onClicked: root.enterAddMode(false)
+              onClicked: {
+                if (root.groupViewActive && root.mode === "read")
+                  root.toggleEditMode()
+                else
+                  root.enterAddMode(false)
+              }
             }
           }
 

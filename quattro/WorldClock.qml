@@ -25,7 +25,7 @@ BarWidget {
   property bool moduleRefreshPending: false
   property string backendFailureDetail: "The bundled backend could not be started"
 
-  readonly property int supportedBackendProtocol: 6
+  readonly property int supportedBackendProtocol: 7
   readonly property string backendCommand:
     String(Qt.resolvedUrl("../bin/" + backendExecutableName)).replace(/^file:\/\//, "")
   readonly property bool opened: panelLoader.item ? panelLoader.item.opened === true : false

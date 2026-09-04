@@ -38,6 +38,13 @@ if ! gh signoff --help >/dev/null 2>&1; then
   exit 1
 fi
 
+if [[ -n $(git status --porcelain) ]]; then
+  printf '%s\n' \
+    'Cannot sign off: commit or discard all staged, unstaged, and untracked changes first.' \
+    >&2
+  exit 1
+fi
+
 scripts/ci.sh
 
 printf '\n==> gh signoff %s\n' "$*"

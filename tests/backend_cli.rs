@@ -1,7 +1,7 @@
 use std::fs;
 use std::process::Command;
 
-const BACKEND_PROTOCOL_VERSION: u64 = 6;
+const BACKEND_PROTOCOL_VERSION: u64 = 7;
 
 #[test]
 fn package_exposes_only_the_quattro_backend_binary() {
@@ -55,6 +55,14 @@ fn bundled_backend_reports_its_protocol_and_version() {
         .is_some_and(|time| !time.is_empty()));
     assert_eq!(pinned[1]["code"], "NY");
     assert_eq!(pinned[1]["label"], "New York");
+
+    let help = Command::new(env!("CARGO_BIN_EXE_omarchy-world-clock-backend"))
+        .arg("--help")
+        .output()
+        .expect("read backend help");
+    assert!(help.status.success());
+    let help = String::from_utf8_lossy(&help.stdout);
+    assert!(help.contains("group-add --name NAME"));
 }
 
 #[test]
@@ -114,7 +122,7 @@ fn bundled_backend_supports_the_complete_quattro_command_protocol() {
     assert!(snapshot.status.success());
     let snapshot: serde_json::Value =
         serde_json::from_slice(&snapshot.stdout).expect("parse snapshot");
-    assert_eq!(snapshot["schema_version"], 2);
+    assert_eq!(snapshot["schema_version"], 3);
     assert_eq!(snapshot["pinned_timezone"], "Asia/Tokyo");
     assert_eq!(snapshot["pinned_location"]["id"], 2);
     assert_eq!(snapshot["pinned_location"]["timezone"], "Asia/Tokyo");
@@ -155,7 +163,7 @@ fn bundled_backend_supports_the_complete_quattro_command_protocol() {
         .expect("render scrub day");
     assert!(scrub.status.success());
     let scrub: serde_json::Value = serde_json::from_slice(&scrub.stdout).expect("parse scrub day");
-    assert_eq!(scrub["schema_version"], 2);
+    assert_eq!(scrub["schema_version"], 3);
     assert_eq!(scrub["source_timezone"], "UTC");
     assert_eq!(scrub["date"], "2026-08-11");
     assert_eq!(scrub["time_format"], "24h");
@@ -472,13 +480,92 @@ fn bundled_backend_supports_the_complete_quattro_command_protocol() {
     )
     .expect("parse config after unpinning");
     assert!(saved.get("pinned_locations").is_none());
-    assert_eq!(saved["version"], 8);
+    assert_eq!(saved["version"], 9);
     assert!(saved["timezones"].as_array().unwrap().iter().all(|entry| {
         entry["id"].as_u64().is_some_and(|id| id > 0)
             && entry["place"]
                 .as_str()
                 .is_some_and(|place| !place.is_empty())
     }));
+}
+
+#[test]
+fn bundled_backend_manages_named_location_groups() {
+    let sandbox = tempfile::tempdir().expect("create sandbox");
+    let home = sandbox.path().join("home");
+    let config_path = sandbox.path().join("config.json");
+    fs::create_dir_all(&home).expect("create home");
+    fs::write(
+        &config_path,
+        r#"{
+  "version": 9,
+  "timezones": [
+    { "id": 1, "timezone": "UTC", "place": "Home" },
+    { "id": 2, "timezone": "Asia/Tokyo", "place": "Tokyo", "label": "Jeff" },
+    { "id": 3, "timezone": "America/New_York", "place": "Cape Cod", "label": "Jeff" }
+  ]
+}
+"#,
+    )
+    .expect("write config");
+    let backend = env!("CARGO_BIN_EXE_omarchy-world-clock-backend");
+    let run = |args: &[&str]| {
+        Command::new(backend)
+            .args(args)
+            .env("HOME", &home)
+            .env("OMARCHY_WORLD_CLOCK_CONFIG", &config_path)
+            .output()
+            .expect("run group command")
+    };
+
+    let project = run(&["group-add", "--name", "Project"]);
+    assert!(project.status.success());
+    assert_eq!(String::from_utf8_lossy(&project.stdout).trim(), "1");
+    let duplicate = run(&["group-add", "--name", "Project"]);
+    assert!(duplicate.status.success());
+    assert_eq!(String::from_utf8_lossy(&duplicate.stdout).trim(), "2");
+    assert!(run(&[
+        "group-set-location",
+        "--group-id",
+        "1",
+        "--location-id",
+        "2",
+        "--included",
+        "true",
+    ])
+    .status
+    .success());
+    assert!(
+        run(&["group-rename", "--group-id", "1", "--name", "Launch crew",])
+            .status
+            .success()
+    );
+    assert!(
+        run(&["group-move", "--group-id", "2", "--direction", "left",])
+            .status
+            .success()
+    );
+
+    let snapshot = run(&["snapshot", "--at", "2026-08-11T11:05:00Z"]);
+    assert!(snapshot.status.success());
+    let snapshot: serde_json::Value =
+        serde_json::from_slice(&snapshot.stdout).expect("parse grouped snapshot");
+    assert_eq!(snapshot["groups"][0]["id"], 2);
+    assert_eq!(snapshot["groups"][0]["name"], "Project 2");
+    assert_eq!(snapshot["groups"][1]["id"], 1);
+    assert_eq!(snapshot["groups"][1]["name"], "Launch crew");
+    assert_eq!(
+        snapshot["groups"][1]["location_ids"],
+        serde_json::json!([2])
+    );
+
+    assert!(run(&["remove", "Asia/Tokyo", "--id", "2"]).status.success());
+    assert!(run(&["group-remove", "--group-id", "2"]).status.success());
+    let saved: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&config_path).expect("read grouped config"))
+            .expect("parse grouped config");
+    assert_eq!(saved["groups"].as_array().map(Vec::len), Some(1));
+    assert!(saved["groups"][0].get("location_ids").is_none());
 }
 
 #[test]

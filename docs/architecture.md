@@ -82,6 +82,9 @@ The executable exposes a deliberately small command/JSON boundary:
 | `rename` | change one card's personal label by stable ID | no output |
 | `remove` | remove one card by stable ID | no output |
 | `pin` / `unpin` | add or remove one pinned card by stable ID | no output |
+| `group-add` | create a named group | stable group ID |
+| `group-rename` / `group-remove` / `group-move` | edit a named group | no output |
+| `group-set-location` | include or exclude a card by stable ID | no output |
 | `version` | report the source/package version | text |
 
 `module.protocol_version` lets QML reject an incompatible executable before
@@ -93,6 +96,8 @@ Snapshot clocks carry a stable card ID, timezone, actual place, and optional
 personal label as separate fields. The frontend uses the ID for actions and
 transient identity, so equal places and equal labels do not merge. Weather
 requests are de-duplicated by exact coordinate and fanned back out by card ID.
+Snapshots also carry ordered named groups as stable group IDs plus member card
+IDs. The built-in **All** view is frontend state and is never persisted.
 
 Weather is deliberately outside the snapshot path. Clock refreshes remain
 local and deterministic, while the panel requests rich current conditions,

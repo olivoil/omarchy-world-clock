@@ -1,6 +1,6 @@
 use crate::config::{
-    canonical_timezone_name, is_valid_timezone, place_coordinate, AppConfig, PinnedLocationIndex,
-    TimezoneEntry, TimezoneSearchResult,
+    canonical_timezone_name, is_valid_timezone, place_coordinate, AppConfig, LocationGroup,
+    PinnedLocationIndex, TimezoneEntry, TimezoneSearchResult,
 };
 use crate::time::{
     format_display_time, format_timezone_notation, friendly_timezone_name, parse_timezone,
@@ -11,8 +11,8 @@ use chrono::{DateTime, Duration, LocalResult, NaiveDate, Offset, TimeZone, Timel
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, sync::OnceLock};
 
-pub const SNAPSHOT_SCHEMA_VERSION: u64 = 2;
-pub const BACKEND_PROTOCOL_VERSION: u64 = 6;
+pub const SNAPSHOT_SCHEMA_VERSION: u64 = 3;
+pub const BACKEND_PROTOCOL_VERSION: u64 = 7;
 pub const SCRUB_STEP_MINUTES: u32 = 15;
 const MODULE_TOOLTIP_LOCATION_LIMIT: usize = 12;
 
@@ -280,6 +280,7 @@ pub struct QuattroSnapshot {
     pub pinned_location: Option<QuattroPinnedLocation>,
     pub summary: QuattroClock,
     pub clocks: Vec<QuattroClock>,
+    pub groups: Vec<LocationGroup>,
     pub timeline: Vec<QuattroTimelineItem>,
     pub featured_cities: Vec<QuattroMapLocation>,
 }
@@ -801,6 +802,7 @@ pub fn build_snapshot(
         pinned_location,
         summary,
         clocks,
+        groups: config.groups.clone(),
         timeline,
         featured_cities,
     }
@@ -809,7 +811,7 @@ pub fn build_snapshot(
 #[cfg(test)]
 mod tests {
     use super::{build_module_payload, build_scrub_payload, build_snapshot};
-    use crate::config::{AppConfig, LocationKey, TimezoneEntry};
+    use crate::config::{AppConfig, LocationGroup, LocationKey, TimezoneEntry};
     use chrono::{TimeZone, Utc};
 
     fn entry_id(timezone: &str, place: &str) -> u64 {
@@ -843,6 +845,7 @@ mod tests {
                 vancouver,
             ],
             pinned_locations: vec![],
+            groups: Vec::new(),
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
@@ -865,6 +868,7 @@ mod tests {
         let config = AppConfig {
             timezones: vec![entry("America/Cancun", "Home"), boston],
             pinned_locations: vec![],
+            groups: Vec::new(),
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
@@ -879,6 +883,7 @@ mod tests {
         let config = AppConfig {
             timezones: vec![entry("America/Cancun", "Home")],
             pinned_locations: vec![],
+            groups: Vec::new(),
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
@@ -896,6 +901,7 @@ mod tests {
                 .map(|index| entry("UTC", &format!("Zone {index:02}")))
                 .collect(),
             pinned_locations: vec![],
+            groups: Vec::new(),
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
@@ -933,6 +939,7 @@ mod tests {
                     label: "New York".to_string(),
                 },
             ],
+            groups: Vec::new(),
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
@@ -963,6 +970,7 @@ mod tests {
                     label: format!("Zone {index:03}"),
                 })
                 .collect(),
+            groups: Vec::new(),
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
@@ -992,6 +1000,11 @@ mod tests {
                 timezone: "Europe/Paris".to_string(),
                 label: "Rennes".to_string(),
             }],
+            groups: vec![LocationGroup {
+                id: 1,
+                name: "Project".to_string(),
+                location_ids: vec![entry_id("America/Vancouver", "Vancouver")],
+            }],
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
@@ -1005,6 +1018,12 @@ mod tests {
         assert_eq!(snapshot.clocks[1].time, "13:05");
         assert!(snapshot.clocks[1].pinned);
         assert_eq!(snapshot.pinned_timezone.as_deref(), Some("Europe/Paris"));
+        assert_eq!(snapshot.groups.len(), 1);
+        assert_eq!(snapshot.groups[0].name, "Project");
+        assert_eq!(
+            snapshot.groups[0].location_ids,
+            vec![entry_id("America/Vancouver", "Vancouver")]
+        );
     }
 
     #[test]
@@ -1019,6 +1038,7 @@ mod tests {
                 timezone: "Europe/Paris".to_string(),
                 label: "Rennes".to_string(),
             }],
+            groups: Vec::new(),
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
@@ -1052,6 +1072,7 @@ mod tests {
                 timezone: String::new(),
                 label: String::new(),
             }],
+            groups: Vec::new(),
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
@@ -1078,6 +1099,7 @@ mod tests {
                 entry("Asia/Kolkata", "Delhi"),
             ],
             pinned_locations: vec![],
+            groups: Vec::new(),
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 8, 11, 23, 45, 0).unwrap();
@@ -1097,6 +1119,7 @@ mod tests {
         let config = AppConfig {
             timezones: vec![entry("America/New_York", "New York")],
             pinned_locations: vec![],
+            groups: Vec::new(),
             disable_open_meteo_geolocation: false,
         };
         let before_spring_forward = Utc.with_ymd_and_hms(2026, 3, 8, 6, 30, 0).unwrap();
@@ -1125,6 +1148,7 @@ mod tests {
                 entry("Asia/Tokyo", "Tokyo"),
             ],
             pinned_locations: vec![],
+            groups: Vec::new(),
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
@@ -1169,6 +1193,7 @@ mod tests {
                 .map(|index| entry("America/Cancun", &format!("Location {index}")))
                 .collect(),
             pinned_locations: vec![],
+            groups: Vec::new(),
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
@@ -1189,6 +1214,7 @@ mod tests {
         let config = AppConfig {
             timezones: vec![entry("America/New_York", "New York")],
             pinned_locations: vec![],
+            groups: Vec::new(),
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 3, 8, 12, 0, 0).unwrap();
@@ -1215,6 +1241,7 @@ mod tests {
         let config = AppConfig {
             timezones: vec![entry("America/New_York", "New York")],
             pinned_locations: vec![],
+            groups: Vec::new(),
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 11, 1, 12, 0, 0).unwrap();
@@ -1236,6 +1263,7 @@ mod tests {
         let config = AppConfig {
             timezones: vec![entry("Asia/Kolkata", "Kolkata")],
             pinned_locations: vec![],
+            groups: Vec::new(),
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(1900, 1, 1, 12, 0, 0).unwrap();
@@ -1263,6 +1291,7 @@ mod tests {
                 timezone: "America/New_York".to_string(),
                 label: "Boston".to_string(),
             }],
+            groups: Vec::new(),
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
@@ -1284,6 +1313,7 @@ mod tests {
                 timezone: "America/Cancun".to_string(),
                 label: "Cancun".to_string(),
             }],
+            groups: Vec::new(),
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
@@ -1299,6 +1329,7 @@ mod tests {
         let config = AppConfig {
             timezones: vec![entry("America/New_York", "New York")],
             pinned_locations: vec![],
+            groups: Vec::new(),
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
@@ -1314,6 +1345,7 @@ mod tests {
         let config = AppConfig {
             timezones: vec![entry("America/Cancun", "Cancun")],
             pinned_locations: vec![],
+            groups: Vec::new(),
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
@@ -1342,6 +1374,7 @@ mod tests {
                 entry("Asia/Tokyo", "Tokyo"),
             ],
             pinned_locations: vec![],
+            groups: Vec::new(),
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
@@ -1366,6 +1399,7 @@ mod tests {
                 entry("Europe/Paris", "Rennes"),
             ],
             pinned_locations: vec![],
+            groups: Vec::new(),
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
@@ -1398,6 +1432,7 @@ mod tests {
                 entry("Asia/Tokyo", "Tokyo"),
             ],
             pinned_locations: vec![],
+            groups: Vec::new(),
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
@@ -1428,6 +1463,7 @@ mod tests {
         let config = AppConfig {
             timezones,
             pinned_locations,
+            groups: Vec::new(),
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();
@@ -1448,6 +1484,7 @@ mod tests {
                 entry("America/New_York", "New York"),
             ],
             pinned_locations: vec![],
+            groups: Vec::new(),
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 8, 11, 11, 5, 0).unwrap();

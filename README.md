@@ -61,6 +61,10 @@ the AUR package is no longer required.
 - Use the **pencil** to rename, pin, or remove locations. Click a location name
   to edit it, then press **Enter** to save it or **Escape** to cancel. Submit an
   empty name to restore the location's default place name.
+- **All** is the default view. Choose a named group to show only its cards and
+  timeline markers. In a group, the same pencil edits its name, order, and
+  membership; click cards to include or exclude them. The plus beside the
+  views creates another group.
 - Pin any combination of places. The first three stay visible as compact
   location codes and times beside the bar icon; additional pins collapse into
   a `+N` summary and remain available in the panel.
@@ -98,6 +102,8 @@ the AUR package is no longer required.
 - Multiple named places in the same timezone, such as Boston and New York.
 - Multiple independent cards for the same place, such as Boston for a person
   and Boston for an office.
+- Reusable named groups that focus the card grid and timeline without removing
+  locations from the complete **All** view.
 - Personal labels for saved locations, such as a person's name or "Home".
   The actual place remains visible beside a personal label.
 - Multiple pinned place clocks in the bar, kept in pin order and identified by
@@ -142,13 +148,20 @@ Example:
 
 ```json
 {
-  "version": 8,
+  "version": 9,
   "pinned_locations": [
     {
       "id": 2
     },
     {
       "id": 3
+    }
+  ],
+  "groups": [
+    {
+      "id": 1,
+      "name": "Launch crew",
+      "location_ids": [2, 3]
     }
   ],
   "timezones": [
@@ -181,8 +194,9 @@ Example:
 
 Each saved card has its own stable `id`. `place` is the geographic name used
 when the card was added; optional `label` is the personal name shown most
-prominently. Pins refer to card IDs, so duplicate places and duplicate personal
-labels remain independent.
+prominently. Pins and named groups refer to card IDs, so duplicate places and
+duplicate personal labels remain independent. **All** is built in and is not
+stored as a group.
 
 To prevent all Open-Meteo requests, add:
 
@@ -261,6 +275,17 @@ scripts/install-review-preview.sh
 The review copy gets a collision-resistant branch-derived plugin ID, a distinct
 icon color, a branch header in its tooltip, and its own seeded config file.
 Re-running the command updates that branch's copy in place.
+
+To prepare a complete local review in one command—rebuild and verify the
+current branch, update the normal production plugin, install the current
+branch's isolated review, and remove other inactive World Clock reviews—run:
+
+```bash
+scripts/review-current-branch.sh
+```
+
+Reviews associated with live worktrees are reported and retained. Close that
+work before running the command again if you also want its review removed.
 
 Artifact reproduction requires Podman or Docker. The scripts use a
 digest-pinned official Rust/Alpine image and produce a static x86-64 Linux

@@ -80,7 +80,7 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(qml.contains("property var pinnedClocks: []"));
     assert!(qml.contains("readonly property bool hasPinnedClocks:"));
     assert!(qml.contains("property bool moduleRefreshPending: false"));
-    assert!(qml.contains("readonly property int supportedBackendProtocol: 6"));
+    assert!(qml.contains("readonly property int supportedBackendProtocol: 7"));
     assert!(qml.contains("function markBackendUnavailable(detail)"));
     assert!(qml.contains("function validPinnedClocks(value)"));
     assert!(qml.contains("!payload || typeof payload !== \"object\" || Array.isArray(payload)"));
@@ -331,6 +331,30 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
         2
     );
     assert!(panel.contains("id: editModeButton"));
+    assert!(panel.contains("property double activeGroupId: 0"));
+    assert!(panel.contains("readonly property bool groupEditActive:"));
+    assert!(panel.contains("id: groupBar"));
+    assert!(panel.contains("id: groupSwitcher"));
+    assert!(panel.contains("text: \"ALL (\""));
+    assert!(!panel.contains("tooltipText: \"Show all locations\""));
+    assert!(!panel.contains("tooltipText: \"Show \""));
+    assert!(panel.contains("readonly property color segmentHoverFill:"));
+    assert!(panel.contains("? groupSwitcher.segmentHoverFill : \"transparent\""));
+    assert!(panel.matches("borderSpec: Border.none()").count() >= 2);
+    assert!(panel.contains("id: groupNameEditor"));
+    assert!(panel.contains("id: groupOriginalNameMetrics"));
+    assert!(panel.contains("id: groupDraftNameMetrics"));
+    assert!(panel.contains("groupDraftNameMetrics.advanceWidth"));
+    assert!(panel.contains("- groupOriginalNameMetrics.advanceWidth"));
+    assert!(!panel.contains("groupButton.implicitWidth, Style.space(132)"));
+    assert!(panel.contains("id: groupEditActions"));
+    assert!(panel.contains("id: addGroupButton"));
+    assert!(panel.contains("function addGroup()"));
+    assert!(panel.contains("function toggleClockInActiveGroup(clock)"));
+    assert!(panel.contains("\"group-set-location\""));
+    assert!(panel.contains("Accessible.checked: clockCell.selectedForGroup"));
+    assert!(panel.contains("text: \"✓\""));
+    assert!(panel.contains("foreground: root.contentForeground"));
     assert!(panel.contains("property bool labelEditing: false"));
     assert!(panel.contains("id: summaryLabelMouse"));
     assert!(panel.contains("id: cardLabelMouse"));
@@ -488,9 +512,9 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(!panel.contains("TimeRail.centeredSlotIndexAt("));
     assert!(!panel.contains("TimeRail.framePosition("));
     assert!(panel.contains("readonly property real scrubViewportMinute:"));
-    assert!(
-        panel.contains("TimeRail.buildMarkers(snapshot, scrubSourceTimezone, scrubViewportMinute)")
-    );
+    assert!(panel.contains(
+        "TimeRail.buildMarkers(timelineSnapshot, scrubSourceTimezone, scrubViewportMinute)"
+    ));
     assert!(panel.contains(
         "TimeRail.axisTicks(scrubViewportMinute, String(snapshot.time_format || \"24h\"))"
     ));
@@ -690,7 +714,9 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("if (summaryFocusScheduled) return"));
     assert!(panel.contains("if (!snapshotLoaded)"));
     assert!(panel.contains("if (summaryFocusPending) Qt.callLater(root.focusSummaryEditor)"));
-    assert!(panel.contains("if (clocks.length === 0 && mode !== \"add\" && !summaryFocusPending)"));
+    assert!(
+        panel.contains("if (allClocks.length === 0 && mode !== \"add\" && !summaryFocusPending")
+    );
     assert!(panel.contains("function focusAddField(selectExisting)"));
     assert!(panel.contains("property bool searchVisible: false"));
     assert!(panel.contains("function openSearch(initialText)"));
@@ -705,7 +731,8 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("property int snapshotStateGeneration: 0"));
     assert!(panel.contains("property int convertActiveGeneration: -1"));
     assert!(panel.contains("property string invalidConversionSource: \"\""));
-    assert!(panel.contains("snapshotLoaded = true\n      invalidConversionSource = \"\""));
+    assert!(panel.contains("snapshotLoaded = true"));
+    assert!(panel.contains("if (pendingActiveGroupId > 0)"));
     assert!(panel.contains("if (!snapshotLoaded || !timezoneName || !reference"));
     assert!(panel.contains("if (timeEditorActive || labelEditorActive)"));
     assert!(panel.contains("(root.timeEditorActive || root.labelEditorActive)"));
@@ -800,7 +827,9 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("id: clockSurface"));
     assert!(panel.contains("readonly property color restingFill:"));
     assert!(panel.contains("root.mixColorWithAlpha(restingFill, hoverFill, 0.18)"));
-    assert!(panel.contains("border.width: clockCell.hasKeyboardCursor"));
+    assert!(panel.contains(
+        "border.width: clockCell.selectedForGroup\n                          || clockCell.hasKeyboardCursor"
+    ));
     assert!(panel.contains("radius: Style.cornerRadius"));
     assert!(panel.contains("backendCommand, \"weather\""));
     assert!(panel.contains("import \"WeatherState.js\" as WeatherState"));
@@ -1110,10 +1139,7 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("enterAddMode(true)\n    openSearch(initialText)"));
     assert!(panel.contains("var skipOpeningFlight = skipNextGlobeOpeningFlight"));
     assert!(panel.contains("mapCanvas.showOpeningOverview(target.latitude, target.longitude)"));
-    assert_eq!(
-        panel.matches("onClicked: root.enterAddMode(false)").count(),
-        2
-    );
+    assert_eq!(panel.matches("root.enterAddMode(false)").count(), 2);
 
     let action_process = panel
         .split("id: actionProcess")
@@ -1582,4 +1608,94 @@ fn editor_focus_keeps_non_text_shortcuts_reachable() {
     assert!(shortcuts.contains("root.editorActive"));
     assert!(shortcuts.contains("!root.live || root.scrubPreviewActive"));
     assert!(!shortcuts.contains("sequence: \"Delete\""));
+}
+
+#[test]
+fn group_rename_keeps_the_accepted_name_until_the_snapshot_catches_up() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let panel =
+        fs::read_to_string(root.join("quattro/Panel.qml")).expect("read native panel source");
+
+    assert!(panel.contains("property double pendingGroupRenameId: 0"));
+    assert!(panel.contains("property string pendingGroupRenameName: \"\""));
+
+    let rename = panel
+        .split("function renameActiveGroup(name) {")
+        .nth(1)
+        .and_then(|source| source.split("function moveActiveGroup(").next())
+        .expect("group rename function body");
+    let remember_name = rename
+        .find("pendingGroupRenameName = nextName")
+        .expect("accepted group name should be remembered optimistically");
+    let start_action = rename
+        .find("runGroupAction(\"group-rename\"")
+        .expect("group rename action");
+    assert!(
+        remember_name < start_action,
+        "remember the accepted name before starting the action can move focus"
+    );
+
+    let group_name_input = panel
+        .split("id: groupNameInput")
+        .nth(1)
+        .and_then(|source| source.split("Keys.onEscapePressed:").next())
+        .expect("group name editor");
+    assert!(group_name_input.contains("root.pendingGroupRenameId === groupItem.groupId"));
+    assert!(group_name_input.contains("root.pendingGroupRenameName"));
+
+    let apply_snapshot = panel
+        .split("function applySnapshot(raw, manual)")
+        .nth(1)
+        .and_then(|source| {
+            source
+                .split("function requestSnapshot(referenceUtc)")
+                .next()
+        })
+        .expect("applySnapshot function body");
+    assert!(apply_snapshot.contains("clearPendingGroupRename()"));
+
+    let action_process = panel
+        .split("id: actionProcess")
+        .nth(1)
+        .and_then(|source| source.split("id: searchProcess").next())
+        .expect("action process body");
+    assert!(action_process.contains("root.actionName === \"group-rename\""));
+    assert!(action_process.contains("root.clearPendingGroupRename()"));
+}
+
+#[test]
+fn group_edit_actions_align_and_disable_at_reorder_boundaries() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let panel =
+        fs::read_to_string(root.join("quattro/Panel.qml")).expect("read native panel source");
+
+    assert!(panel.contains(
+        "readonly property bool canMoveActiveGroupLeft:\n    groupEditActive && activeGroupIndex > 0"
+    ));
+    assert!(panel.contains(
+        "readonly property bool canMoveActiveGroupRight:\n    groupEditActive && activeGroupIndex >= 0\n      && activeGroupIndex < groups.length - 1"
+    ));
+
+    let actions = panel
+        .split("id: groupEditActions")
+        .nth(1)
+        .and_then(|source| source.split("id: clockRows").next())
+        .expect("group edit action toolbar");
+    assert_eq!(
+        actions.matches("PanelActionButton {").count(),
+        4,
+        "reorder, delete, and add must share one icon-button box model"
+    );
+    assert!(actions.contains("id: moveGroupLeftButton"));
+    assert!(actions.contains("id: moveGroupRightButton"));
+    assert!(actions.contains(
+        "enabled: root.canMoveActiveGroupLeft\n                        && !actionProcess.running"
+    ));
+    assert!(actions.contains(
+        "enabled: root.canMoveActiveGroupRight\n                        && !actionProcess.running"
+    ));
+    assert!(actions.contains("id: removeGroupIcon"));
+    assert!(actions.contains("anchors.horizontalCenter: parent.horizontalCenter"));
+    assert!(actions.contains("anchors.verticalCenter: parent.verticalCenter"));
+    assert!(actions.contains("anchors.verticalCenterOffset: Style.space(4)"));
 }

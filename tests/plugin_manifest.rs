@@ -892,6 +892,9 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(weather_detail.contains("id: outlookSection"));
     assert!(weather_detail.contains("id: graphSection"));
     assert!(weather_detail.contains("text: detail.phaseSectionTitle()"));
+    assert!(weather_detail.contains("return \"NEXT 12 HOURS\""));
+    assert!(!weather_detail.contains("TODAY BY PHASE"));
+    assert!(!weather_detail.contains("TODAY'S PATTERN"));
     assert!(weather_logic.contains("function segmentPhases("));
     assert!(weather_detail.contains("text: \"4-DAY OUTLOOK\""));
     assert!(weather_detail.contains("text: \"24-HOUR DETAIL\""));

@@ -215,7 +215,7 @@ Item {
   }
 
   function phaseSectionTitle() {
-    return phases.length === 1 ? "TODAY'S PATTERN" : "TODAY BY PHASE"
+    return "NEXT 12 HOURS"
   }
 
   function phaseColor(phase) {

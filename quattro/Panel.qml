@@ -348,7 +348,11 @@ Panel {
   onClocksChanged: {
     if (keyboardClockIndex >= clocks.length)
       keyboardClockIndex = clocks.length - 1
+    Qt.callLater(root.normalizeEditKeyboardCursor)
   }
+
+  onLocalTimezoneConfiguredChanged:
+    Qt.callLater(root.normalizeEditKeyboardCursor)
 
   onMapSelectionChanged: mapSelectionLabelDraft = ""
 
@@ -663,6 +667,13 @@ Panel {
       panelScroll.contentY = Math.min(
         Math.max(0, panelScroll.contentHeight - panelScroll.height),
         bottom - panelScroll.height)
+  }
+
+  function normalizeEditKeyboardCursor() {
+    if (mode !== "edit" || !keyboardCursorActive || localTimezoneConfigured
+        || keyboardClockIndex >= 0 || clocks.length === 0) return
+    keyboardClockIndex = 0
+    ensureKeyboardCursorVisible()
   }
 
   function moveKeyboardCursor(dx, dy) {

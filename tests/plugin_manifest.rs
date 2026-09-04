@@ -1539,6 +1539,16 @@ fn edit_mode_marks_the_selected_location_name_instead_of_its_time() {
         move_cursor.contains("if (summarySelectable) nextIndex = -1"),
         "arrow navigation must not return to a non-editable summary"
     );
+
+    let clocks_changed = panel
+        .split("onClocksChanged: {")
+        .nth(1)
+        .and_then(|source| source.split("onMapSelectionChanged:").next())
+        .expect("clock-model change handler");
+    assert!(
+        clocks_changed.contains("Qt.callLater(root.normalizeEditKeyboardCursor)"),
+        "a travel-state snapshot should re-home a cursor chosen before loading finished"
+    );
 }
 
 #[test]

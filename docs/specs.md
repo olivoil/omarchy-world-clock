@@ -262,7 +262,8 @@ start of the query.
 Core clock management remains reachable without moving through toolbar buttons:
 
 - `F2` enters or leaves edit mode
-- the arrow keys select the summary or a location card
+- the arrow keys select the summary or a location card; edit mode skips a
+  transient system-timezone summary that is not saved and therefore cannot be renamed
 - `Enter` edits the selected time in read mode or its name in edit mode
 - the summary selection cue follows that action: it marks the time in read mode
   and the location name in edit mode

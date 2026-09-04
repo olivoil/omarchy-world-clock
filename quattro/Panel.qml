@@ -679,6 +679,7 @@ Panel {
     }
 
     var count = clocks.length
+    var summarySelectable = mode !== "edit" || localTimezoneConfigured
     if (!keyboardCursorActive) {
       keyboardCursorActive = true
       keyboardClockIndex = count > 0 ? 0 : -1
@@ -691,12 +692,17 @@ Panel {
     }
 
     var nextIndex = keyboardClockIndex
+    if (!summarySelectable && nextIndex < 0) nextIndex = 0
     if (Number(dy) > 0)
       nextIndex = nextIndex < 0 ? 0
         : Math.min(count - 1, nextIndex + clockColumnCount)
-    else if (Number(dy) < 0)
-      nextIndex = nextIndex < clockColumnCount
-        ? -1 : nextIndex - clockColumnCount
+    else if (Number(dy) < 0) {
+      if (nextIndex < clockColumnCount) {
+        if (summarySelectable) nextIndex = -1
+      } else {
+        nextIndex -= clockColumnCount
+      }
+    }
     else if (Number(dx) > 0)
       nextIndex = nextIndex < 0 ? 0 : Math.min(count - 1, nextIndex + 1)
     else if (Number(dx) < 0)
@@ -735,7 +741,10 @@ Panel {
     mode = "edit"
     keyboardCursorActive = true
     if (!hadCursor || keyboardClockIndex < -1 || keyboardClockIndex >= clocks.length)
-      keyboardClockIndex = -1
+      keyboardClockIndex = localTimezoneConfigured
+        ? -1 : (clocks.length > 0 ? 0 : -1)
+    else if (!localTimezoneConfigured && keyboardClockIndex < 0)
+      keyboardClockIndex = clocks.length > 0 ? 0 : -1
     Qt.callLater(root.ensureKeyboardCursorVisible)
     return true
   }

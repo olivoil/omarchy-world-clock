@@ -1513,6 +1513,32 @@ fn edit_mode_marks_the_selected_location_name_instead_of_its_time() {
         summary_time.contains("root.mode === \"read\"\n                    && root.keyboardCursorActive && root.keyboardClockIndex < 0"),
         "the summary time must not look editable when edit mode selects its location"
     );
+
+    let toggle_edit = panel
+        .split("function toggleEditMode() {")
+        .nth(1)
+        .and_then(|source| source.split("function toggleKeyboardCursorPin() {").next())
+        .expect("edit-mode toggle body");
+    assert!(
+        toggle_edit.contains("keyboardClockIndex = localTimezoneConfigured")
+            && toggle_edit.contains("? -1 : (clocks.length > 0 ? 0 : -1)"),
+        "edit mode should initially select a saved card when the summary cannot be renamed"
+    );
+
+    let move_cursor = panel
+        .split("function moveKeyboardCursor(dx, dy) {")
+        .nth(1)
+        .and_then(|source| source.split("function focusClockEditor(").next())
+        .expect("keyboard cursor movement body");
+    assert!(
+        move_cursor
+            .contains("var summarySelectable = mode !== \"edit\" || localTimezoneConfigured"),
+        "edit-mode arrow navigation should know when the summary is not editable"
+    );
+    assert!(
+        move_cursor.contains("if (summarySelectable) nextIndex = -1"),
+        "arrow navigation must not return to a non-editable summary"
+    );
 }
 
 #[test]

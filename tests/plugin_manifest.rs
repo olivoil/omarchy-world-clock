@@ -915,6 +915,7 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(weather_detail.contains("hasHourlyField(\"wind_speed_kmh\")"));
     assert!(weather_detail.contains("hasHourlyField(\"wind_gusts_kmh\")"));
     assert!(weather_detail.contains("WeatherDetailLogic.windPeak(hourly, hourly.length)"));
+    assert!(weather_detail.contains("WeatherDetailLogic.precipitationGraphLabel("));
     assert!(weather_detail.contains("function precipitationRelevant()"));
     assert!(weather_detail.contains("WeatherMetricGraph {"));
     assert!(weather_detail.contains("readonly property var graphHours: hourly"));

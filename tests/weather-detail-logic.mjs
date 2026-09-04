@@ -58,6 +58,14 @@ assert.deepEqual(Array.from(context.segmentPhases(oneHourNoise, 12, 3), group =>
   group.length), [12], "a one-hour forecast blip does not fragment the day")
 assert.equal(context.weatherFamily(context.phaseRepresentative(oneHourNoise)),
   "clear", "a one-hour rain blip cannot rename an otherwise clear pattern")
+assert.equal(context.precipitationGraphLabel(hour(95, 80)), "Storm risk",
+  "thunderstorm peaks use storm wording in the precipitation graph")
+assert.equal(context.precipitationGraphLabel(hour(73, 80)), "Snow chance",
+  "snow peaks use snow wording in the precipitation graph")
+assert.equal(context.precipitationGraphLabel(hour(66, 80)), "Icy precipitation",
+  "freezing precipitation peaks avoid rain wording")
+assert.equal(context.precipitationGraphLabel(hour(61, 80)), "Rain chance",
+  "ordinary wet peaks retain rain wording")
 
 const buildingThenEasing = [3, 10, 20, 35, 55, 75, 90, 96, 69, 50, 30, 24]
   .map(probability => hour(probability >= 35 ? 61 : 2, probability))

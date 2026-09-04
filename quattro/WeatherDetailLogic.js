@@ -95,6 +95,14 @@ function weatherFamily(item) {
   return "cloud"
 }
 
+function precipitationGraphLabel(item) {
+  var family = weatherFamily(item)
+  if (family === "storm") return "Storm risk"
+  if (family === "snow") return "Snow chance"
+  if (family === "ice") return "Icy precipitation"
+  return "Rain chance"
+}
+
 function wetFamily(family) {
   return family === "rain" || family === "storm" || family === "snow"
     || family === "ice"

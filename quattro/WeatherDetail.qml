@@ -412,7 +412,8 @@ Item {
     if (selectedMetric === "precipitation") {
       var rainPeak = peakHourly("precipitation_probability_percent", hourly.length)
       return rainPeak.item
-        ? "Rain peaks around " + controller.weatherLocalTime(rainPeak.item.time)
+        ? WeatherDetailLogic.precipitationGraphLabel(rainPeak.item)
+          + " peaks around " + controller.weatherLocalTime(rainPeak.item.time)
           + " · " + controller.weatherProbability(rainPeak.value)
         : "Precipitation outlook"
     }

@@ -348,7 +348,11 @@ Panel {
   onClocksChanged: {
     if (keyboardClockIndex >= clocks.length)
       keyboardClockIndex = clocks.length - 1
+    Qt.callLater(root.normalizeEditKeyboardCursor)
   }
+
+  onLocalTimezoneConfiguredChanged:
+    Qt.callLater(root.normalizeEditKeyboardCursor)
 
   onMapSelectionChanged: mapSelectionLabelDraft = ""
 
@@ -665,6 +669,13 @@ Panel {
         bottom - panelScroll.height)
   }
 
+  function normalizeEditKeyboardCursor() {
+    if (mode !== "edit" || !keyboardCursorActive || localTimezoneConfigured
+        || keyboardClockIndex >= 0 || clocks.length === 0) return
+    keyboardClockIndex = 0
+    ensureKeyboardCursorVisible()
+  }
+
   function moveKeyboardCursor(dx, dy) {
     if (weatherDetailOpen) {
       weatherDetailPage.scrollByDirection(dy)
@@ -679,6 +690,7 @@ Panel {
     }
 
     var count = clocks.length
+    var summarySelectable = mode !== "edit" || localTimezoneConfigured
     if (!keyboardCursorActive) {
       keyboardCursorActive = true
       keyboardClockIndex = count > 0 ? 0 : -1
@@ -691,12 +703,17 @@ Panel {
     }
 
     var nextIndex = keyboardClockIndex
+    if (!summarySelectable && nextIndex < 0) nextIndex = 0
     if (Number(dy) > 0)
       nextIndex = nextIndex < 0 ? 0
         : Math.min(count - 1, nextIndex + clockColumnCount)
-    else if (Number(dy) < 0)
-      nextIndex = nextIndex < clockColumnCount
-        ? -1 : nextIndex - clockColumnCount
+    else if (Number(dy) < 0) {
+      if (nextIndex < clockColumnCount) {
+        if (summarySelectable) nextIndex = -1
+      } else {
+        nextIndex -= clockColumnCount
+      }
+    }
     else if (Number(dx) > 0)
       nextIndex = nextIndex < 0 ? 0 : Math.min(count - 1, nextIndex + 1)
     else if (Number(dx) < 0)
@@ -735,7 +752,10 @@ Panel {
     mode = "edit"
     keyboardCursorActive = true
     if (!hadCursor || keyboardClockIndex < -1 || keyboardClockIndex >= clocks.length)
-      keyboardClockIndex = -1
+      keyboardClockIndex = localTimezoneConfigured
+        ? -1 : (clocks.length > 0 ? 0 : -1)
+    else if (!localTimezoneConfigured && keyboardClockIndex < 0)
+      keyboardClockIndex = clocks.length > 0 ? 0 : -1
     Qt.callLater(root.ensureKeyboardCursorVisible)
     return true
   }
@@ -2477,6 +2497,19 @@ Panel {
                 font.letterSpacing: root.mode === "read" ? 1.8 : 0
               }
 
+              Rectangle {
+                id: summaryLabelKeyboardCursor
+                visible: root.mode === "edit" && root.keyboardCursorActive
+                  && root.keyboardClockIndex < 0 && headerTitle.editable
+                  && !headerTitle.labelEditing
+                anchors.left: headerReadTitle.left
+                anchors.right: headerReadTitle.right
+                anchors.top: headerReadTitle.bottom
+                anchors.topMargin: Style.space(2)
+                height: Style.spacing.hairline
+                color: Style.focusStateColor(root.contentForeground, Color.accent)
+              }
+
               TextInput {
                 id: summaryLabelInput
                 function resetText() {
@@ -2609,7 +2642,8 @@ Panel {
 
               Rectangle {
                 visible: summaryInput.activeFocus || summaryInput.conversionInvalid
-                  || root.keyboardCursorActive && root.keyboardClockIndex < 0
+                  || root.mode === "read"
+                    && root.keyboardCursorActive && root.keyboardClockIndex < 0
                 anchors.left: summaryInput.left
                 anchors.right: summaryInput.right
                 anchors.top: summaryInput.bottom

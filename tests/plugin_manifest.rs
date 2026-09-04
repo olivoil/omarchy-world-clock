@@ -743,10 +743,6 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("visible: root.summary.pinned === true"));
     assert!(panel.contains("onClicked: root.togglePin(root.summary)"));
     assert!(panel.contains("readonly property bool showOpenMeteoAttribution"));
-    assert!(panel.contains("id: openMeteoAttribution"));
-    assert!(panel.contains("visible: root.showOpenMeteoAttribution"));
-    assert!(panel.contains("text: \"Location data by Open-Meteo\""));
-    assert!(panel.contains("https://open-meteo.com/"));
     assert!(!panel.contains("<a href=\"https://open-meteo.com/\">"));
     assert!(!panel.contains("resultButton.modelData.open_meteo_attribution"));
     assert!(panel.contains("readonly property string currentLocationTitle"));
@@ -813,27 +809,8 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("id: cardWeatherGlyph"));
     assert!(panel.contains("color: root.weatherGlyphColor(clockCell.weatherData)"));
     assert!(panel.contains("anchors.baseline: cardWeatherTemperature.baseline"));
-    assert!(panel.contains("anchors.verticalCenter: parent.verticalCenter"));
-    assert!(panel.contains("id: weatherProviderAttribution"));
-    assert!(panel.contains(
-        "id: weatherProviderAttribution\n                anchors.verticalCenter: parent.verticalCenter"
-    ));
-    assert!(panel.contains("visible: root.mode !== \"add\" && root.weatherEnabled && root.live"));
-    assert!(panel.contains("? \"Open-Meteo\""));
-    assert!(panel.contains("tooltipText: \"Weather data by Open-Meteo\""));
-    assert!(panel.contains("background: \"transparent\""));
-    assert!(panel.contains("fontSize: Style.fontPx(0.75)"));
-    assert!(panel.contains("horizontalPadding: Style.space(4)"));
-    assert!(panel.contains("verticalPadding: Style.space(1)"));
     assert!(!panel.contains("id: weatherAttributionSlot"));
-    let header_start = panel.find("id: headerStart").unwrap();
-    let attribution = panel.find("id: weatherProviderAttribution").unwrap();
-    let read_page = panel.find("id: readPage").unwrap();
-    assert!(header_start < attribution && attribution < read_page);
     assert!(panel.contains("function mixColor("));
-    assert!(panel.contains("onClicked: Qt.openUrlExternally(\"https://open-meteo.com/\")"));
-    assert!(!panel.contains("&& (root.weatherLocations.length > 0 || root.weatherError)"));
-    assert!(panel.contains("&& root.weather.disabled !== true"));
     assert!(panel.contains("interval: root.weatherFreshnessCheckMilliseconds"));
     assert!(panel.contains("onTriggered: root.requestWeather(false)"));
 

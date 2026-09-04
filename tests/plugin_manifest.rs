@@ -919,11 +919,15 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(weather_detail.contains("WeatherMetricGraph {"));
     assert!(weather_detail.contains("readonly property var graphHours: hourly"));
     assert!(!weather_detail.contains("sampleHours(hourly, 8)"));
-    assert!(weather_graph.contains("function sampleLabelHours(source, count)"));
+    assert!(weather_logic.contains("function sampleLabelHours(source, count)"));
+    assert!(weather_graph.contains("WeatherDetailLogic.sampleLabelHours(hours, 8)"));
+    assert!(weather_graph.contains("WeatherDetailLogic.plotFraction("));
     assert!(weather_graph.contains("model: graph.labelHours"));
     assert!(weather_graph.contains("item.precipitation_mm"));
     assert!(weather_graph.contains("item.precipitation_probability_percent"));
     assert!(weather_graph.contains("WeatherDetailLogic.windValue(item)"));
+    assert!(weather_detail.contains("function ensureItemVisible(item)"));
+    assert!(weather_detail.contains("detail.ensureItemVisible(metricButton)"));
     let graph_paint = weather_graph
         .split("onPaint: {")
         .nth(1)

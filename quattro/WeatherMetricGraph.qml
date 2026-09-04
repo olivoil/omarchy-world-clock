@@ -20,7 +20,7 @@ Item {
     foreground, Qt.rgba(0.95, 0.48, 0.32, 1), 0.72)
   property color windColor: controller.mixColor(
     foreground, Qt.rgba(0.49, 0.82, 0.68, 1), 0.68)
-  readonly property var labelHours: sampleLabelHours(hours, 8)
+  readonly property var labelHours: WeatherDetailLogic.sampleLabelHours(hours, 8)
 
   implicitHeight: Style.space(145)
   Accessible.role: Accessible.Chart
@@ -86,19 +86,6 @@ Item {
       if (isFinite(value)) maximum = Math.max(maximum, value)
     }
     return maximum
-  }
-
-  function sampleLabelHours(source, count) {
-    var values = source && source.length ? source : []
-    if (!values.length || count <= 0) return []
-    var labelCount = Math.min(values.length, count)
-    var sampled = []
-    for (var index = 0; index < labelCount; index++) {
-      var sourceIndex = labelCount === 1 ? 0
-        : Math.round(index * (values.length - 1) / (labelCount - 1))
-      sampled.push(values[sourceIndex])
-    }
-    return sampled
   }
 
   function canvasColor(color, alpha) {
@@ -216,8 +203,7 @@ Item {
       }
 
       function pointX(index) {
-        return forecastHours.length === 1 ? width / 2
-          : index * width / (forecastHours.length - 1)
+        return WeatherDetailLogic.plotFraction(index, forecastHours.length) * width
       }
       function pointY(value) {
         return bottom - (value - minimum) / Math.max(0.001,
@@ -288,7 +274,7 @@ Item {
     }
   }
 
-  Row {
+  Item {
     id: valueRow
     anchors.left: parent.left
     anchors.right: parent.right
@@ -303,6 +289,9 @@ Item {
         required property var modelData
         width: valueRow.width / Math.max(1, graph.labelHours.length)
         height: valueRow.height
+        x: WeatherDetailLogic.plotFraction(
+          Number(modelData ? modelData.sourceIndex : 0),
+          graph.hours ? graph.hours.length : 0) * valueRow.width - width / 2
 
         Column {
           anchors.horizontalCenter: parent.horizontalCenter
@@ -311,7 +300,8 @@ Item {
           Text {
             textFormat: Text.PlainText
             anchors.horizontalCenter: parent.horizontalCenter
-            text: graph.displayValue(valueCell.modelData)
+            text: graph.displayValue(valueCell.modelData
+              ? valueCell.modelData.item : null)
             color: graph.foreground
             font.family: graph.controller.contentFontFamily
             font.pixelSize: Style.font.bodySmall
@@ -321,7 +311,8 @@ Item {
           Text {
             textFormat: Text.PlainText
             anchors.horizontalCenter: parent.horizontalCenter
-            text: graph.controller.weatherHourlyTime(valueCell.modelData)
+            text: graph.controller.weatherHourlyTime(valueCell.modelData
+              ? valueCell.modelData.item : null)
             color: graph.muted
             font.family: graph.controller.contentFontFamily
             font.pixelSize: Style.font.caption

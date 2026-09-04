@@ -9,6 +9,51 @@ function listLength(values) {
   return isFinite(length) && length > 0 ? length : 0
 }
 
+function plotFraction(index, sourceLength) {
+  var lengthValue = finite(sourceLength)
+  var length = isFinite(lengthValue)
+    ? Math.max(0, Math.floor(lengthValue)) : 0
+  var sourceIndex = finite(index)
+  if (length <= 1 || !isFinite(sourceIndex)) return 0.5
+  return Math.max(0, Math.min(1, sourceIndex / (length - 1)))
+}
+
+function sampleLabelHours(source, count) {
+  var sourceLength = listLength(source)
+  var requested = Math.max(0, Math.floor(finite(count)))
+  if (!sourceLength || !isFinite(requested) || requested <= 0) return []
+  var labelCount = Math.min(sourceLength, requested)
+  var sampled = []
+  for (var index = 0; index < labelCount; index++) {
+    var sourceIndex = labelCount === 1 ? 0
+      : Math.round(index * (sourceLength - 1) / (labelCount - 1))
+    sampled.push({ item: source[sourceIndex], sourceIndex: sourceIndex })
+  }
+  return sampled
+}
+
+function ensureVisibleTarget(contentY, viewportHeight, itemTop, itemHeight,
+    margin, maximum) {
+  var current = finite(contentY)
+  var viewport = finite(viewportHeight)
+  var top = finite(itemTop)
+  var height = finite(itemHeight)
+  var padding = finite(margin)
+  var upperBound = finite(maximum)
+  if (!isFinite(current)) current = 0
+  if (!isFinite(viewport) || viewport < 0) viewport = 0
+  if (!isFinite(top)) return current
+  if (!isFinite(height) || height < 0) height = 0
+  if (!isFinite(padding) || padding < 0) padding = 0
+  if (!isFinite(upperBound) || upperBound < 0) upperBound = 0
+
+  var target = current
+  if (top < current + padding) target = top - padding
+  else if (top + height > current + viewport - padding)
+    target = top + height - viewport + padding
+  return Math.max(0, Math.min(upperBound, target))
+}
+
 function sunProgress(sunriseMinutes, sunsetMinutes, currentMinutes) {
   var sunrise = finite(sunriseMinutes)
   var sunset = finite(sunsetMinutes)

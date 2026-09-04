@@ -100,6 +100,23 @@ assert.equal(highWindPeak.kind, "gust",
 assert.equal(context.windValue({ wind_speed_kmh: 38 }), 38,
   "wind display falls back to sustained speed when gusts are unavailable")
 
+const graphHours = Array.from({ length: 24 }, (_, index) => ({ index }))
+const graphLabels = context.sampleLabelHours(graphHours, 8)
+assert.deepEqual(Array.from(graphLabels, sample => sample.sourceIndex),
+  [0, 3, 7, 10, 13, 16, 20, 23],
+  "graph labels retain the exact source indices of their plotted points")
+assert.equal(context.plotFraction(graphLabels[6].sourceIndex, graphHours.length),
+  20 / 23, "label positioning uses the same fraction as the plotted point")
+assert.equal(context.plotFraction(0, 1), 0.5,
+  "a singleton graph point and label share the center")
+
+assert.equal(context.ensureVisibleTarget(0, 412, 650, 26, 12, 800), 276,
+  "focusing a control below the viewport scrolls its lower edge into view")
+assert.equal(context.ensureVisibleTarget(300, 412, 420, 26, 12, 800), 300,
+  "focusing an already visible control does not disturb the viewport")
+assert.equal(context.ensureVisibleTarget(400, 412, 350, 26, 12, 800), 338,
+  "reverse tabbing scrolls a control above the viewport back into view")
+
 const ordinaryDay = Array.from({ length: 24 }, (_, index) =>
   hour(2, 4, { temperature_celsius: 20 + Math.sin(index / 4), uv_index: 1 }))
 assert.equal(context.defaultMetric(ordinaryDay), "temperature",

@@ -607,6 +607,16 @@ Item {
     animateScrollTo(Math.max(0, Math.min(maximum, origin + distance)))
   }
 
+  function ensureItemVisible(item) {
+    if (!item) return
+    var position = item.mapToItem(contentColumn, 0, 0)
+    var maximum = Math.max(0, detailScroll.contentHeight - detailScroll.height)
+    var target = WeatherDetailLogic.ensureVisibleTarget(
+      detailScroll.contentY, detailScroll.height, position.y, item.height,
+      Style.space(12), maximum)
+    if (Math.abs(target - detailScroll.contentY) >= 0.5) animateScrollTo(target)
+  }
+
   function focusInitialControl() {
     if (detail.visible) backButton.forceActiveFocus(Qt.ShortcutFocusReason)
   }
@@ -1468,6 +1478,11 @@ Item {
                 + " graph"
               Accessible.name: tooltipText
               Accessible.role: Accessible.Button
+              onActiveFocusChanged: {
+                if (activeFocus) Qt.callLater(function() {
+                  if (metricButton.activeFocus) detail.ensureItemVisible(metricButton)
+                })
+              }
               onClicked: {
                 detail.selectedMetric = String(modelData.key || "temperature")
                 detail.metricWasChosen = true

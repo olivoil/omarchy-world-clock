@@ -559,3 +559,12 @@ function nextScrollTarget(contentY, pendingTargetY, hasPending,
   var next = origin - finite(distance)
   return Math.max(0, Math.min(limit, next))
 }
+
+function locationLabel(clock) {
+  if (!clock) return "Weather"
+  var place = String(clock.place_title || clock.place || clock.title
+    || clock.label || clock.timezone || "Weather").trim()
+  var customLabel = String(clock.custom_label || "").trim()
+  return customLabel && customLabel.toLowerCase() !== place.toLowerCase()
+    ? customLabel + " · " + place : place
+}

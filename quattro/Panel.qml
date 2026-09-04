@@ -143,6 +143,19 @@ Panel {
     && weather.disabled !== true
     && (root.weatherLoading || root.weatherLocations.length > 0)
   readonly property bool weatherDetailOpen: weatherDetailKey !== ""
+  readonly property var weatherDetailLocations: {
+    var entries = [summary].concat(clocks)
+    var locations = []
+    var seen = ({})
+    for (var index = 0; index < entries.length; index++) {
+      var clock = entries[index]
+      var key = conversionSource(clock)
+      if (seen[key] || !weatherFor(clock)) continue
+      seen[key] = true
+      locations.push(clock)
+    }
+    return locations
+  }
   readonly property var weatherDetailClock: root.clockForWeatherDetail()
   readonly property var weatherDetailData: root.weatherFor(weatherDetailClock)
   readonly property var weatherDetailHourlyForecast: {
@@ -850,13 +863,14 @@ Panel {
 
   function showWeatherDetail(clock) {
     if (mode === "add" || !weatherPresentationActive || !weatherFor(clock)) return
+    var wasOpen = weatherDetailOpen
     weatherDetailKey = conversionSource(clock)
     keyboardCursorActive = false
     keyboardClockIndex = -1
     clearTimelineHover()
     panelScroll.contentY = 0
     Qt.callLater(function() {
-      if (opened && root.weatherDetailOpen)
+      if (opened && root.weatherDetailOpen && !wasOpen)
         weatherDetailPage.focusInitialControl()
     })
   }

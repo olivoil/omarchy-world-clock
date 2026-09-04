@@ -73,8 +73,10 @@ the AUR package is no longer required.
 - Click the weather icon and temperature beside the home time or on any
   location card to open that place's Field Notes forecast: current conditions,
   a local narrative, three near-term phases, four-day temperature and UV
-  ranges, and interactive 24-hour graphs. Use **Escape** or the back button to
-  return to the clocks.
+  ranges, and interactive 24-hour graphs. Click the location name in the header
+  to switch to another place with weather available. The header and menu show
+  each place's custom label alongside its location. Use **Escape** or the back
+  button to return to the clocks.
 - Select a displayed time and enter another time to convert the same instant
   across every visible place.
 - Use **plus** to open the full-panel globe. Start typing or select **search**

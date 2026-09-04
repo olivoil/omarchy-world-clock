@@ -92,7 +92,8 @@ Item {
     if (precipitationRelevant())
       options.push({ key: "precipitation", label: "RAIN" })
     if (hasHourlyField("uv_index")) options.push({ key: "uv", label: "UV INDEX" })
-    if (hasHourlyField("wind_speed_kmh")) options.push({ key: "wind", label: "WIND" })
+    if (hasHourlyField("wind_speed_kmh") || hasHourlyField("wind_gusts_kmh"))
+      options.push({ key: "wind", label: "WIND" })
     return options
   }
 
@@ -416,9 +417,10 @@ Item {
         : "Precipitation outlook"
     }
     if (selectedMetric === "wind") {
-      var windPeak = peakHourly("wind_speed_kmh", hourly.length)
+      var windPeak = WeatherDetailLogic.windPeak(hourly, hourly.length)
       return windPeak.item
-        ? "Wind peaks around " + controller.weatherLocalTime(windPeak.item.time)
+        ? (windPeak.kind === "gust" ? "Gusts peak around " : "Wind peaks around ")
+          + controller.weatherLocalTime(windPeak.item.time)
           + " · " + controller.weatherWind(windPeak.value)
         : "Wind trend"
     }

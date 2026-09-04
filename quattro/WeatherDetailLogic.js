@@ -355,10 +355,45 @@ function uvScore(source) {
   return 18
 }
 
+function windValue(item) {
+  var speed = finite(item ? item.wind_speed_kmh : null)
+  var gust = finite(item ? item.wind_gusts_kmh : null)
+  if (!isFinite(speed)) return gust
+  if (!isFinite(gust)) return speed
+  return Math.max(speed, gust)
+}
+
+function windPeak(source, limit) {
+  var count = listLength(source)
+  var requested = finite(limit)
+  if (isFinite(requested))
+    count = Math.min(count, Math.max(0, Math.floor(requested)))
+  var peakItem = null
+  var peakValue = Number.NEGATIVE_INFINITY
+  var peakIndex = -1
+  var peakKind = ""
+  for (var index = 0; index < count; index++) {
+    var item = source[index]
+    var value = windValue(item)
+    if (!isFinite(value) || value <= peakValue) continue
+    var speed = finite(item ? item.wind_speed_kmh : null)
+    var gust = finite(item ? item.wind_gusts_kmh : null)
+    peakItem = item
+    peakValue = value
+    peakIndex = index
+    peakKind = isFinite(gust) && (!isFinite(speed) || gust > speed)
+      ? "gust" : "speed"
+  }
+  return {
+    item: peakItem,
+    value: peakValue,
+    index: peakIndex,
+    kind: peakKind
+  }
+}
+
 function windScore(source) {
-  var speed = maximumField(source, "wind_speed_kmh")
-  var gust = maximumField(source, "wind_gusts_kmh")
-  var wind = Math.max(speed, gust)
+  var wind = windPeak(source, listLength(source)).value
   if (!isFinite(wind)) return Number.NEGATIVE_INFINITY
   if (wind >= 85) return 100
   if (wind >= 65) return 92

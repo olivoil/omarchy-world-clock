@@ -913,6 +913,8 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(weather_detail.contains("detail.weatherData.visibility_meters"));
     assert!(weather_detail.contains("hasHourlyField(\"uv_index\")"));
     assert!(weather_detail.contains("hasHourlyField(\"wind_speed_kmh\")"));
+    assert!(weather_detail.contains("hasHourlyField(\"wind_gusts_kmh\")"));
+    assert!(weather_detail.contains("WeatherDetailLogic.windPeak(hourly, hourly.length)"));
     assert!(weather_detail.contains("function precipitationRelevant()"));
     assert!(weather_detail.contains("WeatherMetricGraph {"));
     assert!(weather_detail.contains("readonly property var graphHours: hourly"));
@@ -921,6 +923,7 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(weather_graph.contains("model: graph.labelHours"));
     assert!(weather_graph.contains("item.precipitation_mm"));
     assert!(weather_graph.contains("item.precipitation_probability_percent"));
+    assert!(weather_graph.contains("WeatherDetailLogic.windValue(item)"));
     let graph_paint = weather_graph
         .split("onPaint: {")
         .nth(1)

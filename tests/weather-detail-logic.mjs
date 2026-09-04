@@ -88,6 +88,17 @@ const highWind = Array.from({ length: 24 }, (_, index) =>
   }))
 assert.equal(context.defaultMetric(highWind), "wind",
   "dangerously high wind becomes the default graph")
+assert.equal(context.windValue(highWind[4]), 92,
+  "the wind graph exposes a hazardous gust instead of the lower sustained speed")
+const highWindPeak = context.windPeak(highWind, highWind.length)
+assert.equal(highWindPeak.index, 4,
+  "the wind peak points to the hour containing the strongest gust")
+assert.equal(highWindPeak.value, 92,
+  "the wind title reports the same gust value that selected the graph")
+assert.equal(highWindPeak.kind, "gust",
+  "the wind title can distinguish a gust peak from sustained wind")
+assert.equal(context.windValue({ wind_speed_kmh: 38 }), 38,
+  "wind display falls back to sustained speed when gusts are unavailable")
 
 const ordinaryDay = Array.from({ length: 24 }, (_, index) =>
   hour(2, 4, { temperature_celsius: 20 + Math.sin(index / 4), uv_index: 1 }))

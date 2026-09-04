@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import qs.Commons
+import "WeatherDetailLogic.js" as WeatherDetailLogic
 
 Item {
   id: graph
@@ -56,7 +57,7 @@ Item {
     if (metric === "temperature")
       return displayTemperature(item ? item.temperature_celsius : null)
     if (metric === "precipitation") return displayPrecipitation(item)
-    if (metric === "wind") return displayWind(item ? item.wind_speed_kmh : null)
+    if (metric === "wind") return displayWind(WeatherDetailLogic.windValue(item))
     var uv = finite(item ? item.uv_index : null)
     return isFinite(uv) ? String(Math.round(uv)) : "—"
   }
@@ -71,9 +72,9 @@ Item {
     if (selectedMetric === "precipitation")
       return finite(item.precipitation_probability_percent)
     if (selectedMetric === "wind") {
-      var speed = finite(item.wind_speed_kmh)
-      return controller.weatherUseImperial && isFinite(speed)
-        ? speed * 0.621371 : speed
+      var wind = WeatherDetailLogic.windValue(item)
+      return controller.weatherUseImperial && isFinite(wind)
+        ? wind * 0.621371 : wind
     }
     return finite(item.uv_index)
   }

@@ -18,6 +18,7 @@ run node tests/timeline-hover-state.mjs
 run node tests/time-rail.mjs
 run node tests/weather-state.mjs
 run node tests/weather-detail-logic.mjs
+run node tests/weather-refresh.mjs
 run bash tests/bundle.sh
 run node scripts/build-world-map-source.mjs --check
 run node scripts/build-featured-cities.mjs --check

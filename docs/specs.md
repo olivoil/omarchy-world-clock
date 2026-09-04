@@ -310,6 +310,11 @@ No separate World Clock 12/24-hour preference is stored.
   panel cannot restart the full cache interval. Weather detail attribution
   reports the age of the cached response instead of describing every reused
   response as updated now.
+- The top-left return-to-live control is always clickable without changing its
+  active fill, which continues to indicate only a scrubbed or converted time.
+  Clicking it explicitly refreshes weather past the normal freshness cache;
+  all attempts retain a two-minute cooldown to coalesce rapid clicks and
+  failed retries.
 - Temperature inherits an explicit `metric` or `imperial` unit from the
   `omarchy.weather` widget. In automatic mode, the configured Omarchy Weather
   location's country decides first; United States, Liberia, and Myanmar use
@@ -394,7 +399,7 @@ Rules:
   map corner while those remote results are visible
 - selecting a dropdown result, or pressing Enter to choose the selected
   result, centers it and opens an anchored detail card with an explicit `Add`
-  action instead of mutating configuration
+  action and an optional personal-label field instead of mutating configuration
 - keyboard selection moves focus to that `Add` action; pressing Enter or Space
   confirms it, including when the initial Enter had to wait for search results
 - selecting the same result from its map marker follows the identical preview
@@ -405,8 +410,8 @@ Rules:
 - a successful addition returns to the main clock view, where the new clock is
   visible as confirmation
 - selecting an already-saved place identifies it in the detail card, changes
-  the action to `Add another`, and offers an optional personal label for the
-  new card; it does not produce an error
+  the action to `Add another`, and still allows a separately labeled new card;
+  it does not produce an error
 - remote failure leaves local search usable
 
 ## Globe and map lookup

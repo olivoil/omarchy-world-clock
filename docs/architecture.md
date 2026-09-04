@@ -99,14 +99,17 @@ local and deterministic, while the panel requests rich current conditions,
 the next 24 local hourly points, and five daily records for every visible
 coordinate in bounded HTTPS batches and keeps the last successful response for
 15 minutes. Hourly records carry temperature, condition, precipitation chance
-and amount, UV, and wind speed for the Field Notes graph and near-term phases.
+and amount, UV, wind speed, and gusts for the Field Notes graph and near-term
+phases.
 The first daily record supplies today's high, low, sun times, rain chance, and
 UV maximum; the frontend presents the following four days as a shared-scale
 outlook. Richer responses use smaller batches so each remains inside the shared
 response-size ceiling. A lightweight 30-second freshness check refreshes that
 response at its original expiry even when the panel closes and reopens. A
-weather timeout therefore cannot delay panel opening, minute ticks, or time
-conversion.
+explicit return-to-live action bypasses the freshness window, but every attempt
+shares a two-minute cooldown so repeated clicks and failed retries cannot create
+a request burst. A weather timeout therefore cannot delay panel opening, minute
+ticks, or time conversion.
 
 Snapshots carry the effective unit inherited from `omarchy.weather`. An
 explicit `shell.json` unit wins; automatic mode resolves the configured Weather

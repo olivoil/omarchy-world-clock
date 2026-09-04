@@ -574,6 +574,7 @@ Item {
   }
 
   onDetailKeyChanged: {
+    locationMenu.close()
     metricWasChosen = false
     chooseDefaultMetric()
     scrollAnimation.stop()
@@ -584,6 +585,7 @@ Item {
     if (!metricWasChosen || !metricAvailable(selectedMetric)) chooseDefaultMetric()
   }
   onVisibleChanged: {
+    if (!visible) locationMenu.close()
     if (visible) {
       updateAgeNow = Date.now()
       Qt.callLater(detail.focusInitialControl)
@@ -630,18 +632,138 @@ Item {
       onClicked: detail.backRequested()
     }
 
-    Text {
-      textFormat: Text.PlainText
+    Button {
+      id: locationButton
+      objectName: "weatherLocationButton"
       anchors.centerIn: parent
-      width: Math.max(0, parent.width - Style.space(320))
-      horizontalAlignment: Text.AlignHCenter
-      elide: Text.ElideRight
-      text: detail.clockData ? String(detail.clockData.title
-        || detail.clockData.label || "Weather") : "Weather"
-      color: detail.foreground
-      font.family: detail.controller.contentFontFamily
-      font.pixelSize: Style.fontPx(1.5)
-      font.bold: true
+      width: Math.min(locationTitle.implicitWidth + Style.space(52),
+        Math.max(0, parent.width - Style.space(320)))
+      height: Style.space(34)
+      enabled: detail.controller.weatherDetailLocations.length > 1
+      focusable: enabled
+      active: locationMenu.visible
+      foreground: detail.foreground
+      tooltipText: enabled ? "Switch weather location" : ""
+      Accessible.name: "Weather location: " + locationTitle.text
+      Accessible.role: Accessible.Button
+      Accessible.description: tooltipText
+      onClicked: locationMenu.visible ? locationMenu.close() : locationMenu.open()
+      Keys.onDownPressed: locationMenu.open()
+
+      Text {
+        id: locationTitle
+        textFormat: Text.PlainText
+        anchors.left: parent.left
+        anchors.right: locationChevron.visible ? locationChevron.left : parent.right
+        anchors.margins: Style.space(10)
+        anchors.verticalCenter: parent.verticalCenter
+        horizontalAlignment: Text.AlignHCenter
+        elide: Text.ElideRight
+        text: WeatherDetailLogic.locationLabel(detail.clockData)
+        color: detail.foreground
+        font.family: detail.controller.contentFontFamily
+        font.pixelSize: Style.fontPx(1.5)
+        font.bold: true
+      }
+
+      Text {
+        id: locationChevron
+        textFormat: Text.PlainText
+        visible: locationButton.enabled
+        anchors.right: parent.right
+        anchors.rightMargin: Style.space(10)
+        anchors.verticalCenter: parent.verticalCenter
+        text: "󰅀"
+        color: detail.muted
+        font.family: detail.controller.contentFontFamily
+        font.pixelSize: Style.font.body
+      }
+
+      QQC.Menu {
+        id: locationMenu
+        objectName: "weatherLocationMenu"
+        y: locationButton.height + Style.spacing.xxs
+        x: (locationButton.width - width) / 2
+        width: Math.min(Style.space(280), detail.width - Style.space(40))
+        height: Math.min(implicitHeight, detail.height - header.height)
+        popupType: QQC.Popup.Item
+        modal: true
+        dim: false
+        closePolicy: QQC.Popup.CloseOnEscape | QQC.Popup.CloseOnPressOutside
+        readonly property var surfaceBorder: Border.surfaceSpec(
+          "popups", "border", Color.popups.border, Style.normalBorderWidth)
+        leftPadding: Border.left(surfaceBorder) + Style.spacing.hairline
+        rightPadding: Border.right(surfaceBorder) + Style.spacing.hairline
+        topPadding: Border.top(surfaceBorder) + Style.spacing.hairline
+        bottomPadding: Border.bottom(surfaceBorder) + Style.spacing.hairline
+        onOpened: {
+          for (var index = 0; index < count; index++) {
+            if (itemAt(index).selectedLocation) {
+              currentIndex = index
+              break
+            }
+          }
+        }
+        onClosed: {
+          if (detail.visible) locationButton.forceActiveFocus(Qt.PopupFocusReason)
+        }
+        background: BorderSurface {
+          color: Color.popups.background
+          borderSpec: locationMenu.surfaceBorder
+          radius: Style.cornerRadius
+        }
+
+        Instantiator {
+          model: detail.controller.weatherDetailLocations
+          delegate: QQC.MenuItem {
+            id: locationOption
+            required property var modelData
+            readonly property bool selectedLocation:
+              detail.controller.conversionSource(modelData) === detail.detailKey
+            text: WeatherDetailLogic.locationLabel(modelData)
+            implicitHeight: Style.spacing.popupRowHeight
+            Accessible.name: text
+            Accessible.selected: selectedLocation
+            onTriggered: detail.controller.showWeatherDetail(modelData)
+            contentItem: Text {
+              textFormat: Text.PlainText
+              text: locationOption.text
+              leftPadding: Style.spacing.controlPaddingX
+              rightPadding: Style.space(28)
+              verticalAlignment: Text.AlignVCenter
+              elide: Text.ElideRight
+              color: detail.foreground
+              font.family: detail.controller.contentFontFamily
+              font.pixelSize: Style.font.body
+              font.bold: locationOption.selectedLocation
+            }
+            background: BorderSurface {
+              color: locationOption.down
+                ? Style.pressedFillFor(detail.foreground, Color.accent)
+                : locationOption.highlighted
+                  ? Style.hoverFillFor(detail.foreground, Color.accent)
+                  : "transparent"
+              borderSpec: locationOption.highlighted
+                ? Border.controlSpec("hover-cursor", detail.foreground, Color.accent)
+                : Border.none()
+              radius: Style.cornerRadius
+            }
+            Text {
+              textFormat: Text.PlainText
+              anchors.right: parent.right
+              anchors.rightMargin: Style.spacing.controlPaddingX
+              anchors.verticalCenter: parent.verticalCenter
+              visible: locationOption.selectedLocation
+              text: "✓"
+              color: detail.foreground
+              font.family: detail.controller.contentFontFamily
+              font.pixelSize: Style.font.body
+            }
+          }
+          onObjectAdded: function(index, object) { locationMenu.insertItem(index, object) }
+          onObjectRemoved: function(index, object) { locationMenu.removeItem(object) }
+        }
+      }
     }
 
     Button {

@@ -4002,12 +4002,11 @@ Panel {
 
                   TextField {
                     id: mapSelectionLabelField
-                    visible: mapSelectionCard.alreadyAdded
                     width: parent.width
                     text: root.mapSelectionLabelDraft
                     placeholderText: "Label this clock (optional)"
                     foreground: root.contentForeground
-                    enabled: visible && !actionProcess.running
+                    enabled: !actionProcess.running
                     onTextEdited: root.mapSelectionLabelDraft = text
                     onAccepted: root.addMapSelection()
                     onActiveFocusChanged: root.editorActive = activeFocus

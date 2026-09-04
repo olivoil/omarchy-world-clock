@@ -74,8 +74,8 @@ the AUR package is no longer required.
   across every visible place.
 - Use **plus** to open the full-panel globe. Start typing or select **search**
   to find a city or timezone, or rotate the globe and choose a place directly.
-  Choosing a place that is already saved offers **Add another** and an optional
-  personal label for the new card.
+  Before adding any place, you can give its clock an optional personal label.
+  Choosing a place that is already saved offers **Add another**.
 - Use **refresh** at any time to return to live time and update the weather.
   Its active fill still only indicates a scrubbed or converted time.
 

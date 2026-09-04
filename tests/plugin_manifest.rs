@@ -242,6 +242,13 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(!panel.contains("That location is already added."));
     assert!(panel.contains("Already added as "));
     assert!(panel.contains("Label this clock (optional)"));
+    let add_label_field = panel
+        .split("id: mapSelectionLabelField")
+        .nth(1)
+        .and_then(|source| source.split("Rectangle {").next())
+        .expect("add-location label field");
+    assert!(!add_label_field.contains("visible: mapSelectionCard.alreadyAdded"));
+    assert!(add_label_field.contains("enabled: !actionProcess.running"));
     assert!(panel.contains("Add another"));
     assert!(!panel.contains("root.runAction(\"add\", mapMarker.location.timezone"));
     assert!(!panel.contains("root.runAction(\"add\", payload.timezone, payload)"));

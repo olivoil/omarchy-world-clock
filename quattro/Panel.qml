@@ -2477,6 +2477,19 @@ Panel {
                 font.letterSpacing: root.mode === "read" ? 1.8 : 0
               }
 
+              Rectangle {
+                id: summaryLabelKeyboardCursor
+                visible: root.mode === "edit" && root.keyboardCursorActive
+                  && root.keyboardClockIndex < 0 && headerTitle.editable
+                  && !headerTitle.labelEditing
+                anchors.left: headerReadTitle.left
+                anchors.right: headerReadTitle.right
+                anchors.top: headerReadTitle.bottom
+                anchors.topMargin: Style.space(2)
+                height: Style.spacing.hairline
+                color: Style.focusStateColor(root.contentForeground, Color.accent)
+              }
+
               TextInput {
                 id: summaryLabelInput
                 function resetText() {
@@ -2609,7 +2622,8 @@ Panel {
 
               Rectangle {
                 visible: summaryInput.activeFocus || summaryInput.conversionInvalid
-                  || root.keyboardCursorActive && root.keyboardClockIndex < 0
+                  || root.mode === "read"
+                    && root.keyboardCursorActive && root.keyboardClockIndex < 0
                 anchors.left: summaryInput.left
                 anchors.right: summaryInput.right
                 anchors.top: summaryInput.bottom

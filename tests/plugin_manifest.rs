@@ -1489,6 +1489,33 @@ fn add_confirmation_and_core_actions_are_keyboard_reachable() {
 }
 
 #[test]
+fn edit_mode_marks_the_selected_location_name_instead_of_its_time() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let panel =
+        fs::read_to_string(root.join("quattro/Panel.qml")).expect("read native panel source");
+
+    let header_title = panel
+        .split("id: headerTitle")
+        .nth(1)
+        .and_then(|source| source.split("id: headerActions").next())
+        .expect("summary location title");
+    assert!(
+        header_title.contains("id: summaryLabelKeyboardCursor"),
+        "edit-mode keyboard selection should mark the editable summary label"
+    );
+
+    let summary_time = panel
+        .split("id: summaryInput")
+        .nth(1)
+        .and_then(|source| source.split("id: summarySolarRuler").next())
+        .expect("summary time editor");
+    assert!(
+        summary_time.contains("root.mode === \"read\"\n                    && root.keyboardCursorActive && root.keyboardClockIndex < 0"),
+        "the summary time must not look editable when edit mode selects its location"
+    );
+}
+
+#[test]
 fn time_editors_can_be_cancelled_with_escape() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let panel =

@@ -75,7 +75,7 @@ The executable exposes a deliberately small command/JSON boundary:
 | `module` | bar tooltip, ordered coded pin clocks, compatibility handshake | JSON |
 | `snapshot` | complete read/edit model at now or `--at` | JSON |
 | `convert` | parse a local input and return a converted snapshot | JSON |
-| `weather` | fetch current conditions and a short forecast for visible coordinates at now or `--at` | JSON |
+| `weather` | fetch current conditions and a short forecast for visible coordinates, optionally scoped by `--group-id` | JSON |
 | `search` | local search with optional remote fallback and live display context | JSON array |
 | `locate` | map coordinate to a timezone and display model | JSON/null |
 | `add` | persist a new card with an actual place and optional personal label | no output |
@@ -103,9 +103,10 @@ Weather is deliberately outside the snapshot path. Clock refreshes remain
 local and deterministic, while the panel requests rich current conditions,
 the next 24 local hourly points, and five daily records for every visible
 coordinate in bounded HTTPS batches and keeps the last successful response for
-15 minutes. Hourly records carry temperature, condition, precipitation chance
-and amount, UV, wind speed, and gusts for the Field Notes graph and near-term
-phases.
+15 minutes. A selected named group sends only its members plus the persistent
+local summary location. Hourly records carry temperature, condition,
+precipitation chance and amount, UV, wind speed, and gusts for the Field Notes
+graph and near-term phases.
 The first daily record supplies today's high, low, sun times, rain chance, and
 UV maximum; the frontend presents the following four days as a shared-scale
 outlook. Richer responses use smaller batches so each remains inside the shared

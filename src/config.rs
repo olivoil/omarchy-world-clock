@@ -22,6 +22,7 @@ use unicode_normalization::{char::is_combining_mark, UnicodeNormalization};
 
 pub const CONFIG_VERSION: u64 = 9;
 pub const LOCAL_TIMEZONE_MIGRATION_VERSION: u64 = 2;
+pub const MAX_LOCATION_GROUPS: usize = 8;
 const SEPARATE_PLACE_LABEL_VERSION: u64 = 8;
 const MAX_SAFE_LOCATION_ID: u64 = 9_007_199_254_740_991;
 
@@ -885,6 +886,9 @@ impl ConfigManager {
         let requested_name = name.to_string();
         let mut group_id = 0;
         let (config, _) = self.mutate_with_local_timezone(&local_timezone, |config| {
+            if config.groups.len() >= MAX_LOCATION_GROUPS {
+                anyhow::bail!("World Clock supports up to {MAX_LOCATION_GROUPS} groups");
+            }
             group_id = next_group_id(&config.groups);
             let name = unique_group_name(&config.groups, &requested_name);
             config.groups.push(LocationGroup {
@@ -3323,6 +3327,29 @@ mod tests {
         let stored = fs::read_to_string(manager.path()).unwrap();
         assert!(stored.contains("\"version\": 9"));
         assert!(stored.contains("\"groups\""));
+    }
+
+    #[test]
+    fn named_group_creation_stops_at_the_supported_limit() {
+        let temp_dir = TempDir::new().unwrap();
+        let manager = manager_in(&temp_dir);
+        manager.load_with_local_timezone("UTC").unwrap();
+
+        for index in 1..=8 {
+            let outcome = manager.add_group(&format!("Project {index}")).unwrap();
+            assert_eq!(outcome.config.groups.len(), index);
+        }
+
+        let error = manager.add_group("One too many").unwrap_err();
+        assert!(error.to_string().contains("supports up to 8 groups"));
+        assert_eq!(
+            manager
+                .load_with_local_timezone("UTC")
+                .unwrap()
+                .groups
+                .len(),
+            8
+        );
     }
 
     #[test]

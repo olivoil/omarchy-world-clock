@@ -132,6 +132,9 @@ Panel {
     snapshot && Array.isArray(snapshot.clocks) ? snapshot.clocks : []
   readonly property var groups:
     snapshot && Array.isArray(snapshot.groups) ? snapshot.groups : []
+  readonly property int maximumLocationGroups: 8
+  readonly property bool canAddGroup:
+    groups.length < maximumLocationGroups
   readonly property var activeGroup: groupById(activeGroupId)
   readonly property int activeGroupIndex: groupIndexById(activeGroupId)
   readonly property bool groupViewActive: activeGroup !== null
@@ -969,6 +972,7 @@ Panel {
     keyboardCursorActive = false
     keyboardClockIndex = -1
     if (snapshotLoaded) selectScrubSource(summary)
+    requestWeather(false)
   }
 
   function focusActiveGroupName() {
@@ -1005,6 +1009,7 @@ Panel {
   }
 
   function addGroup() {
+    if (!canAddGroup) return false
     return runGroupAction("group-add", 0, "New group", null)
   }
 
@@ -1262,7 +1267,7 @@ Panel {
 
   function weatherSignature() {
     if (!snapshotLoaded) return ""
-    var entries = [summary].concat(allClocks)
+    var entries = [summary].concat(viewClocks)
     var signatures = []
     for (var i = 0; i < entries.length; i++) {
       var entry = entries[i]
@@ -1546,6 +1551,8 @@ Panel {
     var command = [backendCommand, "weather"]
     if (snapshot && snapshot.reference_utc)
       command.push("--at", String(snapshot.reference_utc))
+    if (root.groupViewActive)
+      command.push("--group-id", String(root.activeGroupId))
     weatherProcess.command = command
     weatherProcess.running = true
   }
@@ -3698,8 +3705,9 @@ Panel {
                     anchors.verticalCenter: parent.verticalCenter
                     iconText: "󰐕"
                     foreground: root.contentForeground
-                    enabled: !actionProcess.running
-                    tooltipText: "New group"
+                    enabled: root.canAddGroup && !actionProcess.running
+                    tooltipText: root.canAddGroup
+                      ? "New group" : "Group limit reached"
                     onClicked: root.addGroup()
                   }
                 }

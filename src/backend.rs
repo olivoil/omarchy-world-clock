@@ -19,6 +19,7 @@ const HELP: &str = "World Clock backend commands
 
 Read JSON state:
   snapshot [--at RFC3339]
+  weather [--at RFC3339] [--group-id ID]
 
 Manage named groups by stable IDs:
   group-add --name NAME
@@ -170,7 +171,9 @@ pub fn execute(args: &[String]) -> Result<Option<String>> {
         "weather" => {
             let config = ConfigManager::new(None).load()?;
             let reference_utc = parse_reference_utc(optional_flag(remaining_args, "--at")?)?;
-            let payload = current_weather(&config, &detect_local_timezone(), reference_utc)?;
+            let group_id = optional_u64(remaining_args, "--group-id")?;
+            let payload =
+                current_weather(&config, &detect_local_timezone(), reference_utc, group_id)?;
             Some(serde_json::to_string(&payload)?)
         }
         "search" => {

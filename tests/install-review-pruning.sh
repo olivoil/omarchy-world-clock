@@ -9,12 +9,14 @@ trap cleanup EXIT
 
 repo="$test_root/repo"
 live_worktree="$test_root/live-worktree"
+external_live_checkout="$test_root/external-live-checkout"
 mock_bin="$test_root/bin"
 proc_root="$test_root/proc"
 config_home="$test_root/config"
 state_home="$test_root/state"
 log_file="$test_root/calls.log"
-mkdir -p "$repo/scripts" "$repo/quattro" "$repo/bin" "$mock_bin" "$proc_root/123"
+mkdir -p "$repo/scripts" "$repo/quattro" "$repo/bin" "$mock_bin" \
+  "$proc_root/123" "$proc_root/456"
 
 cp -- scripts/install-review-preview.sh "$repo/scripts/install-review-preview.sh"
 printf '%s\n' '{"id":"base","name":"base","description":"","entryPoints":{"barWidget":"quattro/WorldClock.qml"},"barWidget":{"displayName":"base","description":""}}' >"$repo/manifest.json"
@@ -28,21 +30,30 @@ git -C "$repo" config user.email 'review-test@example.com'
 git -C "$repo" add .
 git -C "$repo" commit -qm initial
 git -C "$repo" branch feature/live
+git -C "$repo" branch feature/external-live
 git -C "$repo" worktree add -q "$live_worktree" feature/live
+git clone -q --branch feature/external-live "$repo" "$external_live_checkout"
 mkdir -p "$live_worktree/session"
+mkdir -p "$external_live_checkout/session"
 ln -s "$live_worktree/session" "$proc_root/123/cwd"
+ln -s "$external_live_checkout/session" "$proc_root/456/cwd"
 
 current_branch=feature/current
 current_slug=feature-current
 current_hash=$(printf '%s' "$current_branch" | git hash-object --stdin)
 current_id="io.github.olivoil.world-clock-review-${current_slug}-${current_hash:0:10}"
 live_id=io.github.olivoil.world-clock-review-feature-live-1111111111
+external_live_id=io.github.olivoil.world-clock-review-feature-external-live-3333333333
 inactive_id=io.github.olivoil.world-clock-review-feature-inactive-2222222222
 plugins_dir="$config_home/omarchy/plugins"
-mkdir -p "$plugins_dir/$live_id" "$plugins_dir/$inactive_id"
+mkdir -p "$plugins_dir/$live_id" "$plugins_dir/$external_live_id" \
+  "$plugins_dir/$inactive_id"
 printf '%s\n' \
   "{\"id\":\"$live_id\",\"description\":\"Local review build for branch feature/live.\"}" \
   >"$plugins_dir/$live_id/manifest.json"
+printf '%s\n' \
+  "{\"id\":\"$external_live_id\",\"description\":\"Local review build for branch feature/external-live.\"}" \
+  >"$plugins_dir/$external_live_id/manifest.json"
 printf '%s\n' \
   "{\"id\":\"$inactive_id\",\"description\":\"Local review build for branch feature/inactive.\"}" \
   >"$plugins_dir/$inactive_id/manifest.json"
@@ -58,6 +69,7 @@ case "\${1:-} \${2:-}" in
       {"id":"io.github.olivoil.world-clock","enabled":true},
       {"id":"$current_id","enabled":true},
       {"id":"$live_id","enabled":true},
+      {"id":"$external_live_id","enabled":true},
       {"id":"$inactive_id","enabled":true}
     ]'
     ;;
@@ -89,15 +101,22 @@ chmod 0755 "$mock_bin/omarchy-shell"
 
 [[ -d $plugins_dir/$current_id ]]
 [[ -d $plugins_dir/$live_id ]]
+[[ -d $plugins_dir/$external_live_id ]]
 [[ ! -e $plugins_dir/$inactive_id ]]
 grep -F "omarchy plugin remove $inactive_id --yes" "$log_file" >/dev/null
 if grep -F "omarchy plugin remove $live_id --yes" "$log_file" >/dev/null; then
   printf '%s\n' 'installer removed a review associated with live work' >&2
   exit 1
 fi
+if grep -F "omarchy plugin remove $external_live_id --yes" "$log_file" >/dev/null; then
+  printf '%s\n' 'installer removed a review live in an independent checkout' >&2
+  exit 1
+fi
 grep -F "Retained io.github.olivoil.world-clock (production)" "$test_root/stdout" >/dev/null
 grep -F "Retained $current_id (current branch)" "$test_root/stdout" >/dev/null
 grep -F "Retained $live_id (live branch: feature/live)" "$test_root/stdout" >/dev/null
+grep -F "Retained $external_live_id (live branch: feature/external-live)" \
+  "$test_root/stdout" >/dev/null
 grep -F "Removed $inactive_id" "$test_root/stdout" >/dev/null
 
 printf '%s\n' 'Review installer pruning test passed.'

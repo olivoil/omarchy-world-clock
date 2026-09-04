@@ -189,36 +189,36 @@ if [[ $prune_other_reviews == true ]]; then
       "$review_manifest"
   }
 
-  worktree_for_branch() {
-    local wanted_branch=$1
-    local worktree_path=
-    local line
-    while IFS= read -r line; do
-      case "$line" in
-      'worktree '*) worktree_path=${line#worktree } ;;
-      'branch refs/heads/'*)
-        if [[ ${line#branch refs/heads/} == "$wanted_branch" ]]; then
-          printf '%s\n' "$worktree_path"
-          return 0
-        fi
-        ;;
-      esac
-    done < <(git -C "$repo_root" worktree list --porcelain)
-    return 1
-  }
-
-  worktree_is_live() {
-    local worktree_path=$1
-    local process_dir process_cwd
+  live_process_branches=()
+  collect_live_process_branches() {
+    local process_dir process_cwd process_branch known_branch
+    local -A seen_process_cwds=()
     for process_dir in "$proc_root"/[0-9]*; do
       [[ -L $process_dir/cwd || -e $process_dir/cwd ]] || continue
       process_cwd=$(readlink "$process_dir/cwd" 2>/dev/null) || continue
-      if [[ $process_cwd == "$worktree_path" || $process_cwd == "$worktree_path/"* ]]; then
-        return 0
-      fi
+      [[ -d $process_cwd ]] || continue
+      [[ -z ${seen_process_cwds[$process_cwd]+present} ]] || continue
+      seen_process_cwds[$process_cwd]=true
+      process_branch=$(git -C "$process_cwd" branch --show-current 2>/dev/null) \
+        || continue
+      [[ -n $process_branch ]] || continue
+      for known_branch in "${live_process_branches[@]}"; do
+        [[ $known_branch != "$process_branch" ]] || continue 2
+      done
+      live_process_branches+=("$process_branch")
+    done
+  }
+
+  branch_is_live() {
+    local wanted_branch=$1
+    local live_branch
+    for live_branch in "${live_process_branches[@]}"; do
+      [[ $live_branch != "$wanted_branch" ]] || return 0
     done
     return 1
   }
+
+  collect_live_process_branches
 
   printf 'Retained %s (production)\n' "$canonical_id"
   printf 'Retained %s (current branch)\n' "$plugin_id"
@@ -236,8 +236,7 @@ if [[ $prune_other_reviews == true ]]; then
       printf 'Retained %s (could not verify its branch)\n' "$review_id"
       continue
     fi
-    review_worktree=$(worktree_for_branch "$review_branch" || true)
-    if [[ -n $review_worktree ]] && worktree_is_live "$review_worktree"; then
+    if branch_is_live "$review_branch"; then
       printf 'Retained %s (live branch: %s)\n' "$review_id" "$review_branch"
       continue
     fi

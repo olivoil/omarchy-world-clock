@@ -63,6 +63,7 @@ fn bundled_backend_reports_its_protocol_and_version() {
     assert!(help.status.success());
     let help = String::from_utf8_lossy(&help.stdout);
     assert!(help.contains("group-add --name NAME"));
+    assert!(help.contains("weather [--at RFC3339] [--group-id ID]"));
 }
 
 #[test]

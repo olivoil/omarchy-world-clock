@@ -65,7 +65,8 @@ AUR package, `PATH` lookup, user-configured backend command, or install hook.
   locations.
 - The view picker is one segmented control. Every segment includes its visible
   card count; in group edit mode, the active segment's label becomes the inline
-  name field instead of opening a second management surface.
+  name field instead of opening a second management surface. The picker
+  scrolls horizontally when needed, and creation stops at eight named groups.
 - Read mode shows the summary clock, proportional relative timeline, and every
   non-local location clock. Comfortable density uses a borderless three-column
   layout; automatic density switches to a denser grid when those cards would
@@ -160,6 +161,8 @@ Persistence rules:
 - pin order is preserved and duplicate pins are discarded
 - pins refer to stable card IDs rather than mutable display text
 - group order is preserved; group membership also refers to stable card IDs
+- at most eight named groups can be created; **All** is built in and does not
+  count toward that limit
 - removing a location drops only that ID from every group
 - an empty personal label displays the saved place name, falling back to a
   friendly timezone name only when no place name exists
@@ -535,6 +538,7 @@ Rules:
 - Selecting a named group filters both its cards and timeline markers. Returning
   to **All** restores every card, and deleting a group never deletes a location.
 - Group names, membership, and segment order survive a shell restart.
+- The ninth named group is rejected without changing existing groups.
 - Time conversion works from the summary and every visible location.
 - More than nine saved places remain visible; automatic compact density keeps
   typical long lists together and the panel scrolls when compact rows still do

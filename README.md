@@ -64,7 +64,8 @@ the AUR package is no longer required.
 - **All** is the default view. Choose a named group to show only its cards and
   timeline markers. In a group, the same pencil edits its name, order, and
   membership; click cards to include or exclude them. The plus beside the
-  views creates another group.
+  views creates another group. World Clock supports up to eight named groups;
+  the view picker scrolls horizontally when its segments exceed the panel.
 - Pin any combination of places. The first three stay visible as compact
   location codes and times beside the bar icon; additional pins collapse into
   a `+N` summary and remain available in the panel.

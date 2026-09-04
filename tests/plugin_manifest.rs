@@ -350,11 +350,21 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("id: groupEditActions"));
     assert!(panel.contains("id: addGroupButton"));
     assert!(panel.contains("function addGroup()"));
+    assert!(panel.contains("readonly property int maximumLocationGroups: 8"));
+    assert!(panel.contains("readonly property bool canAddGroup:"));
+    assert!(panel.contains("groups.length < maximumLocationGroups"));
     assert!(panel.contains("function toggleClockInActiveGroup(clock)"));
     assert!(panel.contains("\"group-set-location\""));
     assert!(panel.contains("Accessible.checked: clockCell.selectedForGroup"));
     assert!(panel.contains("text: \"✓\""));
     assert!(panel.contains("foreground: root.contentForeground"));
+
+    let select_group = panel
+        .split("function selectGroup(value)")
+        .nth(1)
+        .and_then(|source| source.split("function focusActiveGroupName()").next())
+        .expect("group selection body");
+    assert!(select_group.contains("requestWeather(false)"));
     assert!(panel.contains("property bool labelEditing: false"));
     assert!(panel.contains("id: summaryLabelMouse"));
     assert!(panel.contains("id: cardLabelMouse"));
@@ -1011,6 +1021,8 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
         .nth(1)
         .and_then(|source| source.split("function weatherFor(clock)").next())
         .expect("weather signature body");
+    assert!(weather_signature.contains("[summary].concat(viewClocks)"));
+    assert!(!weather_signature.contains("[summary].concat(allClocks)"));
     assert!(weather_signature.contains("String(entry.date || \"\")"));
     assert!(weather_signature.contains("Math.floor(localMinutes / 60)"));
     assert!(weather_signature.contains("entry.utc_offset_seconds"));
@@ -1046,6 +1058,14 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("&& root.weather.disabled !== true"));
     assert!(panel.contains("interval: root.weatherFreshnessCheckMilliseconds"));
     assert!(panel.contains("onTriggered: root.requestWeather(false)"));
+
+    let weather_request = panel
+        .split("function requestWeather(force)")
+        .nth(1)
+        .and_then(|source| source.split("function flushWeatherRequest()").next())
+        .expect("weather request body");
+    assert!(weather_request.contains("command.push(\"--group-id\""));
+    assert!(weather_request.contains("String(root.activeGroupId)"));
 
     let city_data_path = root.join("data/featured-cities.json");
     let city_data: Value = serde_json::from_str(

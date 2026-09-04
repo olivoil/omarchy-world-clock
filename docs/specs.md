@@ -369,7 +369,7 @@ Rules:
   map corner while those remote results are visible
 - selecting a dropdown result, or pressing Enter to choose the selected
   result, centers it and opens an anchored detail card with an explicit `Add`
-  action instead of mutating configuration
+  action and an optional personal-label field instead of mutating configuration
 - keyboard selection moves focus to that `Add` action; pressing Enter or Space
   confirms it, including when the initial Enter had to wait for search results
 - selecting the same result from its map marker follows the identical preview
@@ -380,8 +380,8 @@ Rules:
 - a successful addition returns to the main clock view, where the new clock is
   visible as confirmation
 - selecting an already-saved place identifies it in the detail card, changes
-  the action to `Add another`, and offers an optional personal label for the
-  new card; it does not produce an error
+  the action to `Add another`, and still allows a separately labeled new card;
+  it does not produce an error
 - remote failure leaves local search usable
 
 ## Globe and map lookup

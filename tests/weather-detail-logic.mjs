@@ -17,6 +17,28 @@ function hour(code, probability, extras = {}) {
   }
 }
 
+function forecastAt(hourValue) {
+  return { time: `2026-09-05T${String(hourValue).padStart(2, "0")}:00` }
+}
+
+const overnightRainParts = context.precipitationBuildParts(
+  "rain", forecastAt(16), forecastAt(3))
+assert.equal(
+  `${overnightRainParts.lead} ${overnightRainParts.accent}`,
+  "Rain builds through late afternoon, then eases before dawn.",
+  "an overnight easing forecast uses a natural predawn time phrase")
+assert.equal(context.precipitationPeakTitle("storm", forecastAt(3)),
+  "Storms are most likely before dawn.",
+  "predawn precipitation peaks use a complete adverbial phrase")
+assert.equal(context.precipitationPassingTitle("snow", forecastAt(19)),
+  "A spell of snow may arrive around dusk.",
+  "dusk precipitation timing avoids in the dusk")
+assert.equal(context.heatHoldTitle(forecastAt(8)),
+  "Heat holds through the morning",
+  "morning heat timing includes its required article")
+assert.equal(context.heatHoldTitle(forecastAt(22)), "Heat holds tonight",
+  "nighttime heat timing avoids through tonight")
+
 const viewportHeight = 412
 const scrollMaximum = 560
 const oneNotchDown = context.wheelDistance(0, -120, viewportHeight, 64)

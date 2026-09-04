@@ -81,6 +81,76 @@ function weatherUpdateLabel(updatedAt, currentTime, unavailable, loading) {
   return "UPDATED " + String(days) + (days === 1 ? " DAY AGO" : " DAYS AGO")
 }
 
+function dayPart(item) {
+  var match = String(item && item.time ? item.time : "").match(/T(\d{2}):/)
+  var hour = match ? Number(match[1]) : 12
+  if (hour < 6) return "before dawn"
+  if (hour < 11) return "morning"
+  if (hour < 15) return "early afternoon"
+  if (hour < 18) return "late afternoon"
+  if (hour < 21) return "dusk"
+  return "tonight"
+}
+
+function throughDayPart(item) {
+  var part = dayPart(item)
+  if (part === "before dawn") return "through the predawn hours"
+  if (part === "morning") return "through the morning"
+  if (part === "tonight") return "tonight"
+  return "through " + part
+}
+
+function easingDayPart(item) {
+  var part = dayPart(item)
+  if (part === "before dawn") return "before dawn"
+  if (part === "tonight") return "later tonight"
+  return "toward " + part
+}
+
+function eventDayPart(item) {
+  var part = dayPart(item)
+  if (part === "before dawn" || part === "tonight") return part
+  if (part === "dusk") return "around dusk"
+  return "in the " + part
+}
+
+function precipitationBuildParts(kind, peakItem, endItem) {
+  var peakTiming = throughDayPart(peakItem)
+  var endTiming = easingDayPart(endItem)
+  if (kind === "storm")
+    return { lead: "Storms build " + peakTiming + ", then",
+      accent: "soften " + endTiming + "." }
+  if (kind === "snow")
+    return { lead: "Snow builds " + peakTiming + ", then",
+      accent: "eases " + endTiming + "." }
+  if (kind === "ice")
+    return { lead: "Icy precipitation builds " + peakTiming + ", then",
+      accent: "eases " + endTiming + "." }
+  return { lead: "Rain builds " + peakTiming + ", then",
+    accent: "eases " + endTiming + "." }
+}
+
+function precipitationPeakTitle(kind, item) {
+  var timing = eventDayPart(item)
+  if (kind === "storm") return "Storms are most likely " + timing + "."
+  if (kind === "snow") return "Snow is most likely " + timing + "."
+  if (kind === "ice")
+    return "Icy precipitation is most likely " + timing + "."
+  return "Rain is most likely " + timing + "."
+}
+
+function precipitationPassingTitle(kind, item) {
+  var timing = eventDayPart(item)
+  if (kind === "storm") return "A passing storm may arrive " + timing + "."
+  if (kind === "snow") return "A spell of snow may arrive " + timing + "."
+  if (kind === "ice") return "Icy precipitation may arrive " + timing + "."
+  return "A passing shower may arrive " + timing + "."
+}
+
+function heatHoldTitle(item) {
+  return "Heat holds " + throughDayPart(item)
+}
+
 function weatherFamily(item) {
   var code = Number(item ? item.weather_code : -1)
   if (code === 95 || code === 96 || code === 99) return "storm"

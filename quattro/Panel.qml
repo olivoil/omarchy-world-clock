@@ -7,6 +7,7 @@ import qs.Commons
 import qs.Ui
 import "TimelineHoverState.js" as TimelineHoverState
 import "TimeRail.js" as TimeRail
+import "WeatherRefresh.js" as WeatherRefresh
 
 // Quattro-native world-clock panel. Rust remains the timezone/config engine;
 // this already-loaded QML surface owns the interaction and visual lifecycle.
@@ -140,6 +141,7 @@ Panel {
   readonly property bool localDayRulersVisible:
     mode === "read" && (scrubPreviewActive || !live)
   readonly property int weatherRefreshMilliseconds: 15 * 60 * 1000
+  readonly property int weatherAttemptCooldownMilliseconds: 2 * 60 * 1000
   readonly property int weatherFreshnessCheckMilliseconds: 30 * 1000
   readonly property string currentLocationTitle: {
     var title = String(summary.title || summary.label || "").trim()
@@ -1081,11 +1083,19 @@ Panel {
     if (!opened || !snapshotLoaded || !live || scrubPreviewActive) return
     var signature = weatherSignature()
     if (!signature) return
-    var fresh = !weatherError && signature === weatherLoadedSignature
-      && Date.now() - weatherLastUpdatedAt < weatherRefreshMilliseconds
-    var recentlyAttempted = signature === weatherAttemptSignature
-      && Date.now() - weatherLastAttemptAt < 2 * 60 * 1000
-    if (force !== true && (fresh || recentlyAttempted)) return
+    var now = Date.now()
+    if (!WeatherRefresh.requestNeeded({
+      manual: force === true,
+      signature: signature,
+      loadedSignature: weatherLoadedSignature,
+      failed: weatherError,
+      lastUpdatedAt: weatherLastUpdatedAt,
+      attemptedSignature: weatherAttemptSignature,
+      lastAttemptAt: weatherLastAttemptAt,
+      now: now,
+      freshnessMilliseconds: weatherRefreshMilliseconds,
+      attemptCooldownMilliseconds: weatherAttemptCooldownMilliseconds
+    })) return
     if (weatherProcess.running) {
       weatherRequestPending = true
       return
@@ -1093,7 +1103,7 @@ Panel {
     weatherRequestPending = false
     weatherActiveSignature = signature
     weatherAttemptSignature = signature
-    weatherLastAttemptAt = Date.now()
+    weatherLastAttemptAt = now
     var command = [backendCommand, "weather"]
     if (snapshot && snapshot.reference_utc)
       command.push("--at", String(snapshot.reference_utc))
@@ -1227,7 +1237,7 @@ Panel {
     live = true
     keyCatcher.forceActiveFocus(Qt.MouseFocusReason)
     requestLiveSnapshot()
-    requestWeather(false)
+    requestWeather(true)
   }
 
   function resetTimeOnPanelClose() {
@@ -2116,8 +2126,9 @@ Panel {
               Button {
                 iconText: "󰑐"
                 active: !root.live || root.scrubPreviewActive
-                enabled: !actionProcess.running
-                tooltipText: "Return to live time (Home)"
+                tooltipText: root.live && !root.scrubPreviewActive
+                  ? "Refresh weather"
+                  : "Return to current time"
                 horizontalPadding: Style.space(8)
                 verticalPadding: Style.space(5)
                 onClicked: root.returnToLive()

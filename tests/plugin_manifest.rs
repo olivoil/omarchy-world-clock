@@ -51,8 +51,11 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(qml.contains("Qt.resolvedUrl(\"../bin/\" + backendExecutableName)"));
     assert!(qml.contains("property string buildLabel: \"\""));
     assert!(qml.contains("property color iconForeground:"));
+    assert!(qml.contains("readonly property string integrationCommand:"));
+    assert!(qml.contains("Qt.resolvedUrl(\"../scripts/install-integrations.sh\")"));
     assert!(qml.contains("withBuildLabel(tooltip || \"World Clock\")"));
     assert!(qml.contains("target.moduleName = root.moduleName"));
+    assert!(qml.contains("target.integrationCommand = root.integrationCommand"));
     assert!(qml.contains("onModuleNameChanged: injectPanel()"));
     assert!(!qml.contains("setting(\"command\""));
     assert!(!qml.contains("Install omarchy-world-clock-bin"));
@@ -66,6 +69,65 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
             & 0o111,
         0,
         "bundled backend must be executable"
+    );
+    let agent_cli_path = root.join("bin/omarchy-world-clock");
+    assert!(
+        agent_cli_path.is_file(),
+        "missing {}",
+        agent_cli_path.display()
+    );
+    assert_ne!(
+        fs::metadata(&agent_cli_path)
+            .expect("read agent CLI metadata")
+            .permissions()
+            .mode()
+            & 0o111,
+        0,
+        "agent CLI must be executable"
+    );
+    let skill_path = root.join("skills/omarchy-world-clock/SKILL.md");
+    let skill_reference_path = root.join("skills/omarchy-world-clock/references/cli.md");
+    let skill_helper_path = root.join("skills/omarchy-world-clock/scripts/world-clock");
+    assert!(skill_path.is_file(), "missing {}", skill_path.display());
+    assert!(
+        skill_reference_path.is_file(),
+        "missing {}",
+        skill_reference_path.display()
+    );
+    assert!(
+        skill_helper_path.is_file(),
+        "missing {}",
+        skill_helper_path.display()
+    );
+    assert_ne!(
+        fs::metadata(&skill_helper_path)
+            .expect("read skill helper metadata")
+            .permissions()
+            .mode()
+            & 0o111,
+        0,
+        "skill helper must be executable"
+    );
+    let integration_installer_path = root.join("scripts/install-integrations.sh");
+    assert!(
+        integration_installer_path.is_file(),
+        "missing {}",
+        integration_installer_path.display()
+    );
+    assert_ne!(
+        fs::metadata(&integration_installer_path)
+            .expect("read integration installer metadata")
+            .permissions()
+            .mode()
+            & 0o111,
+        0,
+        "integration installer must be executable"
+    );
+    let integration_state_path = root.join("quattro/IntegrationState.js");
+    assert!(
+        integration_state_path.is_file(),
+        "missing {}",
+        integration_state_path.display()
     );
     assert!(qml.contains("source: Qt.resolvedUrl(\"Panel.qml\")"));
     assert!(qml.contains("slotSize: Style.bar.statusSlot"));
@@ -151,6 +213,13 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert_text_items_are_plain_text(&weather_graph, "quattro/WeatherMetricGraph.qml");
     assert!(!panel.contains("omarchy-world-clock-bin"));
     assert!(panel.contains("KeyboardPanel"));
+    assert!(panel.contains("import \"IntegrationState.js\" as IntegrationState"));
+    assert!(panel.contains("function requestIntegrationStatus()"));
+    assert!(panel.contains("integrationStatusProcess.command = [integrationCommand, \"--status\"]"));
+    assert!(panel.contains("id: integrationEnableButton"));
+    assert!(panel.contains("visible: root.integrationActionVisible"));
+    assert!(panel.contains("onClicked: root.enableIntegrations()"));
+    assert!(panel.contains("Start a new agent session to load the skill"));
     assert!(panel.contains("owner: root.barIdentity"));
     assert!(panel.contains("onTabRequested"));
     assert!(panel.contains("root.switchPanel(direction)"));

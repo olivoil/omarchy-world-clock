@@ -28,6 +28,8 @@ BarWidget {
   readonly property int supportedBackendProtocol: 6
   readonly property string backendCommand:
     String(Qt.resolvedUrl("../bin/" + backendExecutableName)).replace(/^file:\/\//, "")
+  readonly property string integrationCommand:
+    String(Qt.resolvedUrl("../scripts/install-integrations.sh")).replace(/^file:\/\//, "")
   readonly property bool opened: panelLoader.item ? panelLoader.item.opened === true : false
   readonly property bool popoutSwitchClosing: panelLoader.item
     ? panelLoader.item.popoutSwitchClosing === true : false
@@ -66,6 +68,8 @@ BarWidget {
     if ("anchorItem" in target) target.anchorItem = root.activeButton
     if ("hostWidget" in target) target.hostWidget = root
     if ("backendCommand" in target) target.backendCommand = root.backendCommand
+    if ("integrationCommand" in target)
+      target.integrationCommand = root.integrationCommand
   }
 
   function refresh() {
@@ -188,6 +192,7 @@ BarWidget {
   onSettingsChanged: injectPanel()
   onModuleNameChanged: injectPanel()
   onBackendCommandChanged: injectPanel()
+  onIntegrationCommandChanged: injectPanel()
   onActiveButtonChanged: injectPanel()
 
   Loader {

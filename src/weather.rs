@@ -1,4 +1,4 @@
-use crate::config::{place_coordinate, AppConfig, LocationKey};
+use crate::config::{place_coordinate, AppConfig, LocationKey, TimezoneEntry};
 use crate::quattro::visible_location_entries;
 use crate::remote_response::{
     open_meteo_client, read_json_response, MAX_OPEN_METEO_RESPONSE_BYTES,
@@ -193,10 +193,42 @@ pub fn current_weather(
     local_timezone: &str,
     reference_utc: DateTime<Utc>,
 ) -> Result<WeatherPayload> {
+    let locations = if config.disable_open_meteo_geolocation {
+        Vec::new()
+    } else {
+        weather_locations(config, local_timezone, reference_utc)
+    };
+    current_weather_for_locations(
+        locations,
+        config.disable_open_meteo_geolocation,
+        reference_utc,
+    )
+}
+
+/// Fetch weather for exactly one resolved clock entry without implicitly
+/// adding the system-local summary used by the panel's visible-location model.
+pub fn current_weather_for_entry(
+    entry: &TimezoneEntry,
+    disabled: bool,
+    reference_utc: DateTime<Utc>,
+) -> Result<WeatherPayload> {
+    let locations = if disabled {
+        Vec::new()
+    } else {
+        weather_locations_from_entries(std::iter::once(entry))
+    };
+    current_weather_for_locations(locations, disabled, reference_utc)
+}
+
+fn current_weather_for_locations(
+    locations: Vec<WeatherLocation>,
+    disabled: bool,
+    reference_utc: DateTime<Utc>,
+) -> Result<WeatherPayload> {
     let mut payload = WeatherPayload {
         source: "Open-Meteo",
         attribution_url: OPEN_METEO_ATTRIBUTION_URL,
-        disabled: config.disable_open_meteo_geolocation,
+        disabled,
         partial: false,
         failed_locations: Vec::new(),
         locations: Vec::new(),
@@ -205,7 +237,6 @@ pub fn current_weather(
         return Ok(payload);
     }
 
-    let locations = weather_locations(config, local_timezone, reference_utc);
     if locations.is_empty() {
         return Ok(payload);
     }
@@ -330,15 +361,21 @@ fn weather_locations(
     reference_utc: DateTime<Utc>,
 ) -> Vec<WeatherLocation> {
     let (_, entries) = visible_location_entries(config, reference_utc, local_timezone);
+    weather_locations_from_entries(entries.iter())
+}
+
+fn weather_locations_from_entries<'a>(
+    entries: impl IntoIterator<Item = &'a TimezoneEntry>,
+) -> Vec<WeatherLocation> {
     let mut locations: Vec<WeatherLocation> = Vec::new();
     for entry in entries {
-        let Some((latitude, longitude)) = place_coordinate(&entry) else {
+        let Some((latitude, longitude)) = place_coordinate(entry) else {
             continue;
         };
         let label = entry.display_label();
         let target = WeatherTarget {
             id: entry.id,
-            timezone: entry.timezone,
+            timezone: entry.timezone.clone(),
             label,
         };
         if let Some(location) = locations.iter_mut().find(|location| {
@@ -602,7 +639,8 @@ fn weather_condition(code: i64) -> &'static str {
 mod tests {
     use super::{
         fetch_weather_response, parse_weather_response, weather_condition, weather_in_batches,
-        weather_locations, WeatherLocation, WeatherTarget, OPEN_METEO_BATCH_SIZE,
+        weather_locations, weather_locations_from_entries, WeatherLocation, WeatherTarget,
+        OPEN_METEO_BATCH_SIZE,
     };
     use crate::config::{AppConfig, LocationKey, TimezoneEntry};
     use crate::quattro::build_snapshot;
@@ -725,6 +763,25 @@ mod tests {
         assert_eq!(weather[0].forecast[0].date, "2026-08-22");
         assert_eq!(weather[0].forecast[0].temperature_max_celsius, 30.4);
         assert_eq!(weather[0].forecast[3].weather_code, 80);
+    }
+
+    #[test]
+    fn targeted_weather_request_contains_only_the_selected_entry() {
+        let selected = TimezoneEntry {
+            id: 7,
+            timezone: "Asia/Tokyo".to_string(),
+            place: "Tokyo".to_string(),
+            label: "Akiko".to_string(),
+            latitude: Some(35.6764),
+            longitude: Some(139.65),
+        };
+
+        let locations = weather_locations_from_entries(std::iter::once(&selected));
+
+        assert_eq!(locations.len(), 1);
+        assert_eq!(locations[0].targets.len(), 1);
+        assert_eq!(locations[0].targets[0].id, 7);
+        assert_eq!(locations[0].targets[0].label, "Akiko");
     }
 
     #[test]

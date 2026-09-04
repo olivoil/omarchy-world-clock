@@ -82,6 +82,7 @@ The executable exposes a deliberately small command/JSON boundary:
 | `rename` | change one card's personal label by stable ID | no output |
 | `remove` | remove one card by stable ID | no output |
 | `pin` / `unpin` | add or remove one pinned card by stable ID | no output |
+| `agent` | versioned, label-aware time, conversion, forecast, and overlap API | JSON |
 | `version` | report the source/package version | text |
 
 `module.protocol_version` lets QML reject an incompatible executable before
@@ -125,9 +126,41 @@ removes weather attribution with the data. The setting is deliberately not
 passed to the search command, so remote place lookup remains controlled only by
 the app-level `disable_open_meteo_geolocation` privacy opt-out.
 
-The executable is not a general user CLI and does not own shell integration.
-Installation, enablement, placement, updates, and removal remain the job of
-the official `omarchy plugin` and `omarchy bar` commands.
+The commands used by QML are an internal frontend/backend protocol. The
+separate `agent` namespace is a deliberately compact, versioned public JSON
+surface exposed through `bin/omarchy-world-clock`; it does not expose mutation
+commands or require agents to understand the full panel snapshot. Installation,
+enablement, placement, updates, and removal still remain the job of the official
+`omarchy plugin` and `omarchy bar` commands.
+
+## Desktop and agent integrations
+
+The optional keyboard shortcut calls:
+
+```text
+omarchy-shell shell toggle io.github.olivoil.world-clock
+```
+
+That reuses the widget's existing shell IPC handler and lets the shell route
+the toggle to the focused monitor. There is no second window, resident daemon,
+or duplicate panel lifecycle. Omarchy's current plugin installer intentionally
+does not execute plugin hooks, and the manifest has no shortcut or agent-skill
+declaration. `scripts/install-integrations.sh` therefore performs this user
+configuration as an explicit, collision-checked, backed-up, reversible step.
+Its `--status` mode only inspects the managed binding and owned links, then
+returns versioned JSON. The panel calls that read-only mode when it opens and
+shows a compact **Enable** header action only while setup is incomplete. The
+mutating installer runs only after that user click. Review builds identify
+themselves in status and refuse persistent integration changes.
+
+Agent integration is a skill plus a thin local JSON CLI rather than an MCP
+server. That is the smallest surface shared by Omarchy's supported agents: it
+has no daemon, socket, credentials, per-agent MCP registration, or additional
+runtime. The skill provides the reasoning policy—personal-label lookup,
+reference-time conversion before a forecast, explicit group membership, and
+reasonable-hours assumptions—while the Rust API owns deterministic config,
+timezone, DST, weather, and overlap calculations. A future MCP adapter can
+wrap the same versioned `agent` namespace without duplicating domain logic.
 
 ## Bundle layout
 
@@ -144,8 +177,14 @@ assets/NATURAL_EARTH.md
 assets/globe.frag
 assets/globe.frag.qsb
 bin/omarchy-world-clock-backend
+bin/omarchy-world-clock
 bin/BUILDINFO
 bin/SHA256SUMS
+skills/omarchy-world-clock/SKILL.md
+skills/omarchy-world-clock/agents/openai.yaml
+skills/omarchy-world-clock/references/cli.md
+skills/omarchy-world-clock/scripts/world-clock
+scripts/install-integrations.sh
 data/timezone-grid.bin
 data/ODbL-1.0.txt
 ```

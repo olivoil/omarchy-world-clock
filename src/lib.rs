@@ -1,3 +1,4 @@
+pub mod agent_api;
 pub mod backend;
 pub mod config;
 pub mod quattro;

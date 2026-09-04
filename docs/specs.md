@@ -50,6 +50,44 @@ AUR package, `PATH` lookup, user-configured backend command, or install hook.
   specific recovery. A protocol mismatch tells the user to restart the shell,
   because older Omarchy releases can retain cached plugin QML across updates.
 
+## Optional desktop and agent integration
+
+- The plugin ships an explicit, reversible integration installer because a
+  standard Omarchy plugin install does not run hooks or mutate user keybindings.
+- The panel queries the installer's non-mutating JSON status when opened. While
+  either the shortcut or agent access is missing, read mode exposes one compact
+  **Enable** action in the header with copy describing only the missing pieces.
+  A successful click hides the action and reports that a new agent session is
+  needed to load the skill; a failure remains retryable and preserves a concise
+  error.
+- Isolated review builds report integration setup as unsupported and never
+  offer to replace persistent shortcuts, commands, or skills.
+- The default shortcut is `Super+Shift+T`. It toggles the existing World
+  Clock bar widget through `omarchy-shell shell toggle`, so normal
+  focused-monitor routing and panel coordination still apply.
+- The installer refuses a shortcut already reported by Omarchy, changes only a
+  marked block in the user's Hyprland bindings file, creates a backup, reloads
+  Hyprland, and restores the previous file if its change introduces an error.
+- The installer can install only the shortcut, only the agent integration, use
+  a caller-selected shortcut, report versioned JSON status, or remove paths
+  and configuration it owns.
+- Agent setup exposes a thin `omarchy-world-clock` command plus a packaged
+  skill in Omarchy's common agent skill directories. Neither reads the config
+  file directly; the CLI delegates to the version-matched bundled backend.
+- Successful agent data commands return JSON with `api_version: 1`.
+- Location lookup accepts stable IDs and normalized personal labels, places,
+  and timezone names. An exact personal label has priority; equal best matches
+  fail as ambiguous and include candidate IDs.
+- The agent API can list places, report a time at an instant, convert a local
+  wall-clock value, obtain a selected location's forecast, and find shared
+  working-hour windows for explicitly named participants.
+- Forecast queries fetch only the selected saved entry, retain Open-Meteo
+  attribution, and honor `disable_open_meteo_geolocation` without fallback.
+- Shared-work windows are DST-aware, use 15-minute granularity, and default to
+  09:00–17:00 in each participant's timezone with a 30-minute minimum.
+- Group membership is not inferred from a group-like label; the skill asks for
+  members unless the prompt names them or saved labels make them unambiguous.
+
 ## Panel
 
 - The panel renders inside the existing `omarchy-shell` Quickshell process
@@ -58,8 +96,8 @@ AUR package, `PATH` lookup, user-configured backend command, or install hook.
   opacity, radius, spacing, and typography tokens.
 - Outside click and `Escape` dismiss it.
 - `Tab` and `Shift+Tab` can hand off to adjacent panels.
-- Opening the panel is an in-process state change; only bounded backend
-  commands start an external process.
+- Opening the panel is an in-process state change; it starts only bounded
+  backend work and the integration installer's read-only status check.
 - The panel has read, edit, and add modes.
 - Read mode shows the summary clock, proportional relative timeline, and every
   non-local location clock. Comfortable density uses a borderless three-column
@@ -507,6 +545,11 @@ Rules:
 - The QML always resolves the backend from its plugin directory.
 - Plugin and backend versions match and the module protocol handshake passes.
 - The panel toggles and coordinates with built-in Quattro panels.
+- The optional default shortcut toggles the existing panel on the focused
+  monitor, rejects occupied chords, and is idempotent and reversible.
+- Agent queries resolve personal labels without exposing raw config parsing,
+  convert user-relative times before selecting hourly weather, honor the
+  weather opt-out, and return DST-aware work-hour overlap for named entries.
 - Multiple pins persist and update independently; the first three appear in
   the bar and any remainder appears as a `+N` summary.
 - Renaming persists, including for a pinned location and places that share a

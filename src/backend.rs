@@ -13,7 +13,7 @@ use anyhow::{bail, Context, Result};
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 
-pub const USAGE: &str = "Usage: omarchy-world-clock-backend <module|snapshot|scrub|convert|weather|search|locate|add|rename|remove|pin|unpin|version>";
+pub const USAGE: &str = "Usage: omarchy-world-clock-backend <module|snapshot|scrub|convert|weather|search|locate|add|rename|remove|pin|unpin|agent|version>";
 
 fn optional_flag(args: &[String], flag: &str) -> Result<Option<String>> {
     let mut index = 0;
@@ -283,6 +283,7 @@ pub fn execute(args: &[String]) -> Result<Option<String>> {
             }
             None
         }
+        "agent" => Some(crate::agent_api::execute(remaining_args)?),
         "version" | "--version" | "-V" => Some(env!("CARGO_PKG_VERSION").to_string()),
         _ => bail!("unknown backend command: {command}\n{USAGE}"),
     };

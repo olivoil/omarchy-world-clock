@@ -1697,5 +1697,5 @@ fn group_edit_actions_align_and_disable_at_reorder_boundaries() {
     assert!(actions.contains("id: removeGroupIcon"));
     assert!(actions.contains("anchors.horizontalCenter: parent.horizontalCenter"));
     assert!(actions.contains("anchors.verticalCenter: parent.verticalCenter"));
-    assert!(actions.contains("anchors.verticalCenterOffset: Style.space(4)"));
+    assert!(actions.contains("anchors.verticalCenterOffset: 0"));
 }

@@ -3679,7 +3679,7 @@ Panel {
                         textFormat: Text.PlainText
                         anchors.horizontalCenter: parent.horizontalCenter
                         anchors.verticalCenter: parent.verticalCenter
-                        anchors.verticalCenterOffset: Style.space(4)
+                        anchors.verticalCenterOffset: 0
                         text: "󰆴"
                         color: removeGroupButton.enabled
                           ? (removeGroupHoverHandler.hovered

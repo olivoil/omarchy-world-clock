@@ -585,3 +585,143 @@ fn weather_command_honors_the_open_meteo_opt_out_without_network_access() {
     assert_eq!(payload["disabled"], true);
     assert_eq!(payload["locations"], serde_json::json!([]));
 }
+
+#[test]
+fn agent_api_resolves_labels_converts_time_and_finds_work_overlap() {
+    let sandbox = tempfile::tempdir().expect("create sandbox");
+    let home = sandbox.path().join("home");
+    let config_path = sandbox.path().join("config.json");
+    fs::create_dir_all(&home).expect("create home");
+    fs::write(
+        &config_path,
+        r#"{
+  "version": 8,
+  "disable_open_meteo_geolocation": true,
+  "timezones": [
+    {
+      "id": 1,
+      "timezone": "UTC",
+      "place": "Greenwich",
+      "label": "Home",
+      "latitude": 51.4779,
+      "longitude": -0.0015
+    },
+    {
+      "id": 2,
+      "timezone": "America/New_York",
+      "place": "Boston",
+      "label": "Jeff",
+      "latitude": 42.3601,
+      "longitude": -71.0589
+    },
+    {
+      "id": 3,
+      "timezone": "Europe/Paris",
+      "place": "Rennes",
+      "label": "Jenny",
+      "latitude": 48.1173,
+      "longitude": -1.6778
+    }
+  ]
+}
+"#,
+    )
+    .expect("write config");
+    let backend = env!("CARGO_BIN_EXE_omarchy-world-clock-backend");
+    let run = |args: &[&str]| {
+        Command::new(backend)
+            .arg("agent")
+            .args(args)
+            .env("HOME", &home)
+            .env("OMARCHY_WORLD_CLOCK_CONFIG", &config_path)
+            .output()
+            .expect("run agent API")
+    };
+
+    let places = run(&["places", "--at", "2026-09-04T12:00:00Z"]);
+    assert!(places.status.success());
+    let places: serde_json::Value =
+        serde_json::from_slice(&places.stdout).expect("parse places payload");
+    assert_eq!(places["api_version"], 1);
+    assert!(places["locations"].as_array().is_some_and(|locations| {
+        locations.iter().any(|location| {
+            location["id"] == 2
+                && location["label"] == "Jeff"
+                && location["custom_label"] == "Jeff"
+                && location["place"] == "Boston"
+        })
+    }));
+
+    let time = run(&["time", "--location", "jeff", "--at", "2026-09-04T12:00:00Z"]);
+    assert!(time.status.success());
+    let time: serde_json::Value = serde_json::from_slice(&time.stdout).expect("parse time payload");
+    assert_eq!(time["location"]["id"], 2);
+    assert_eq!(
+        time["location"]["local_datetime"],
+        "2026-09-04T08:00:00-04:00"
+    );
+
+    let conversion = run(&[
+        "convert",
+        "--from",
+        "Jeff",
+        "--time",
+        "2026-09-04 09:00",
+        "--base",
+        "2026-09-04T12:00:00Z",
+    ]);
+    assert!(conversion.status.success());
+    let conversion: serde_json::Value =
+        serde_json::from_slice(&conversion.stdout).expect("parse conversion payload");
+    assert_eq!(conversion["reference_utc"], "2026-09-04T13:00:00Z");
+    assert!(conversion["locations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|location| {
+            location["id"] == 3 && location["local_datetime"] == "2026-09-04T15:00:00+02:00"
+        }));
+
+    let overlap = run(&[
+        "overlap",
+        "--id",
+        "2",
+        "--id",
+        "3",
+        "--date",
+        "2026-09-04",
+        "--days",
+        "1",
+        "--duration-minutes",
+        "60",
+    ]);
+    assert!(overlap.status.success());
+    let overlap: serde_json::Value =
+        serde_json::from_slice(&overlap.stdout).expect("parse overlap payload");
+    assert_eq!(overlap["work_start"], "09:00");
+    assert_eq!(overlap["work_end"], "17:00");
+    assert_eq!(overlap["windows"][0]["duration_minutes"], 120);
+    assert_eq!(
+        overlap["windows"][0]["participants"][0]["start"],
+        "2026-09-04T09:00:00-04:00"
+    );
+    assert_eq!(
+        overlap["windows"][0]["participants"][1]["start"],
+        "2026-09-04T15:00:00+02:00"
+    );
+
+    let forecast = run(&[
+        "forecast",
+        "--location",
+        "Jenny",
+        "--at",
+        "2026-09-04T13:00:00Z",
+    ]);
+    assert!(forecast.status.success());
+    let forecast: serde_json::Value =
+        serde_json::from_slice(&forecast.stdout).expect("parse forecast payload");
+    assert_eq!(forecast["status"], "disabled");
+    assert_eq!(forecast["location"]["id"], 3);
+    assert!(forecast["weather"].is_null());
+    assert!(forecast["forecast_at"].is_null());
+}

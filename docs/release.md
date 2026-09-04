@@ -120,11 +120,22 @@ Test at minimum:
 - map clicks on representative land and ocean locations
 - time conversion around a DST transition
 - plugin reload and shell restart
-- the bundled version:
+- the bundled version, optional integrations, and public agent API:
 
   ```bash
-  ~/.config/omarchy/plugins/io.github.olivoil.world-clock/bin/omarchy-world-clock-backend version
+  plugin=~/.config/omarchy/plugins/io.github.olivoil.world-clock
+  "$plugin/bin/omarchy-world-clock-backend" version
+  "$plugin/scripts/install-integrations.sh" --status
+  "$plugin/scripts/install-integrations.sh"
+  "$plugin/scripts/install-integrations.sh" --status
+  omarchy-world-clock places
+  "$plugin/scripts/install-integrations.sh" --remove
   ```
+
+  Before setup, confirm the panel offers its **Enable** header action. Confirm
+  the action installs both integrations and disappears, the shortcut toggles
+  the panel on the focused monitor, the agent command resolves a personal
+  label, and removal preserves unrelated bindings and skills.
 
 To return to the currently published build before approval:
 

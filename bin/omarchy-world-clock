@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+bin_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+
+# Review installs wrap the backend to point at branch-isolated state. Prefer
+# that wrapper when present so the public CLI cannot accidentally read or
+# migrate the canonical World Clock configuration during local review.
+if [[ -x $bin_dir/omarchy-world-clock-review-backend ]]; then
+  backend=$bin_dir/omarchy-world-clock-review-backend
+else
+  backend=$bin_dir/omarchy-world-clock-backend
+fi
+
+exec "$backend" agent "$@"

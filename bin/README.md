@@ -4,6 +4,12 @@
 QML plugin. It is committed so `omarchy plugin add` installs a complete plugin
 without a package manager, compiler, or post-install hook.
 
+`omarchy-world-clock` is a portable shell wrapper around the backend's
+versioned `agent` JSON namespace. The optional integration installer links that
+wrapper into `~/.local/bin`; it stays relative to this plugin directory so CLI,
+skill, and backend update together. Isolated review installs provide a backend
+wrapper that redirects it to the review-specific config.
+
 Rebuild it from the checked-in source and lockfile with:
 
 ```bash

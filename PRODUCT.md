@@ -9,7 +9,9 @@ product
 Omarchy users who coordinate across timezones from the desktop bar. They need
 to scan current times, keep a home timezone visible while traveling, and
 glance at current conditions, and convert a reference time without leaving
-their active workspace.
+their active workspace. They may also ask their local agent about people or
+groups represented by personally labelled clocks instead of translating that
+context into timezone names themselves.
 
 ## Product Purpose
 
@@ -37,6 +39,10 @@ Native, precise, quiet.
 - Keep weather quiet and subordinate to each location's time.
 - Use Omarchy's active runtime tokens instead of approximating a theme.
 - Keep advanced editing available without adding noise to the read view.
+- Keep optional setup to one conditional header action that disappears once
+  complete; do not turn the working panel into an onboarding flow.
+- Let agents reuse saved labels and the same timezone engine through a small,
+  deterministic interface rather than reading user configuration directly.
 - Treat pinned timezones as quiet ambient context, not alert states.
 - Prefer a focused, native Quattro experience over compatibility layers for
   older Omarchy shells.

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Omarchy World Clock"
+  short_description: "Query saved times, forecasts, and work overlap"
+  default_prompt: "Use $omarchy-world-clock to answer a time or weather question from my saved clocks."

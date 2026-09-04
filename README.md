@@ -31,6 +31,35 @@ omarchy bar move io.github.olivoil.world-clock --section left
 
 Use `center` or `right` instead of `left` as needed.
 
+### Optional keyboard and agent integration
+
+When these integrations are missing, open World Clock and click **Enable** in
+the panel header. That one explicit action adds the default
+**Super+Shift+T** toggle, the `omarchy-world-clock` JSON CLI, and the World
+Clock skill to Omarchy's common agent skill directories. The action disappears
+as soon as setup is complete.
+
+For a custom shortcut or partial setup, use the same reversible installer from
+the installed plugin:
+
+```bash
+~/.config/omarchy/plugins/io.github.olivoil.world-clock/scripts/install-integrations.sh
+```
+
+The panel checks status without changing anything before it offers the action.
+The installer checks for shortcut collisions, backs up
+`~/.config/hypr/bindings.lua`, validates the Hyprland reload, and never
+replaces an unrelated command or skill. Use `--shortcut "..."`,
+`--no-shortcut`, or `--no-agent` to customize the setup; use `--status` for its
+machine-readable state.
+
+This step is explicit because the current
+[Omarchy plugin contract](https://github.com/basecamp/omarchy/blob/quattro/manual/32-shell-plugins.md)
+deliberately does not execute post-install hooks. The panel itself still
+installs and works normally without it, and only invokes the installer after a
+click. The skill links mirror the directories documented in Omarchy's
+[AI guide](https://github.com/basecamp/omarchy/blob/quattro/manual/17-ai.md).
+
 ### Update
 
 ```bash
@@ -57,6 +86,8 @@ the AUR package is no longer required.
 ## Use
 
 - **Left click** the world icon to open or close World Clock.
+- With the optional integration installed, press **Super+Shift+T** to
+  toggle World Clock on the focused monitor.
 - **Right click** it to open Omarchy's system-timezone selector and set your local timezone.
 - Use the **pencil** to rename, pin, or remove locations. Click a location name
   to edit it, then press **Enter** to save it or **Escape** to cancel. Submit an
@@ -115,6 +146,30 @@ the AUR package is no longer required.
 - Automatic temperature units matching Omarchy Weather's effective preference,
   including its configured home location, then the system locale.
 - Persistent state in `~/.config/omarchy-world-clock/config.json`.
+
+## Agent queries
+
+The optional skill teaches Omarchy agents to query saved clocks by personal
+label, actual place, or stable ID. Its thin CLI returns versioned JSON and uses
+the same configuration migrations and DST-aware conversion engine as the
+panel:
+
+```bash
+omarchy-world-clock places
+omarchy-world-clock time --location "Jeff"
+omarchy-world-clock convert --from local --time "2pm"
+omarchy-world-clock forecast --location "Jenny" --at "2026-09-04T19:00:00Z"
+omarchy-world-clock overlap --location local --location "Jeff" --location "Jenny"
+```
+
+Exact personal labels take precedence over place names. Ambiguous labels fail
+with candidate IDs instead of being guessed. Meeting overlap is DST-aware and
+defaults to 09:00–17:00 in every participant's timezone; agents are instructed
+to name that assumption and to ask for group membership when it is not explicit.
+Weather remains subject to World Clock's Open-Meteo privacy opt-out.
+
+See the [agent CLI contract](skills/omarchy-world-clock/references/cli.md) and
+[skill instructions](skills/omarchy-world-clock/SKILL.md).
 
 ## Why QML and Rust?
 
@@ -220,12 +275,14 @@ See Open-Meteo's [Terms & Privacy](https://open-meteo.com/en/terms) and
 ## Uninstall
 
 ```bash
+~/.config/omarchy/plugins/io.github.olivoil.world-clock/scripts/install-integrations.sh --remove
 omarchy plugin remove io.github.olivoil.world-clock
 ```
 
-This removes the plugin but preserves saved places. Delete
-`~/.config/omarchy-world-clock/config.json` separately only if you also want to
-discard that state.
+Remove the optional integrations before removing the plugin checkout so their
+owned links can be identified safely. The plugin removal preserves saved
+places. Delete `~/.config/omarchy-world-clock/config.json` separately only if
+you also want to discard that state.
 
 ## Development
 
@@ -242,6 +299,7 @@ Exercise the JSON protocol:
 cargo run --locked --bin omarchy-world-clock-backend -- module
 cargo run --locked --bin omarchy-world-clock-backend -- snapshot
 cargo run --locked --bin omarchy-world-clock-backend -- weather
+cargo run --locked --bin omarchy-world-clock-backend -- agent places
 ```
 
 Rebuild checked-in artifacts after relevant source or dependency changes:

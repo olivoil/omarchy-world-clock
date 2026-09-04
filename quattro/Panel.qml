@@ -9,6 +9,7 @@ import "TimelineHoverState.js" as TimelineHoverState
 import "TimeRail.js" as TimeRail
 import "WeatherState.js" as WeatherState
 import "WeatherRefresh.js" as WeatherRefresh
+import "IntegrationState.js" as IntegrationState
 
 // Quattro-native world-clock panel. Rust remains the timezone/config engine;
 // this already-loaded QML surface owns the interaction and visual lifecycle.
@@ -22,6 +23,8 @@ Panel {
   property var hostWidget: null
   property string backendCommand:
     String(Qt.resolvedUrl("../bin/omarchy-world-clock-backend")).replace(/^file:\/\//, "")
+  property string integrationCommand:
+    String(Qt.resolvedUrl("../scripts/install-integrations.sh")).replace(/^file:\/\//, "")
   property var snapshot: ({
     schema_version: 2,
     reference_utc: "",
@@ -58,6 +61,12 @@ Panel {
   property string invalidConversionSource: ""
   property string statusText: ""
   property bool statusError: false
+  property bool integrationStatusChecked: false
+  property bool integrationSupported: false
+  property bool integrationInstalled: false
+  property bool integrationShortcutInstalled: false
+  property bool integrationAgentInstalled: false
+  property string integrationDefaultShortcut: "SUPER + SHIFT + T"
   property string actionName: ""
   property string searchQueryInFlight: ""
   property string searchResultsQuery: ""
@@ -217,6 +226,11 @@ Panel {
     || scrubSourceKey === root.conversionSource(root.summary)
   readonly property bool canRemove: Number(snapshot.configured_count || 0) > 1
   readonly property bool localTimezoneConfigured: snapshot.local_configured === true
+  readonly property bool integrationActionVisible: mode === "read"
+    && integrationStatusChecked && integrationSupported && !integrationInstalled
+  readonly property string integrationActionDescription:
+    IntegrationState.actionDescription(integrationShortcutInstalled,
+      integrationAgentInstalled, integrationDefaultShortcut)
   readonly property int compactClockColumns: panelScroll.width >= Style.space(780)
     ? 5 : (panelScroll.width >= Style.space(620) ? 4 : 3)
   readonly property real comfortableClockGridHeight: {
@@ -828,6 +842,39 @@ Panel {
   function setStatus(text, error) {
     statusText = String(text || "")
     statusError = error === true
+  }
+
+  function applyIntegrationStatus(raw) {
+    try {
+      var next = IntegrationState.parseStatus(raw)
+      integrationSupported = next.supported
+      integrationInstalled = next.installed
+      integrationShortcutInstalled = next.shortcutInstalled
+      integrationAgentInstalled = next.agentInstalled
+      integrationDefaultShortcut = next.defaultShortcut
+    } catch (error) {
+      // Optional integration discovery must never make the clock itself look
+      // broken. A missing or older installer simply leaves the action hidden.
+      integrationSupported = false
+      integrationInstalled = false
+      integrationShortcutInstalled = false
+      integrationAgentInstalled = false
+    }
+    integrationStatusChecked = true
+  }
+
+  function requestIntegrationStatus() {
+    if (!integrationCommand || integrationStatusProcess.running
+        || integrationInstallProcess.running) return
+    integrationStatusProcess.command = [integrationCommand, "--status"]
+    integrationStatusProcess.running = true
+  }
+
+  function enableIntegrations() {
+    if (!integrationActionVisible || integrationInstallProcess.running) return
+    clearStatus()
+    integrationInstallProcess.command = [integrationCommand]
+    integrationInstallProcess.running = true
   }
 
   function conversionSource(clock) {
@@ -1961,6 +2008,7 @@ Panel {
     }
     refresh()
     requestWeather(false)
+    Qt.callLater(root.requestIntegrationStatus)
   }
   onWeatherEnabledChanged: {
     if (!weatherEnabled) {
@@ -2011,6 +2059,38 @@ Panel {
       if (mode === "read") Qt.callLater(root.restoreReadModeFocus)
     }
   }
+  Process {
+    id: integrationStatusProcess
+    stdout: StdioCollector { id: integrationStatusOutput; waitForEnd: true }
+    stderr: StdioCollector { waitForEnd: true }
+    onExited: function(exitCode) {
+      if (exitCode === 0)
+        root.applyIntegrationStatus(integrationStatusOutput.text)
+      else if (!root.integrationStatusChecked) {
+        root.integrationSupported = false
+        root.integrationStatusChecked = true
+      }
+    }
+  }
+
+  Process {
+    id: integrationInstallProcess
+    stdout: StdioCollector { waitForEnd: true }
+    stderr: StdioCollector { id: integrationInstallError; waitForEnd: true }
+    onExited: function(exitCode) {
+      if (exitCode === 0) {
+        root.integrationShortcutInstalled = true
+        root.integrationAgentInstalled = true
+        root.integrationInstalled = true
+        root.setStatus("Shortcut and agent access enabled. Start a new agent session to load the skill.", false)
+      } else {
+        root.setStatus(IntegrationState.failureMessage(
+          integrationInstallError.text), true)
+      }
+      Qt.callLater(root.requestIntegrationStatus)
+    }
+  }
+
   Process {
     id: snapshotProcess
     stdout: StdioCollector { id: snapshotOutput; waitForEnd: true }
@@ -2568,6 +2648,23 @@ Panel {
               anchors.right: parent.right
               anchors.verticalCenter: parent.verticalCenter
               spacing: Style.space(6)
+
+              Button {
+                id: integrationEnableButton
+                visible: root.integrationActionVisible
+                text: integrationInstallProcess.running ? "ENABLING…" : "ENABLE"
+                enabled: !integrationInstallProcess.running && !actionProcess.running
+                bordered: true
+                focusable: true
+                tooltipText: root.integrationActionDescription
+                fontSize: Style.font.caption
+                horizontalPadding: Style.space(8)
+                verticalPadding: Style.space(5)
+                Accessible.name: "Enable World Clock shortcut and agent access"
+                Accessible.description: root.integrationActionDescription
+                Accessible.role: Accessible.Button
+                onClicked: root.enableIntegrations()
+              }
 
               Button {
                 iconText: "󰐕"

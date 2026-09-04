@@ -8,7 +8,11 @@ scripts/build-timezone-grid.sh --check
 scripts/build-plugin-backend.sh --check
 
 backend=bin/omarchy-world-clock-backend
+agent_cli=bin/omarchy-world-clock
+skill_helper=skills/omarchy-world-clock/scripts/world-clock
 [[ -x $backend ]]
+[[ -x $agent_cli ]]
+[[ -x $skill_helper ]]
 [[ $("$backend" version) == "$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')" ]]
 [[ $(stat -c %s "$backend") -le $((10 * 1024 * 1024)) ]]
 file "$backend" | grep -q 'static-pie linked'
@@ -66,5 +70,19 @@ OMARCHY_WORLD_CLOCK_CONFIG="$bundle_sandbox/config.json" \
 jq -e --arg timezone "$add_timezone" \
   '(.timezones | length) == 11 and any(.timezones[]; .timezone == $timezone)' \
   "$bundle_sandbox/config.json" >/dev/null
+
+HOME="$bundle_sandbox/home" \
+OMARCHY_WORLD_CLOCK_CONFIG="$bundle_sandbox/config.json" \
+  "$agent_cli" places --at 2026-08-11T11:05:00Z |
+  jq -e '
+    .api_version == 1 and
+    .reference_utc == "2026-08-11T11:05:00Z" and
+    any(.locations[]; .place == "Home")
+  ' >/dev/null
+
+HOME="$bundle_sandbox/home" \
+OMARCHY_WORLD_CLOCK_CONFIG="$bundle_sandbox/config.json" \
+  "$skill_helper" time --location Home --at 2026-08-11T11:05:00Z |
+  jq -e '.api_version == 1 and .location.place == "Home"' >/dev/null
 
 printf 'bundle tests passed\n'

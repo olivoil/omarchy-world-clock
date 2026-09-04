@@ -70,6 +70,11 @@ the AUR package is no longer required.
 - With no field focused, start typing a number to replace the local summary
   time, or start typing a location name to open Add mode and search for it.
 - Cards automatically become compact only when the large layout would not fit.
+- Click the weather icon and temperature beside the home time or on any
+  location card to open that place's Field Notes forecast: current conditions,
+  a local narrative, three near-term phases, four-day temperature and UV
+  ranges, and interactive 24-hour graphs. Use **Escape** or the back button to
+  return to the clocks.
 - Select a displayed time and enter another time to convert the same instant
   across every visible place.
 - Use **plus** to open the full-panel globe. Start typing or select **search**
@@ -86,8 +91,10 @@ the AUR package is no longer required.
 - An interactive, DST-aware time scrubber with a fixed playhead, direct ruler
   dragging, trackpad and wheel input, plus explicit previous- and next-day
   overflow context.
-- Optional current temperature and conditions for every place with a known
-  coordinate.
+- Optional current temperature, conditions, feels-like temperature, humidity,
+  directional wind, rain chance and amount, pressure, visibility, sunrise,
+  sunset, hourly UV and wind, a 24-hour forecast, and a four-day outlook for
+  every place with a known coordinate.
 - Multiple named places in the same timezone, such as Boston and New York.
 - Multiple independent cards for the same place, such as Boston for a person
   and Boston for an office.

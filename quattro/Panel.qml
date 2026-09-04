@@ -7,6 +7,7 @@ import qs.Commons
 import qs.Ui
 import "TimelineHoverState.js" as TimelineHoverState
 import "TimeRail.js" as TimeRail
+import "WeatherState.js" as WeatherState
 import "WeatherRefresh.js" as WeatherRefresh
 
 // Quattro-native world-clock panel. Rust remains the timezone/config engine;
@@ -78,6 +79,8 @@ Panel {
     source: "Open-Meteo",
     attribution_url: "https://open-meteo.com/",
     disabled: false,
+    partial: false,
+    failed_locations: [],
     locations: []
   })
   property bool weatherError: false
@@ -87,6 +90,7 @@ Panel {
   property string weatherAttemptSignature: ""
   property double weatherLastUpdatedAt: 0
   property double weatherLastAttemptAt: 0
+  property string weatherDetailKey: ""
   property bool globeInitialized: false
   property bool skipNextGlobeOpeningFlight: false
   property bool globeDetailRequested: false
@@ -138,6 +142,49 @@ Panel {
     && !root.scrubPreviewActive
     && weather.disabled !== true
     && (root.weatherLoading || root.weatherLocations.length > 0)
+  readonly property bool weatherDetailOpen: weatherDetailKey !== ""
+  readonly property var weatherDetailClock: root.clockForWeatherDetail()
+  readonly property var weatherDetailData: root.weatherFor(weatherDetailClock)
+  readonly property var weatherDetailHourlyForecast: {
+    var forecast = weatherDetailData
+      && Array.isArray(weatherDetailData.hourly_forecast)
+      ? weatherDetailData.hourly_forecast : []
+    var currentMoment = root.weatherUtcMoment(snapshot.reference_utc)
+    if (!isFinite(currentMoment)) return forecast
+    var currentAndFuture = []
+    for (var i = 0; i < forecast.length; i++) {
+      var forecastStart = root.weatherUtcMoment(forecast[i].reference_utc)
+      if (isFinite(forecastStart) && forecastStart + 3600000 > currentMoment)
+        currentAndFuture.push(forecast[i])
+    }
+    return currentAndFuture
+  }
+  readonly property var weatherDetailDailyForecast: {
+    var days = []
+    if (!weatherDetailData) return days
+    if (weatherDetailData.today) days.push(weatherDetailData.today)
+    var forecast = Array.isArray(weatherDetailData.forecast)
+      ? weatherDetailData.forecast : []
+    for (var i = 0; i < forecast.length; i++) days.push(forecast[i])
+    return days
+  }
+  readonly property string weatherDetailLocalDate: weatherDetailClock
+    ? String(weatherDetailClock.date || "") : ""
+  readonly property int weatherDetailTodayIndex: {
+    for (var i = 0; i < weatherDetailDailyForecast.length; i++) {
+      if (String(weatherDetailDailyForecast[i].date || "")
+          === weatherDetailLocalDate) return i
+    }
+    return -1
+  }
+  readonly property var weatherDetailToday:
+    weatherDetailTodayIndex >= 0
+      ? weatherDetailDailyForecast[weatherDetailTodayIndex] : null
+  readonly property var weatherDetailForecast:
+    weatherDetailTodayIndex >= 0
+      ? weatherDetailDailyForecast.slice(
+          weatherDetailTodayIndex + 1, weatherDetailTodayIndex + 5) : []
+  readonly property real weatherDetailSectionInset: Style.space(24)
   readonly property bool localDayRulersVisible:
     mode === "read" && (scrubPreviewActive || !live)
   readonly property int weatherRefreshMilliseconds: 15 * 60 * 1000
@@ -448,6 +495,7 @@ Panel {
   }
 
   function openAdd() {
+    weatherDetailKey = ""
     enterAddMode(false)
     searchVisible = false
     var alreadyOpened = opened
@@ -458,6 +506,7 @@ Panel {
   function close() {
     cancelScrubPreview()
     mode = "read"
+    weatherDetailKey = ""
     globeDetailRequested = false
     summaryFocusPending = false
     summaryFocusScheduled = false
@@ -519,6 +568,15 @@ Panel {
       base.g * (1 - ratio) + tint.g * ratio,
       base.b * (1 - ratio) + tint.b * ratio,
       1)
+  }
+
+  function mixColorWithAlpha(base, tint, amount) {
+    var ratio = Math.max(0, Math.min(1, Number(amount)))
+    return Qt.rgba(
+      base.r * (1 - ratio) + tint.r * ratio,
+      base.g * (1 - ratio) + tint.g * ratio,
+      base.b * (1 - ratio) + tint.b * ratio,
+      base.a * (1 - ratio) + tint.a * ratio)
   }
 
   function globeOpeningTarget() {
@@ -608,6 +666,10 @@ Panel {
   }
 
   function moveKeyboardCursor(dx, dy) {
+    if (weatherDetailOpen) {
+      weatherDetailPage.scrollByDirection(dy)
+      return
+    }
     if (mode === "add") {
       if (mapSelection !== null) dismissMapSelection()
       mapClickPending = false
@@ -694,6 +756,10 @@ Panel {
   }
 
   function activateKeyboardCursor() {
+    if (weatherDetailOpen) {
+      weatherDetailPage.focusInitialControl()
+      return
+    }
     if (mode === "add") {
       if (mapSelection !== null) addMapSelection()
       else openSearch()
@@ -717,7 +783,7 @@ Panel {
   }
 
   function deleteKeyboardCursor() {
-    if (mode !== "edit" || !keyboardCursorActive
+    if (weatherDetailOpen || mode !== "edit" || !keyboardCursorActive
         || keyboardClockIndex < 0 || keyboardClockIndex >= clocks.length
         || !canRemove || actionProcess.running) return
     removeClock(clocks[keyboardClockIndex])
@@ -751,6 +817,37 @@ Panel {
     var label = clock.label !== null && clock.label !== undefined
       ? clock.label : clock.title
     return String(clock.timezone || "") + "\u001f" + String(label || "")
+  }
+
+  function clockForWeatherDetail() {
+    if (!weatherDetailKey) return null
+    var entries = [summary].concat(clocks)
+    for (var index = 0; index < entries.length; index++)
+      if (conversionSource(entries[index]) === weatherDetailKey)
+        return entries[index]
+    return null
+  }
+
+  function showWeatherDetail(clock) {
+    if (mode === "add" || !weatherPresentationActive || !weatherFor(clock)) return
+    weatherDetailKey = conversionSource(clock)
+    keyboardCursorActive = false
+    keyboardClockIndex = -1
+    clearTimelineHover()
+    panelScroll.contentY = 0
+    Qt.callLater(function() {
+      if (opened && root.weatherDetailOpen)
+        weatherDetailPage.focusInitialControl()
+    })
+  }
+
+  function dismissWeatherDetail() {
+    if (!weatherDetailOpen) return
+    weatherDetailKey = ""
+    panelScroll.contentY = 0
+    Qt.callLater(function() {
+      if (opened) keyCatcher.forceActiveFocus(Qt.ShortcutFocusReason)
+    })
   }
 
   function safeLocationId(value) {
@@ -958,7 +1055,7 @@ Panel {
   }
 
   function focusTimeRail() {
-    if (mode !== "read" || !scrubReady) return
+    if (weatherDetailOpen || mode !== "read" || !scrubReady) return
     keyboardCursorActive = false
     keyboardClockIndex = -1
     panelScroll.contentY = 0
@@ -984,9 +1081,15 @@ Panel {
     var signatures = []
     for (var i = 0; i < entries.length; i++) {
       var entry = entries[i]
+      var localMinutes = weatherNumber(entry.local_minutes)
+      var localHour = isFinite(localMinutes) ? Math.floor(localMinutes / 60) : ""
+      var utcOffset = weatherNumber(entry.utc_offset_seconds)
       signatures.push(conversionSource(entry)
         + "\u001f" + String(entry.latitude)
-        + "\u001f" + String(entry.longitude))
+        + "\u001f" + String(entry.longitude)
+        + "\u001f" + String(entry.date || "")
+        + "\u001f" + String(localHour)
+        + "\u001f" + String(isFinite(utcOffset) ? utcOffset : ""))
     }
     signatures.sort()
     return signatures.join("\u001e")
@@ -1000,8 +1103,13 @@ Panel {
     return null
   }
 
+  function weatherNumber(value) {
+    if (value === null || value === undefined || value === "") return NaN
+    return Number(value)
+  }
+
   function weatherTemperature(value) {
-    var celsius = Number(value)
+    var celsius = weatherNumber(value)
     if (!isFinite(celsius)) return ""
     var temperature = weatherUseImperial ? celsius * 9 / 5 + 32 : celsius
     return String(Math.round(temperature)) + "°" + (weatherUseImperial ? "F" : "C")
@@ -1009,6 +1117,149 @@ Panel {
 
   function weatherTemperatureCompact(value) {
     return weatherTemperature(value).replace(/[FC]$/, "")
+  }
+
+  function weatherTemperatureOrDash(value) {
+    return isFinite(weatherNumber(value)) ? weatherTemperature(value) : "—"
+  }
+
+  function weatherWind(value) {
+    var speed = weatherNumber(value)
+    if (!isFinite(speed)) return "—"
+    if (weatherUseImperial) return String(Math.round(speed * 0.621371)) + " mph"
+    return String(Math.round(speed)) + " km/h"
+  }
+
+  function weatherHumidity(value) {
+    var humidity = weatherNumber(value)
+    return isFinite(humidity) ? String(Math.round(humidity)) + "%" : "—"
+  }
+
+  function weatherProbability(value) {
+    var probability = weatherNumber(value)
+    return isFinite(probability) ? String(Math.round(probability)) + "%" : "—"
+  }
+
+  function weatherPrecipitation(value) {
+    var millimeters = weatherNumber(value)
+    if (!isFinite(millimeters)) return "—"
+    if (weatherUseImperial) {
+      var inches = millimeters / 25.4
+      return inches.toFixed(inches < 0.1 ? 2 : 1) + " in"
+    }
+    return millimeters.toFixed(millimeters < 10 ? 1 : 0) + " mm"
+  }
+
+  function weatherWindDirection(value) {
+    var degrees = weatherNumber(value)
+    if (!isFinite(degrees)) return ""
+    var directions = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
+    var index = Math.round(((degrees % 360) + 360) % 360 / 45) % 8
+    return directions[index]
+  }
+
+  function weatherWindDetailed(speedValue, directionValue, gustValue) {
+    var speed = weatherNumber(speedValue)
+    if (!isFinite(speed)) return "—"
+    var displaySpeed = weatherUseImperial ? speed * 0.621371 : speed
+    var direction = weatherWindDirection(directionValue)
+    var result = (direction ? direction + "  " : "")
+      + String(Math.round(displaySpeed))
+    var gust = weatherNumber(gustValue)
+    if (isFinite(gust) && gust > speed + 1) {
+      var displayGust = weatherUseImperial ? gust * 0.621371 : gust
+      result += "  ·  G" + String(Math.round(displayGust))
+    }
+    return result + (weatherUseImperial ? " mph" : " km/h")
+  }
+
+  function weatherPressure(value) {
+    var pressure = weatherNumber(value)
+    if (!isFinite(pressure)) return "—"
+    if (weatherUseImperial) return (pressure * 0.0295299830714).toFixed(2) + " inHg"
+    return String(Math.round(pressure)) + " hPa"
+  }
+
+  function weatherVisibility(value) {
+    var meters = weatherNumber(value)
+    if (!isFinite(meters)) return "—"
+    if (weatherUseImperial) {
+      var miles = meters / 1609.344
+      return (miles < 10 ? miles.toFixed(1) : String(Math.round(miles))) + " mi"
+    }
+    var kilometers = meters / 1000
+    return (kilometers < 10 ? kilometers.toFixed(1)
+      : String(Math.round(kilometers))) + " km"
+  }
+
+  function weatherLocalTime(value) {
+    var match = String(value || "").match(/T(\d{2}):(\d{2})/)
+    if (!match) return "—"
+    var hour = Number(match[1])
+    var minute = match[2]
+    if (String(snapshot.time_format || "24h").toLowerCase() !== "ampm")
+      return String(match[1]) + ":" + minute
+    var suffix = hour >= 12 ? "PM" : "AM"
+    var displayHour = hour % 12
+    if (displayHour === 0) displayHour = 12
+    return String(displayHour) + ":" + minute + " " + suffix
+  }
+
+  function weatherUtcMoment(value) {
+    var milliseconds = Date.parse(String(value || ""))
+    return isFinite(milliseconds) ? milliseconds : NaN
+  }
+
+  function weatherHourlyIsCurrent(item) {
+    var currentMoment = weatherUtcMoment(snapshot.reference_utc)
+    var forecastStart = weatherUtcMoment(item ? item.reference_utc : "")
+    return isFinite(currentMoment) && isFinite(forecastStart)
+      && currentMoment >= forecastStart
+      && currentMoment < forecastStart + 3600000
+  }
+
+  function weatherHourlyTime(item) {
+    if (weatherHourlyIsCurrent(item)) return "NOW"
+    var formatted = weatherLocalTime(item ? item.time : "")
+    if (formatted === "—") return formatted
+    return formatted.replace(":00", "")
+  }
+
+  function weatherUv(value) {
+    var uv = weatherNumber(value)
+    if (!isFinite(uv)) return "—"
+    var rounded = Math.round(uv)
+    var level = rounded >= 11 ? "Extreme"
+      : (rounded >= 8 ? "Very high"
+        : (rounded >= 6 ? "High" : (rounded >= 3 ? "Moderate" : "Low")))
+    return String(rounded) + "  " + level
+  }
+
+  function weatherNextHourForecast() {
+    for (var i = 0; i < weatherDetailHourlyForecast.length - 1; i++) {
+      if (weatherHourlyIsCurrent(weatherDetailHourlyForecast[i]))
+        return weatherDetailHourlyForecast[i + 1]
+    }
+    return null
+  }
+
+  function weatherNextHourProbability() {
+    var nextHour = weatherNextHourForecast()
+    return nextHour
+      ? weatherProbability(nextHour.precipitation_probability_percent) : "—"
+  }
+
+  function weatherForecastDay(dateValue) {
+    var date = new Date(String(dateValue || "") + "T12:00:00")
+    return isNaN(date.getTime()) ? "" : Qt.formatDate(date, "ddd").toUpperCase()
+  }
+
+  function weatherForecastGlyph(item) {
+    return weatherGlyph({ weather_code: item ? item.weather_code : 3, is_day: true })
+  }
+
+  function weatherForecastGlyphColor(item) {
+    return weatherGlyphColor({ weather_code: item ? item.weather_code : 3, is_day: true })
   }
 
   // Match the weather-icons glyph vocabulary already used by Omarchy's
@@ -1064,6 +1315,8 @@ Panel {
       source: "Open-Meteo",
       attribution_url: "https://open-meteo.com/",
       disabled: false,
+      partial: false,
+      failed_locations: [],
       locations: []
     })
     weatherError = false
@@ -1073,6 +1326,7 @@ Panel {
     weatherAttemptSignature = ""
     weatherLastUpdatedAt = 0
     weatherLastAttemptAt = 0
+    weatherDetailKey = ""
   }
 
   function requestWeather(force) {
@@ -1676,6 +1930,7 @@ Panel {
   onOpenedChanged: {
     if (!opened) {
       globeDetailRequested = false
+      weatherDetailKey = ""
       resetTimeOnPanelClose()
       clearTimelineHover()
       return
@@ -1707,6 +1962,7 @@ Panel {
     if (mode === "add") {
       cancelScrubPreview()
       clearTimelineHover()
+      weatherDetailKey = ""
       var skipOpeningFlight = skipNextGlobeOpeningFlight
       skipNextGlobeOpeningFlight = false
       searchVisible = false
@@ -1814,10 +2070,13 @@ Panel {
           var payload = JSON.parse(String(weatherOutput.text || ""))
           if (!payload || !Array.isArray(payload.locations))
             throw new Error("Unsupported weather response")
-          root.weather = payload
-          root.weatherError = false
-          root.weatherLoadedSignature = signature
-          root.weatherLastUpdatedAt = Date.now()
+          var partial = payload.partial === true
+          root.weather = WeatherState.mergePayload(root.weather, payload)
+          root.weatherError = partial
+          if (!partial) {
+            root.weatherLoadedSignature = signature
+            root.weatherLastUpdatedAt = Date.now()
+          }
         } catch (error) {
           root.weatherError = true
         }
@@ -2035,13 +2294,15 @@ Panel {
     centerOnBar: true
     focusTarget: keyCatcher
     contentWidth: panel.fittedContentWidth(Style.space(960))
-    contentHeight: panel.fittedContentHeight(panelColumn.implicitHeight, Style.space(680))
+    contentHeight: panel.fittedContentHeight(
+      panelColumn.implicitHeight, Style.space(680))
 
     WorldClockKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
-      blocked: root.editorActive || addField.activeFocus
-      directTextInput: (root.mode === "read" || root.mode === "add")
+      blocked: root.weatherDetailOpen || root.editorActive || addField.activeFocus
+      directTextInput: !root.weatherDetailOpen
+        && (root.mode === "read" || root.mode === "add")
         && !addField.activeFocus
       onMoveRequested: function(dx, dy) { root.moveKeyboardCursor(dx, dy) }
       onActivateRequested: root.activateKeyboardCursor()
@@ -2050,7 +2311,8 @@ Panel {
       onLiveRequested: root.returnToLive()
       onTimelineRequested: root.focusTimeRail()
       onCloseRequested: {
-        if (root.mapSelection !== null) root.dismissMapSelection()
+        if (root.weatherDetailOpen) root.dismissWeatherDetail()
+        else if (root.mapSelection !== null) root.dismissMapSelection()
         else if (root.mode === "add" && root.searchVisible) root.closeSearch()
         else if (root.mode === "read") {
           if (!root.dismissTransientTime()) root.close()
@@ -2059,6 +2321,7 @@ Panel {
       }
       onTabRequested: function(direction) { root.switchPanel(direction) }
       onTextKey: function(text) {
+        if (root.weatherDetailOpen) return
         if (root.mode === "add") {
           if (!root.searchVisible) root.openSearch(text)
           else {
@@ -2106,11 +2369,12 @@ Panel {
         Column {
           id: panelColumn
           width: panelScroll.width
-          spacing: Style.space(root.mode === "add" ? 14 : 8)
+          spacing: Style.space(root.mode === "add" ? 14
+            : (root.weatherDetailOpen ? 0 : 8))
 
           Item {
             id: panelHeader
-            visible: root.mode !== "add"
+            visible: root.mode !== "add" && !root.weatherDetailOpen
             width: parent.width
             height: visible
               ? Math.max(headerTitle.implicitHeight, headerStart.implicitHeight,
@@ -2297,7 +2561,7 @@ Panel {
 
           Column {
             id: readPage
-            visible: root.mode !== "add"
+            visible: root.mode !== "add" && !root.weatherDetailOpen
             width: parent.width
             spacing: Style.space(18)
 
@@ -2405,12 +2669,22 @@ Panel {
                   font.pixelSize: Style.font.bodySmall
                 }
 
-                Item {
+                Button {
                   id: summaryWeatherLine
                   visible: root.weatherPresentationActive
-                  width: Math.max(summaryWeatherContent.implicitWidth,
-                    summaryWeatherSkeleton.implicitWidth)
-                  height: Style.space(16)
+                  enabled: summaryClock.weatherData !== null
+                  width: Math.max(summaryWeatherContent.implicitWidth
+                    + Style.space(8), summaryWeatherSkeleton.implicitWidth)
+                  height: Style.space(20)
+                  background: "transparent"
+                  focusable: enabled
+                  horizontalPadding: 0
+                  verticalPadding: 0
+                  tooltipText: enabled
+                    ? "Show weather for " + root.currentLocationTitle : ""
+                  Accessible.name: tooltipText
+                  Accessible.role: Accessible.Button
+                  onClicked: root.showWeatherDetail(root.summary)
 
                   Row {
                     id: summaryWeatherContent
@@ -2421,6 +2695,7 @@ Panel {
                     Text {
                       textFormat: Text.PlainText
                       id: summaryWeatherGlyph
+                      visible: summaryClock.weatherData !== null
                       anchors.verticalCenter: parent.verticalCenter
                       text: root.weatherGlyph(summaryClock.weatherData)
                       color: root.weatherGlyphColor(summaryClock.weatherData)
@@ -3021,14 +3296,18 @@ Panel {
                         id: clockSurface
                         anchors.fill: parent
                         radius: Style.cornerRadius
-                        color: clockCell.hasKeyboardCursor || clockCell.linkedHovered
-                          ? Style.hoverFillFor(root.contentForeground, Color.accent)
-                          : Style.normalFillFor(root.contentForeground, Color.accent)
-                        border.width: clockCell.hasKeyboardCursor || clockCell.linkedHovered
+                        readonly property color restingFill:
+                          Style.normalFillFor(root.contentForeground, Color.accent)
+                        readonly property color hoverFill:
+                          Style.hoverFillFor(root.contentForeground, Color.accent)
+                        color: clockCell.hasKeyboardCursor ? hoverFill
+                          : (clockCell.linkedHovered
+                            ? root.mixColorWithAlpha(restingFill, hoverFill, 0.18)
+                            : restingFill)
+                        border.width: clockCell.hasKeyboardCursor
                           ? Style.spacing.hairline : 0
-                        border.color: clockCell.hasKeyboardCursor
-                          ? Style.focusStateColor(root.contentForeground, Color.accent)
-                          : Style.hoverBorderFor(root.contentForeground, Color.accent)
+                        border.color:
+                          Style.focusStateColor(root.contentForeground, Color.accent)
 
                         Behavior on color { ColorAnimation { duration: 150 } }
                       }
@@ -3299,38 +3578,57 @@ Panel {
                             visible: clockCell.showWeather
                             anchors.right: parent.right
                             anchors.verticalCenter: parent.verticalCenter
-                            implicitWidth: Style.space(64)
-                            implicitHeight: Style.space(14)
+                            implicitWidth: Style.space(72)
+                            implicitHeight: Style.space(20)
                             width: visible ? implicitWidth : 0
                             height: implicitHeight
 
-                            Text {
-                              textFormat: Text.PlainText
-                              id: cardWeatherTemperature
+                            Button {
+                              id: cardWeatherButton
                               visible: clockCell.weatherData !== null
                               anchors.right: parent.right
                               anchors.verticalCenter: parent.verticalCenter
-                              text: clockCell.weatherData === null ? ""
-                                : root.weatherTemperatureCompact(
-                                  clockCell.weatherData.temperature_celsius)
-                              color: Qt.darker(root.contentForeground, 1.5)
-                              font.family: root.contentFontFamily
-                              font.pixelSize: Style.font.caption
-                              font.letterSpacing: 0.2
-                            }
+                              background: "transparent"
+                              focusable: true
+                              width: cardWeatherContent.implicitWidth + Style.space(10)
+                              height: Style.space(20)
+                              horizontalPadding: 0
+                              verticalPadding: 0
+                              tooltipText: "Show weather for "
+                                + String(clockCell.clockData.title || "location")
+                              Accessible.name: tooltipText
+                              Accessible.role: Accessible.Button
+                              onClicked: root.showWeatherDetail(clockCell.clockData)
 
-                            Text {
-                              textFormat: Text.PlainText
-                              id: cardWeatherGlyph
-                              visible: clockCell.weatherData !== null
-                              anchors.right: cardWeatherTemperature.left
-                              anchors.rightMargin: Style.space(4)
-                              anchors.baseline: cardWeatherTemperature.baseline
-                              text: clockCell.weatherData === null ? ""
-                                : root.weatherGlyph(clockCell.weatherData)
-                              color: root.weatherGlyphColor(clockCell.weatherData)
-                              font.family: root.contentFontFamily
-                              font.pixelSize: Style.font.bodySmall
+                              Row {
+                                id: cardWeatherContent
+                                anchors.centerIn: parent
+                                spacing: Style.space(4)
+
+                                Text {
+                                  textFormat: Text.PlainText
+                                  id: cardWeatherGlyph
+                                  anchors.verticalCenter: parent.verticalCenter
+                                  text: root.weatherGlyph(clockCell.weatherData)
+                                  color: root.weatherGlyphColor(clockCell.weatherData)
+                                  font.family: root.contentFontFamily
+                                  font.pixelSize: Style.font.bodySmall
+                                }
+
+                                Text {
+                                  textFormat: Text.PlainText
+                                  id: cardWeatherTemperature
+                                  anchors.verticalCenter: parent.verticalCenter
+                                  text: clockCell.weatherData
+                                    ? root.weatherTemperatureCompact(
+                                        clockCell.weatherData.temperature_celsius)
+                                    : ""
+                                  color: Qt.darker(root.contentForeground, 1.5)
+                                  font.family: root.contentFontFamily
+                                  font.pixelSize: Style.font.caption
+                                  font.letterSpacing: 0.2
+                                }
+                              }
                             }
 
                             Rectangle {
@@ -3391,6 +3689,16 @@ Panel {
               bordered: true
               onClicked: root.enterAddMode(false)
             }
+          }
+
+          WeatherDetail {
+            id: weatherDetailPage
+            visible: root.mode !== "add" && root.weatherDetailOpen
+            width: parent.width
+            controller: root
+            onBackRequested: root.dismissWeatherDetail()
+            onAttributionRequested:
+              Qt.openUrlExternally("https://open-meteo.com/")
           }
 
           Item {

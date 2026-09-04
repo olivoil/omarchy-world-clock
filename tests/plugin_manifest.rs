@@ -117,6 +117,38 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     );
     let solar_arc = fs::read_to_string(solar_arc_path).expect("read solar arc component");
     assert_text_items_are_plain_text(&panel, "quattro/Panel.qml");
+    let weather_detail_path = qml_path.parent().unwrap().join("WeatherDetail.qml");
+    assert!(
+        weather_detail_path.is_file(),
+        "missing {}",
+        weather_detail_path.display()
+    );
+    let weather_detail =
+        fs::read_to_string(weather_detail_path).expect("read weather detail component");
+    assert_text_items_are_plain_text(&weather_detail, "quattro/WeatherDetail.qml");
+    let weather_logic_path = qml_path.parent().unwrap().join("WeatherDetailLogic.js");
+    assert!(
+        weather_logic_path.is_file(),
+        "missing {}",
+        weather_logic_path.display()
+    );
+    let weather_logic = fs::read_to_string(weather_logic_path).expect("read weather detail logic");
+    let weather_state_path = qml_path.parent().unwrap().join("WeatherState.js");
+    assert!(
+        weather_state_path.is_file(),
+        "missing {}",
+        weather_state_path.display()
+    );
+    let weather_state = fs::read_to_string(weather_state_path).expect("read weather state logic");
+    let weather_graph_path = qml_path.parent().unwrap().join("WeatherMetricGraph.qml");
+    assert!(
+        weather_graph_path.is_file(),
+        "missing {}",
+        weather_graph_path.display()
+    );
+    let weather_graph =
+        fs::read_to_string(weather_graph_path).expect("read weather graph component");
+    assert_text_items_are_plain_text(&weather_graph, "quattro/WeatherMetricGraph.qml");
     assert!(!panel.contains("omarchy-world-clock-bin"));
     assert!(panel.contains("KeyboardPanel"));
     assert!(panel.contains("owner: root.barIdentity"));
@@ -613,6 +645,7 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     let time_rail = fs::read_to_string(time_rail_path).expect("read time rail helpers");
     assert!(time_rail.contains("id <= 9007199254740991"));
     assert!(root.join("tests/time-rail.mjs").is_file());
+    assert!(root.join("tests/weather-detail-logic.mjs").is_file());
     let apply_snapshot = panel
         .split("function applySnapshot(raw, manual)")
         .nth(1)
@@ -755,8 +788,8 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("readonly property color solarDayColor"));
     assert!(panel.contains("readonly property color solarNightColor"));
     assert!(panel.contains("readonly property string currentTimezoneMetadata"));
-    assert!(panel.contains("spacing: Style.space(root.mode === \"add\" ? 14 : 8)"));
-    assert!(panel.contains("visible: root.mode !== \"add\""));
+    assert!(panel.contains("root.weatherDetailOpen ? 0 : 8"));
+    assert!(panel.contains("visible: root.mode !== \"add\" && !root.weatherDetailOpen"));
     assert!(panel.contains("text: root.currentLocationTitle"));
     assert!(panel.contains("? Font.AllUppercase : Font.MixedCase"));
     assert!(panel.contains("font.letterSpacing: root.mode === \"read\" ? 1.8 : 0"));
@@ -765,10 +798,16 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("id: clockRows"));
     assert!(panel.contains("anchors.horizontalCenter: parent.horizontalCenter"));
     assert!(panel.contains("id: clockSurface"));
-    assert!(panel.contains("? Style.hoverFillFor(root.contentForeground, Color.accent)"));
-    assert!(panel.contains(": Style.normalFillFor(root.contentForeground, Color.accent)"));
+    assert!(panel.contains("readonly property color restingFill:"));
+    assert!(panel.contains("root.mixColorWithAlpha(restingFill, hoverFill, 0.18)"));
+    assert!(panel.contains("border.width: clockCell.hasKeyboardCursor"));
     assert!(panel.contains("radius: Style.cornerRadius"));
     assert!(panel.contains("backendCommand, \"weather\""));
+    assert!(panel.contains("import \"WeatherState.js\" as WeatherState"));
+    assert!(weather_state.contains("function mergePayload("));
+    assert!(panel.contains("WeatherState.mergePayload(root.weather, payload)"));
+    assert!(panel.contains("var partial = payload.partial === true"));
+    assert!(panel.contains("root.weatherError = partial"));
     assert!(panel.contains("property bool weatherRequestPending: false"));
     assert!(panel.contains("weatherRefreshMilliseconds: 15 * 60 * 1000"));
     assert!(panel.contains("weatherAttemptCooldownMilliseconds: 2 * 60 * 1000"));
@@ -804,16 +843,158 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(panel.contains("id: summaryMetadataLine"));
     assert!(panel.contains("height: Style.space(112)"));
     assert!(panel.contains("id: summaryWeatherLine"));
+    assert!(panel.contains("enabled: summaryClock.weatherData !== null"));
     assert!(panel.contains("id: summaryWeatherGlyph"));
     assert!(panel.contains("color: root.weatherGlyphColor(summaryClock.weatherData)"));
+    assert!(panel.contains("onClicked: root.showWeatherDetail(root.summary)"));
     assert!(panel.contains("id: cardTitle"));
     assert!(panel.contains("id: cardMetadataRow"));
     assert!(panel.contains("id: cardWeatherBlock"));
+    assert!(panel.contains("id: cardWeatherButton"));
+    assert!(panel.contains("text: clockCell.weatherData\n                                    ? root.weatherTemperatureCompact("));
+    assert!(panel.contains("width: cardWeatherContent.implicitWidth + Style.space(10)"));
     assert!(panel.contains("id: cardWeatherTemperature"));
     assert!(panel.contains("id: cardWeatherGlyph"));
     assert!(panel.contains("color: root.weatherGlyphColor(clockCell.weatherData)"));
-    assert!(panel.contains("anchors.baseline: cardWeatherTemperature.baseline"));
+    assert!(panel.contains("onClicked: root.showWeatherDetail(clockCell.clockData)"));
     assert!(panel.contains("anchors.verticalCenter: parent.verticalCenter"));
+    assert!(panel.contains("property string weatherDetailKey: \"\""));
+    assert!(!panel.contains("weatherDetailRetainedPanelHeight"));
+    assert!(panel.contains("readonly property bool weatherDetailOpen:"));
+    assert!(panel.contains("readonly property var weatherDetailHourlyForecast:"));
+    assert!(panel.contains("root.weatherUtcMoment(forecast[i].reference_utc)"));
+    assert!(panel.contains("forecastStart + 3600000 > currentMoment"));
+    assert!(panel.contains("currentAndFuture.push(forecast[i])"));
+    assert!(panel.contains("readonly property var weatherDetailDailyForecast:"));
+    assert!(panel.contains("readonly property string weatherDetailLocalDate:"));
+    assert!(panel.contains("readonly property int weatherDetailTodayIndex:"));
+    assert!(panel.contains("readonly property var weatherDetailToday:"));
+    assert!(panel.contains("function showWeatherDetail(clock)"));
+    assert!(panel.contains("function dismissWeatherDetail()"));
+    assert!(panel.contains("contentWidth: panel.fittedContentWidth(Style.space(960))"));
+    assert!(panel.contains("contentHeight: panel.fittedContentHeight("));
+    assert!(panel.contains("if (root.weatherDetailOpen) root.dismissWeatherDetail()"));
+    assert!(panel.contains("id: weatherDetailPage"));
+    assert!(panel.contains("WeatherDetail {"));
+    assert!(weather_detail.contains("id: detailScroll"));
+    assert!(weather_detail.contains("text: \"OPEN-METEO  ·  \""));
+    assert!(weather_logic.contains("function weatherUpdateLabel("));
+    assert!(weather_detail.contains("detail.weatherUpdateLabel()"));
+    assert!(weather_detail.contains("property double updateAgeNow: Date.now()"));
+    assert!(weather_detail.contains("interval: 30 * 1000"));
+    assert!(weather_detail.contains("detail.updateAgeNow = Date.now()"));
+    assert!(weather_detail.contains("function handleScrollWheel(event)"));
+    assert!(weather_detail.contains("function scrollByDirection(direction)"));
+    assert!(weather_detail.contains("function focusInitialControl()"));
+    assert!(weather_detail.contains("id: backButton"));
+    assert!(weather_detail.contains("Keys.onPressed: function(event)"));
+    assert!(weather_detail.contains("event.key === Qt.Key_PageDown"));
+    assert!(panel.contains("weatherDetailPage.scrollByDirection(dy)"));
+    assert!(panel.contains("weatherDetailPage.focusInitialControl()"));
+    assert!(weather_detail.contains("event.pixelDelta.y"));
+    assert!(weather_detail.contains("easing.type: Easing.OutQuint"));
+    assert!(weather_logic.contains("function wheelDistance("));
+    assert!(weather_logic.contains("function nextScrollTarget("));
+    assert!(weather_detail.contains("PointerDevice.Mouse | PointerDevice.TouchPad"));
+    assert!(weather_detail.contains("id: hero"));
+    assert!(weather_detail.contains("id: phaseSection"));
+    assert!(weather_detail.contains("id: outlookSection"));
+    assert!(weather_detail.contains("id: graphSection"));
+    assert!(weather_detail.contains("text: detail.phaseSectionTitle()"));
+    assert!(weather_detail.contains("return \"NEXT 12 HOURS\""));
+    assert!(!weather_detail.contains("TODAY BY PHASE"));
+    assert!(!weather_detail.contains("TODAY'S PATTERN"));
+    assert!(weather_detail.contains("\"chance unavailable\""));
+    assert!(!weather_detail.contains("\"rain unavailable\""));
+    assert!(weather_logic.contains("function segmentPhases("));
+    assert!(weather_detail.contains("text: \"4-DAY OUTLOOK\""));
+    assert!(weather_detail.contains("text: \"24-HOUR DETAIL\""));
+    assert!(weather_detail.contains("text: \"SUN AND ATMOSPHERE\""));
+    assert!(weather_logic.contains("function sunProgress("));
+    assert!(weather_detail.contains("WeatherDetailLogic.sunProgress("));
+    let sun_canvas = weather_detail
+        .split("id: sunCanvas")
+        .nth(1)
+        .and_then(|source| source.split("Row {").next())
+        .expect("sun canvas body");
+    assert!(sun_canvas.contains("if (!isFinite(progress)) return"));
+    assert!(weather_detail.contains("detail.weatherData.apparent_temperature_celsius"));
+    assert!(weather_detail.contains("detail.weatherData.wind_speed_kmh"));
+    assert!(weather_detail.contains("detail.weatherData.wind_direction_degrees"));
+    assert!(weather_detail.contains("detail.weatherData.wind_gusts_kmh"));
+    assert!(weather_detail.contains("detail.weatherData.relative_humidity_percent"));
+    assert!(weather_detail.contains("detail.weatherData.pressure_hpa"));
+    assert!(weather_detail.contains("detail.weatherData.visibility_meters"));
+    assert!(weather_detail.contains("hasHourlyField(\"uv_index\")"));
+    assert!(weather_detail.contains("hasHourlyField(\"wind_speed_kmh\")"));
+    assert!(weather_detail.contains("hasHourlyField(\"wind_gusts_kmh\")"));
+    assert!(weather_detail.contains("WeatherDetailLogic.windPeak(hourly, hourly.length)"));
+    assert!(weather_detail.contains("WeatherDetailLogic.precipitationGraphLabel("));
+    assert!(weather_detail.contains("function precipitationRelevant()"));
+    assert!(weather_detail.contains("WeatherMetricGraph {"));
+    assert!(weather_detail.contains("readonly property var graphHours: hourly"));
+    assert!(!weather_detail.contains("sampleHours(hourly, 8)"));
+    assert!(weather_logic.contains("function sampleLabelHours(source, count)"));
+    assert!(weather_graph.contains("WeatherDetailLogic.sampleLabelHours(hours, 8)"));
+    assert!(weather_graph.contains("WeatherDetailLogic.plotFraction("));
+    assert!(weather_graph.contains("model: graph.labelHours"));
+    assert!(weather_graph.contains("item.precipitation_mm"));
+    assert!(weather_graph.contains("item.precipitation_probability_percent"));
+    assert!(weather_graph.contains("WeatherDetailLogic.windValue(item)"));
+    assert!(weather_detail.contains("function ensureItemVisible(item)"));
+    assert!(weather_detail.contains("detail.ensureItemVisible(metricButton)"));
+    let graph_paint = weather_graph
+        .split("onPaint: {")
+        .nth(1)
+        .expect("weather graph paint body");
+    assert!(graph_paint.contains("var hasLineValues = false"));
+    assert!(
+        graph_paint
+            .find("if (selectedMetric === \"precipitation\") {")
+            .expect("precipitation amount branch")
+            < graph_paint
+                .find("if (!hasLineValues) return")
+                .expect("missing probability fallback"),
+        "precipitation bars must be drawn before missing probability data can end painting"
+    );
+    assert!(panel.contains("function weatherProbability(value)"));
+    assert!(panel.contains("function weatherPrecipitation(value)"));
+    assert!(panel.contains(".toLowerCase() !== \"ampm\""));
+    assert!(!panel.contains("String(snapshot.time_format || \"24h\") !== \"12h\""));
+    assert!(weather_detail.contains("function precipitationKind(item)"));
+    assert!(weather_detail.contains("function phasePrecipitationTitle(kind, state)"));
+    assert!(weather_detail.contains("function isPrecipitationCondition(item)"));
+    assert!(weather_detail.contains("maximum >= 30"));
+    assert!(weather_detail.contains("code === 95 || code === 96 || code === 99"));
+    assert!(weather_detail.contains("return \"Storms building\""));
+    assert!(weather_detail.contains("return \"Snow likely\""));
+    assert!(weather_detail.contains("return \"Icy mix possible\""));
+    assert!(weather_detail.contains("lead: \"Rain builds through \""));
+    assert!(weather_detail.contains("return \"Snow is most likely \""));
+    assert!(weather_detail.contains("model: detail.narrativeWordModel"));
+    assert!(weather_detail.contains("modelData.accent ? detail.coral"));
+    assert!(weather_logic.contains("function defaultMetric("));
+    assert!(weather_detail.contains("endTemperature <= temperaturePeak.value - 2"));
+    assert!(weather_detail.contains("rainPeak.value >= 35"));
+    assert!(weather_detail.contains("probability < 30) && code <= 2"));
+    let weather_signature = panel
+        .split("function weatherSignature()")
+        .nth(1)
+        .and_then(|source| source.split("function weatherFor(clock)").next())
+        .expect("weather signature body");
+    assert!(weather_signature.contains("String(entry.date || \"\")"));
+    assert!(weather_signature.contains("Math.floor(localMinutes / 60)"));
+    assert!(weather_signature.contains("entry.utc_offset_seconds"));
+    assert!(panel.contains("function weatherUtcMoment(value)"));
+    assert!(panel.contains("function weatherHourlyIsCurrent(item)"));
+    assert!(panel.contains("item ? item.reference_utc : \"\""));
+    assert!(panel.contains("function weatherNextHourForecast()"));
+    assert!(panel.contains("var nextHour = weatherNextHourForecast()"));
+    assert!(!panel.contains("if (index === 0) return \"NOW\""));
+    assert!(!panel.contains("weatherDetailHourlyForecast[0].precipitation_probability_percent"));
+    assert!(panel.contains("function weatherPressure(value)"));
+    assert!(panel.contains("function weatherVisibility(value)"));
+    assert!(panel.contains("function weatherUv(value)"));
     assert!(panel.contains("id: weatherProviderAttribution"));
     assert!(panel.contains(
         "id: weatherProviderAttribution\n                anchors.verticalCenter: parent.verticalCenter"
@@ -904,7 +1085,9 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(key_catcher.contains("event.key >= Qt.Key_0 && event.key <= Qt.Key_9"));
     assert!(key_catcher.contains("Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier"));
     assert!(panel.contains("WorldClockKeyCatcher {"));
-    assert!(panel.contains("directTextInput: (root.mode === \"read\" || root.mode === \"add\")"));
+    assert!(panel.contains("blocked: root.weatherDetailOpen || root.editorActive"));
+    assert!(panel.contains("directTextInput: !root.weatherDetailOpen"));
+    assert!(panel.contains("&& (root.mode === \"read\" || root.mode === \"add\")"));
     assert!(panel.contains("onMoveRequested: function(dx, dy)"));
     assert!(panel.contains("onActivateRequested: root.activateKeyboardCursor()"));
     assert!(panel.contains("onDeleteRequested: root.deleteKeyboardCursor()"));
@@ -1065,6 +1248,7 @@ fn globe_artifact_freshness_checks_are_mandatory_and_reproducible() {
     let ci = fs::read_to_string(root.join("scripts/ci.sh")).expect("read local CI script");
     assert!(ci.contains("run node scripts/build-world-map-source.mjs --check"));
     assert!(ci.contains("run node scripts/build-featured-cities.mjs --check"));
+    assert!(ci.contains("run node tests/weather-detail-logic.mjs"));
     assert!(ci.contains("run scripts/check-globe-artifacts.sh"));
     assert!(!ci.contains("command -v qsb"));
     assert!(!ci.contains("command -v rsvg-convert"));

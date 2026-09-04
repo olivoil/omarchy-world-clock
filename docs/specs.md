@@ -298,11 +298,18 @@ No separate World Clock 12/24-hour preference is stored.
   an asynchronous response never changes its geometry.
 - Visible coordinates are fetched in bounded batches when the panel opens, so
   long location lists do not create an unbounded request URL or response.
+  Successful batches remain available when a separate batch fails. Cached
+  readings are retained only for locations belonging to the failed batch, and
+  the partial update remains eligible for the short retry interval instead of
+  the normal 15-minute freshness window. A total upstream failure still
+  reports the update as unavailable.
 - Cards with identical coordinates share one weather request, then receive
   separate results keyed by their stable card IDs.
 - A successful response is reused for 15 minutes. While the panel remains
   open, a lightweight freshness check runs every 30 seconds so reopening the
-  panel cannot restart the full cache interval.
+  panel cannot restart the full cache interval. Weather detail attribution
+  reports the age of the cached response instead of describing every reused
+  response as updated now.
 - The top-left return-to-live control is always clickable without changing its
   active fill, which continues to indicate only a scrubbed or converted time.
   Clicking it explicitly refreshes weather past the normal freshness cache;
@@ -319,13 +326,31 @@ No separate World Clock 12/24-hour preference is stored.
   row; the icon is slightly larger than its temperature. Units appear on the
   summary weather value, while card temperatures omit the repeated unit letter
   to stay quiet.
+- The weather icon and temperature form one padded drill-in target rather than
+  making the entire clock card actionable. The combined control has tooltip,
+  hover, focus, and pointing-cursor states. The ambient whole-card hover uses a
+  subtler fill so the local weather affordance remains distinct without
+  competing with the time.
+- Activating that weather control replaces the clock surface in the same panel
+  with the Field Notes forecast. Its opening view pairs current conditions with
+  a concise local narrative, then groups the next 12 hours into three phases.
+  A shared-scale four-day outlook aligns conditions, rain, low-to-high ranges,
+  and daily UV. Interactive 24-hour graphs cover temperature, relevant rain,
+  hourly UV, and wind before a final sun and atmosphere section. This is an
+  inline panel state, not a nested popup or modal. The back action and `Escape`
+  restore the clock surface.
+- Weather detail keeps the clock panel's normal width in a fixed-height frame,
+  with a stationary location header and an internal scroll surface. It remains
+  bounded by the shell's normal height cap and preserves the approved spacing
+  instead of compressing later sections to avoid scrolling.
 - The summary timezone metadata, weather icon, and temperature share one
   centered row beneath the primary time.
 - Weather remains secondary to the clock and does not change card ordering.
 - Converted-time views hide weather because the conditions are current rather
   than historical or forecast data.
 - Missing coordinates or individual conditions produce a quiet unavailable
-  state without hiding the clock.
+  state without hiding the clock. Optional detail fields use a neutral dash
+  when the provider omits them.
 - A failed refresh keeps prior conditions visible with an update warning. An
   initial failure leaves the rest of the panel fully usable.
 - `disable_open_meteo_geolocation` remains the master privacy opt-out and

@@ -40,6 +40,8 @@ ln -s "$OMARCHY_ROOT/shell" "$PLUGIN_LINT_ROOT/qs"
   quattro/Panel.qml \
   quattro/SolarArc.qml \
   quattro/WorldClockKeyCatcher.qml \
+  quattro/WeatherDetail.qml \
+  quattro/WeatherMetricGraph.qml \
   quattro/Globe.qml
 
 printf 'Quattro plugin validation passed.\n'

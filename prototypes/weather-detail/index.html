@@ -1,0 +1,1063 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Weather Detail Design Study</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --page: #0d0e0f;
+      --page-raised: #141517;
+      --panel: #090a0b;
+      --panel-raised: #0d0e10;
+      --ink: #f3f1ec;
+      --muted: #aaa9a5;
+      --dim: #757675;
+      --line: #292b2d;
+      --line-soft: #1c1e20;
+      --amber: #efbd5f;
+      --blue: #72bce0;
+      --violet: #b88adf;
+      --coral: #e69a79;
+      --mint: #8fc7af;
+      --mono: "Berkeley Mono", "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+      --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --ease: cubic-bezier(.2, .75, .2, 1);
+    }
+
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+
+    html { min-width: 320px; background: var(--page); }
+
+    body {
+      min-height: 100vh;
+      margin: 0;
+      background: var(--page);
+      color: var(--ink);
+      font-family: var(--sans);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    button, a { color: inherit; }
+    button { font: inherit; }
+    button:focus-visible, a:focus-visible {
+      outline: 2px solid var(--amber);
+      outline-offset: 3px;
+    }
+
+    .lab {
+      width: min(1320px, calc(100% - 40px));
+      margin: 0 auto;
+      padding: 30px 0 48px;
+    }
+
+    .lab-header {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 28px;
+      align-items: end;
+      margin-bottom: 22px;
+    }
+
+    .eyebrow, .concept-number, .concept-axis, .panel-source, .kicker,
+    .section-title, .metric-label, .hour-time, .day-name, .phase-time,
+    .mode-button, .micro-label, .current-stamp, .range-label {
+      font-family: var(--mono);
+      text-transform: uppercase;
+      letter-spacing: .105em;
+    }
+
+    .eyebrow {
+      margin: 0 0 7px;
+      color: var(--amber);
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(26px, 3vw, 40px);
+      line-height: 1.05;
+      letter-spacing: -.035em;
+      font-weight: 690;
+    }
+
+    .lab-intro {
+      max-width: 70ch;
+      margin: 10px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.55;
+    }
+
+    .scale-note {
+      padding-bottom: 2px;
+      color: var(--dim);
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: .08em;
+      white-space: nowrap;
+    }
+
+    .concept-tabs {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      border: 1px solid var(--line);
+      border-radius: 8px 8px 0 0;
+      overflow: hidden;
+      background: var(--page-raised);
+    }
+
+    .concept-tab {
+      position: relative;
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: center;
+      min-height: 60px;
+      padding: 10px 16px;
+      border: 0;
+      border-right: 1px solid var(--line);
+      background: transparent;
+      color: var(--muted);
+      text-align: left;
+      cursor: pointer;
+      transition: color 180ms var(--ease), background-color 180ms var(--ease);
+    }
+
+    .concept-tab:last-child { border-right: 0; }
+    .concept-tab:hover { background: #191a1c; color: var(--ink); }
+    .concept-tab[aria-selected="true"] { background: #1b1c1e; color: var(--ink); }
+
+    .concept-tab::after {
+      content: "";
+      position: absolute;
+      right: 16px;
+      bottom: 0;
+      left: 16px;
+      height: 2px;
+      background: transparent;
+      transform: scaleX(.2);
+      transition: background-color 180ms var(--ease), transform 220ms var(--ease);
+    }
+
+    .concept-tab[aria-selected="true"]::after {
+      background: var(--tab-accent, var(--amber));
+      transform: scaleX(1);
+    }
+
+    .concept-number { color: var(--dim); font-size: 9px; }
+    .concept-name { overflow: hidden; font-size: 13px; font-weight: 670; text-overflow: ellipsis; white-space: nowrap; }
+    .concept-axis { color: var(--dim); font-size: 8px; }
+
+    .concept-brief {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(250px, 38%);
+      gap: 32px;
+      min-height: 78px;
+      padding: 15px 18px 16px;
+      border-right: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      border-left: 1px solid var(--line);
+      background: var(--page-raised);
+    }
+
+    .concept-brief h2 { margin: 0 0 4px; font-size: 14px; font-weight: 680; }
+    .concept-brief p { max-width: 78ch; margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+    .reference-note { align-self: center; color: var(--dim); font-family: var(--mono); font-size: 10px; line-height: 1.55; text-align: right; }
+    .reference-note a { color: var(--muted); text-decoration-color: #55585b; text-underline-offset: 3px; }
+    .reference-note a:hover { color: var(--ink); }
+
+    .stage {
+      padding: 26px;
+      border: 1px solid var(--line);
+      border-top: 0;
+      border-radius: 0 0 8px 8px;
+      background: #111214;
+      overflow-x: auto;
+    }
+
+    .weather-panel {
+      position: relative;
+      width: 100%;
+      min-width: 980px;
+      min-height: 690px;
+      margin: 0 auto;
+      overflow: hidden;
+      border: 2px solid #737477;
+      border-radius: 7px;
+      background: var(--panel);
+      color: var(--ink);
+      font-family: var(--mono);
+      box-shadow: 0 22px 70px rgb(0 0 0 / 28%);
+    }
+
+    .panel-topbar {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      height: 72px;
+      padding: 0 34px;
+    }
+
+    .back-button {
+      display: grid;
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      border: 0;
+      border-radius: 4px;
+      background: transparent;
+      color: var(--ink);
+      font-size: 23px;
+      line-height: 1;
+      place-items: center;
+      cursor: pointer;
+    }
+
+    .back-button:hover { background: #181a1c; }
+
+    .panel-location {
+      margin: 0;
+      font-size: 25px;
+      line-height: 1;
+      letter-spacing: -.035em;
+      font-weight: 700;
+    }
+
+    .panel-source {
+      justify-self: end;
+      color: var(--muted);
+      font-size: 9px;
+    }
+
+    .wx-icon { display: block; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
+
+    .section-title {
+      margin: 0;
+      color: #c5c5c1;
+      font-size: 11px;
+      font-weight: 650;
+    }
+
+    .metric-label { color: var(--muted); font-size: 9px; }
+    .metric-value { color: var(--ink); font-size: 13px; font-weight: 650; }
+
+    /* Concept 1: Airy Almanac */
+    .almanac { --concept-accent: var(--amber); }
+
+    .almanac-hero {
+      display: grid;
+      grid-template-columns: minmax(330px, .88fr) minmax(440px, 1.12fr);
+      align-items: center;
+      min-height: 224px;
+      padding: 22px 54px 36px;
+    }
+
+    .almanac-reading {
+      display: flex;
+      gap: 23px;
+      align-items: center;
+      justify-content: center;
+      padding-right: 38px;
+    }
+
+    .almanac-reading .wx-icon { width: 79px; height: 79px; color: var(--amber); stroke-width: 2.1; }
+    .temperature-lockup { display: flex; align-items: flex-start; }
+    .temperature-major { font-size: 88px; line-height: .86; letter-spacing: -.085em; font-weight: 610; }
+    .temperature-unit { margin: 5px 0 0 8px; font-size: 22px; line-height: 1; }
+    .current-stamp { margin-top: 16px; color: var(--muted); font-size: 9px; }
+
+    .almanac-overview {
+      position: relative;
+      padding: 6px 0 4px 56px;
+      border-left: 1px solid var(--line);
+    }
+
+    .almanac-overview::before {
+      content: "";
+      position: absolute;
+      top: 24px;
+      left: -2px;
+      width: 3px;
+      height: 38px;
+      background: var(--amber);
+    }
+
+    .kicker { margin-bottom: 10px; color: var(--amber); font-size: 9px; font-weight: 700; }
+    .almanac-overview h2 { margin: 0; font-size: 34px; line-height: 1.06; letter-spacing: -.035em; font-weight: 650; }
+    .almanac-summary { max-width: 520px; margin: 13px 0 0; color: var(--muted); font-family: var(--sans); font-size: 13px; line-height: 1.55; }
+    .almanac-range { display: flex; gap: 26px; margin-top: 18px; color: var(--muted); font-size: 11px; }
+    .almanac-range strong { color: var(--ink); font-size: 14px; font-weight: 660; }
+
+    .almanac-facts {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      min-height: 84px;
+      margin: 0 54px;
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .almanac-fact { display: grid; gap: 9px; align-content: center; padding-right: 20px; }
+    .almanac-fact:not(:first-child) { padding-left: 22px; border-left: 1px solid var(--line-soft); }
+    .almanac-fact:last-child { padding-right: 0; }
+
+    .almanac-hourly { padding: 22px 54px 20px; border-bottom: 1px solid var(--line); }
+    .almanac-hour-grid { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); margin-top: 17px; }
+    .almanac-hour { min-width: 0; text-align: center; }
+    .almanac-hour:first-child { text-align: left; }
+    .almanac-hour:last-child { text-align: right; }
+    .hour-time { color: var(--muted); font-size: 9px; }
+    .almanac-hour:first-child .hour-time { color: var(--ink); font-weight: 700; }
+    .almanac-hour .wx-icon { width: 21px; height: 21px; margin: 9px auto 8px; color: var(--blue); stroke-width: 2; }
+    .almanac-hour:first-child .wx-icon { margin-left: 0; }
+    .almanac-hour:last-child .wx-icon { margin-right: 0; }
+    .almanac-hour.is-storm .wx-icon { color: var(--violet); }
+    .almanac-hour.is-sun .wx-icon { color: var(--amber); }
+    .hour-reading { font-size: 12px; font-weight: 650; }
+    .hour-rain { margin-left: 5px; color: var(--muted); font-size: 10px; font-weight: 450; }
+
+    .almanac-daily { padding: 20px 54px 25px; }
+    .almanac-day-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin-top: 17px; }
+    .almanac-day { display: grid; grid-template-columns: 33px minmax(0, 1fr); gap: 12px; align-items: center; min-width: 0; }
+    .almanac-day:not(:first-child) { padding-left: 28px; border-left: 1px solid var(--line-soft); }
+    .almanac-day .wx-icon { width: 27px; height: 27px; color: var(--violet); stroke-width: 2; }
+    .almanac-day.is-drizzle .wx-icon { color: var(--blue); }
+    .day-name { color: #d2d1cc; font-size: 9px; font-weight: 700; }
+    .day-condition { overflow: hidden; margin-top: 5px; color: var(--muted); font-family: var(--sans); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+    .day-temperatures { margin-top: 6px; font-size: 12px; }
+    .day-low, .day-rain { color: var(--muted); }
+    .day-low { margin-left: 8px; }
+    .day-rain { margin-left: 9px; font-size: 10px; }
+
+    /* Concept 2: Forecast Ribbon */
+    .ribbon { --concept-accent: var(--blue); }
+
+    .ribbon-hero {
+      display: grid;
+      grid-template-columns: minmax(310px, .82fr) minmax(500px, 1.18fr);
+      min-height: 184px;
+      margin: 0 52px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .ribbon-now { display: flex; gap: 20px; align-items: center; padding: 20px 44px 31px 8px; }
+    .ribbon-now .wx-icon { width: 59px; height: 59px; color: var(--amber); stroke-width: 2; }
+    .ribbon-temperature { font-size: 69px; line-height: .88; letter-spacing: -.075em; font-weight: 620; }
+    .ribbon-condition { margin-top: 12px; color: var(--muted); font-size: 12px; }
+
+    .next-event {
+      position: relative;
+      display: grid;
+      align-content: center;
+      padding: 25px 0 32px 55px;
+      border-left: 1px solid var(--line);
+    }
+
+    .next-event::before { content: ""; position: absolute; top: 44px; left: -2px; width: 3px; height: 50px; background: var(--blue); }
+    .next-event h2 { max-width: 590px; margin: 0; font-family: var(--sans); font-size: 28px; line-height: 1.16; letter-spacing: -.025em; font-weight: 620; }
+    .next-event p { margin: 11px 0 0; color: var(--muted); font-family: var(--sans); font-size: 12px; line-height: 1.5; }
+    .event-stats { display: flex; gap: 24px; margin-top: 17px; color: var(--muted); font-size: 10px; }
+    .event-stats strong { color: var(--ink); font-size: 12px; }
+
+    .ribbon-chart-section { padding: 19px 52px 16px; border-bottom: 1px solid var(--line); }
+    .ribbon-chart-head { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+    .mode-switch { display: flex; gap: 3px; }
+    .mode-button { min-width: 78px; height: 26px; padding: 0 10px; border: 1px solid transparent; border-radius: 4px; background: transparent; color: var(--dim); font-size: 8px; cursor: pointer; }
+    .mode-button:hover { color: var(--ink); }
+    .mode-button[aria-pressed="true"] { border-color: #36393c; background: #151719; color: var(--ink); }
+
+    .ribbon-plot { position: relative; height: 176px; margin-top: 11px; }
+    .plot-grid { position: absolute; inset: 5px 0 34px; border-top: 1px solid var(--line-soft); border-bottom: 1px solid var(--line-soft); }
+    .plot-grid::before, .plot-grid::after { content: ""; position: absolute; right: 0; left: 0; border-top: 1px solid var(--line-soft); }
+    .plot-grid::before { top: 33.333%; }
+    .plot-grid::after { top: 66.666%; }
+    .chart-svg { position: absolute; top: 5px; right: 0; left: 0; width: 100%; height: 137px; overflow: visible; }
+    .chart-svg .curve { fill: none; stroke-width: 2.2; vector-effect: non-scaling-stroke; }
+    .chart-svg .dot { fill: var(--panel); stroke-width: 2; vector-effect: non-scaling-stroke; }
+    .chart-svg .drop-bar { opacity: .28; }
+    .series-temp .curve, .series-temp .dot { stroke: var(--amber); }
+    .series-rain .curve, .series-rain .dot { stroke: var(--blue); }
+    .series-rain .drop-bar { fill: var(--blue); }
+    .series-wind .curve, .series-wind .dot { stroke: var(--mint); }
+    .ribbon-chart[data-metric="temperature"] .series-rain,
+    .ribbon-chart[data-metric="temperature"] .series-wind,
+    .ribbon-chart[data-metric="rain"] .series-temp,
+    .ribbon-chart[data-metric="rain"] .series-wind,
+    .ribbon-chart[data-metric="wind"] .series-temp,
+    .ribbon-chart[data-metric="wind"] .series-rain { display: none; }
+
+    .ribbon-hours { position: absolute; right: 0; bottom: 0; left: 0; display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); align-items: end; }
+    .ribbon-hour { text-align: center; }
+    .ribbon-hour:first-child { text-align: left; }
+    .ribbon-hour:last-child { text-align: right; }
+    .ribbon-hour .hour-time { display: block; }
+    .ribbon-hour:first-child .hour-time { color: var(--ink); }
+    .ribbon-value { display: block; margin-bottom: 5px; color: #d6d6d1; font-size: 10px; font-weight: 650; }
+
+    .ribbon-facts {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      min-height: 62px;
+      padding: 0 52px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .ribbon-fact { display: flex; gap: 8px; align-items: center; min-width: 0; }
+    .ribbon-fact:not(:first-child) { padding-left: 20px; border-left: 1px solid var(--line-soft); }
+    .ribbon-fact .metric-value { font-size: 11px; }
+
+    .ribbon-outlook { padding: 17px 52px 23px; }
+    .ribbon-day-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 34px; margin-top: 15px; }
+    .ribbon-day-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .ribbon-day-main { display: flex; gap: 9px; align-items: center; min-width: 0; }
+    .ribbon-day-main .wx-icon { width: 22px; height: 22px; color: var(--violet); stroke-width: 2; }
+    .ribbon-day-main.is-drizzle .wx-icon { color: var(--blue); }
+    .ribbon-range { position: relative; height: 3px; margin-top: 13px; background: #24272a; }
+    .ribbon-range span { position: absolute; top: 0; bottom: 0; left: var(--start); right: var(--end); background: var(--amber); }
+    .ribbon-day-meta { display: flex; justify-content: space-between; margin-top: 7px; color: var(--muted); font-size: 9px; }
+
+    /* Concept 3: Field Notes */
+    .field {
+      --concept-accent: var(--coral);
+      height: 690px;
+      min-height: 690px;
+    }
+
+    .field-scroll {
+      height: calc(690px - 72px);
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      scrollbar-color: #835f51 transparent;
+      scrollbar-gutter: stable;
+      scrollbar-width: thin;
+    }
+
+    .field-scroll::-webkit-scrollbar { width: 8px; }
+    .field-scroll::-webkit-scrollbar-track { background: transparent; }
+    .field-scroll::-webkit-scrollbar-thumb { border: 2px solid var(--panel); border-radius: 8px; background: #835f51; }
+
+    .field-hero {
+      display: grid;
+      grid-template-columns: minmax(360px, .88fr) minmax(520px, 1.12fr);
+      min-height: 232px;
+      margin: 0 52px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .field-current { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 23px; align-content: center; padding: 26px 45px 37px 8px; }
+    .field-current .wx-icon { width: 69px; height: 69px; color: var(--amber); stroke-width: 2; }
+    .field-temperature { font-size: 77px; line-height: .86; letter-spacing: -.08em; font-weight: 620; }
+    .field-condition { margin-top: 12px; color: #d5d4cf; font-size: 13px; }
+    .field-condition span { margin-left: 9px; color: var(--muted); font-size: 10px; }
+
+    .field-note { display: grid; align-content: center; padding: 28px 0 34px 55px; border-left: 1px solid var(--line); }
+    .field-note .kicker { color: var(--coral); }
+    .field-note h2 { max-width: 670px; margin: 0; font-family: var(--sans); font-size: 29px; line-height: 1.22; letter-spacing: -.028em; font-weight: 600; }
+    .field-note h2 em { color: var(--coral); font-style: normal; }
+    .field-note-sub { margin-top: 12px; color: var(--muted); font-family: var(--sans); font-size: 12px; }
+
+    .field-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 26px; margin-top: 22px; }
+    .field-fact { display: grid; gap: 6px; }
+    .field-fact .metric-value { font-size: 11px; }
+
+    .field-phases { padding: 22px 52px 23px; border-bottom: 1px solid var(--line); }
+    .phase-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 17px; }
+    .phase { position: relative; min-height: 102px; padding: 0 35px 0 0; }
+    .phase:not(:first-child) { padding-left: 36px; border-left: 1px solid var(--line-soft); }
+    .phase:last-child { padding-right: 0; }
+    .phase-time { color: var(--muted); font-size: 9px; }
+    .phase-main { display: flex; gap: 12px; align-items: center; margin-top: 12px; }
+    .phase-main .wx-icon { width: 28px; height: 28px; color: var(--blue); stroke-width: 2; }
+    .phase.is-storm .wx-icon { color: var(--violet); }
+    .phase.is-clear .wx-icon { color: var(--amber); }
+    .phase-name { color: #dad9d4; font-family: var(--sans); font-size: 13px; font-weight: 610; }
+    .phase-reading { margin-top: 3px; color: var(--muted); font-size: 10px; }
+    .phase-meter { display: flex; gap: 4px; align-items: end; height: 15px; margin-top: 14px; }
+    .phase-meter span { width: 100%; height: var(--level); background: var(--blue); opacity: var(--alpha, .55); }
+    .phase.is-storm .phase-meter span { background: var(--violet); }
+    .phase.is-clear .phase-meter span { background: var(--amber); }
+
+    .field-outlook { padding: 25px 52px 31px; border-bottom: 1px solid var(--line); }
+    .field-outlook-head { display: flex; align-items: baseline; justify-content: space-between; gap: 24px; }
+    .field-outlook-note { color: var(--dim); font-size: 9px; }
+    .field-day-grid { margin-top: 17px; border-top: 1px solid var(--line-soft); }
+    .field-day-header,
+    .field-day {
+      display: grid;
+      grid-template-columns: 48px 34px minmax(140px, .72fr) 92px minmax(300px, 1.35fr) 106px;
+      gap: 14px;
+      align-items: center;
+    }
+    .field-day-header { min-height: 31px; color: var(--dim); font-family: var(--mono); font-size: 8px; letter-spacing: .09em; text-transform: uppercase; }
+    .field-day { min-height: 59px; border-top: 1px solid var(--line-soft); }
+    .field-day .wx-icon { width: 24px; height: 24px; color: var(--violet); stroke-width: 2; }
+    .field-day.is-drizzle .wx-icon { color: var(--blue); }
+    .field-day-copy { min-width: 0; }
+    .field-day-copy .day-condition { margin: 0; }
+    .field-rain { color: var(--muted); font-size: 10px; }
+    .field-rain strong { color: var(--blue); font-size: 12px; }
+    .field-temperature-range { display: grid; grid-template-columns: 31px minmax(120px, 1fr) 31px; gap: 10px; align-items: center; color: var(--muted); font-size: 9px; }
+    .field-temperature-range strong { color: var(--ink); font-size: 10px; text-align: right; }
+    .field-temperature-track { position: relative; height: 3px; background: #24272a; }
+    .field-temperature-track::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: var(--low);
+      right: calc(100% - var(--high));
+      background: var(--amber);
+    }
+    .field-temperature-track::after { content: ""; position: absolute; top: -2px; left: var(--high); width: 7px; height: 7px; border: 1px solid var(--amber); border-radius: 50%; background: var(--panel); transform: translateX(-50%); }
+    .field-uv { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; align-items: baseline; }
+    .field-uv strong { color: var(--coral); font-size: 13px; }
+    .field-uv span { color: var(--muted); font-size: 9px; }
+    .field-uv em { grid-column: 1 / -1; color: var(--dim); font-size: 8px; font-style: normal; }
+
+    .field-detail { padding: 25px 52px 30px; border-bottom: 1px solid var(--line); }
+    .field-detail-head { display: flex; align-items: center; justify-content: space-between; gap: 28px; }
+    .field-mode-switch { display: flex; gap: 3px; }
+    .field-mode-button { min-width: 76px; height: 27px; padding: 0 10px; border: 1px solid transparent; border-radius: 4px; background: transparent; color: var(--dim); font-family: var(--mono); font-size: 8px; letter-spacing: .08em; text-transform: uppercase; cursor: pointer; }
+    .field-mode-button:hover { color: var(--ink); }
+    .field-mode-button[aria-pressed="true"] { border-color: #3d3532; background: #181513; color: var(--ink); }
+    .field-chart-context { display: flex; align-items: baseline; justify-content: space-between; gap: 22px; margin-top: 20px; }
+    .field-chart-context strong { font-family: var(--sans); font-size: 18px; font-weight: 620; letter-spacing: -.015em; }
+    .field-chart-context span { color: var(--muted); font-size: 9px; }
+    .field-chart { position: relative; margin-top: 13px; }
+    .field-chart-plot { position: relative; height: 187px; }
+    .field-chart-grid { position: absolute; inset: 0 0 35px; border-top: 1px solid var(--line-soft); border-bottom: 1px solid var(--line-soft); }
+    .field-chart-grid::before,
+    .field-chart-grid::after { content: ""; position: absolute; right: 0; left: 0; border-top: 1px solid var(--line-soft); }
+    .field-chart-grid::before { top: 33.333%; }
+    .field-chart-grid::after { top: 66.666%; }
+    .field-chart-svg { position: absolute; inset: 0 0 35px; width: 100%; height: 152px; overflow: visible; }
+    .field-chart-svg .curve { fill: none; stroke-width: 2.1; vector-effect: non-scaling-stroke; }
+    .field-chart-svg .dot { fill: var(--panel); stroke-width: 2; vector-effect: non-scaling-stroke; }
+    .field-series-temperature .curve, .field-series-temperature .dot { stroke: var(--amber); }
+    .field-series-rain .curve, .field-series-rain .dot { stroke: var(--blue); }
+    .field-series-rain .bar { fill: var(--blue); opacity: .22; }
+    .field-series-uv .curve, .field-series-uv .dot { stroke: var(--coral); }
+    .field-series-wind .curve, .field-series-wind .dot { stroke: var(--mint); }
+    .uv-threshold { fill: var(--coral); opacity: .07; }
+    .uv-threshold-label { fill: var(--coral); font: 7px var(--mono); letter-spacing: .11em; }
+    .now-marker { stroke: #696967; stroke-width: 1; stroke-dasharray: 3 4; vector-effect: non-scaling-stroke; }
+    .now-marker-label { fill: var(--muted); font: 7px var(--mono); letter-spacing: .08em; }
+    .field-chart[data-metric="temperature"] .field-series-rain,
+    .field-chart[data-metric="temperature"] .field-series-uv,
+    .field-chart[data-metric="temperature"] .field-series-wind,
+    .field-chart[data-metric="temperature"] .uv-guide,
+    .field-chart[data-metric="rain"] .field-series-temperature,
+    .field-chart[data-metric="rain"] .field-series-uv,
+    .field-chart[data-metric="rain"] .field-series-wind,
+    .field-chart[data-metric="rain"] .uv-guide,
+    .field-chart[data-metric="uv"] .field-series-temperature,
+    .field-chart[data-metric="uv"] .field-series-rain,
+    .field-chart[data-metric="uv"] .field-series-wind,
+    .field-chart[data-metric="wind"] .field-series-temperature,
+    .field-chart[data-metric="wind"] .field-series-rain,
+    .field-chart[data-metric="wind"] .field-series-uv,
+    .field-chart[data-metric="wind"] .uv-guide { display: none; }
+    .field-chart-hours { position: absolute; right: 0; bottom: 0; left: 0; display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); }
+    .field-chart-hour { text-align: center; }
+    .field-chart-hour:first-child { text-align: left; }
+    .field-chart-hour:last-child { text-align: right; }
+    .field-chart-value { display: block; margin-bottom: 5px; color: #d9d8d3; font-size: 10px; font-weight: 650; }
+    .field-chart-hour .hour-time { display: block; font-size: 8px; }
+
+    .field-environment { padding: 25px 52px 37px; }
+    .field-environment-grid { display: grid; grid-template-columns: minmax(420px, 1.08fr) minmax(420px, .92fr); gap: 52px; margin-top: 21px; }
+    .sun-plot { position: relative; height: 105px; }
+    .sun-plot svg { width: 100%; height: 74px; overflow: visible; }
+    .sun-arc { fill: none; stroke: #44423d; stroke-width: 1.2; vector-effect: non-scaling-stroke; }
+    .sun-progress { fill: none; stroke: var(--amber); stroke-width: 2; vector-effect: non-scaling-stroke; }
+    .sun-dot { fill: var(--panel); stroke: var(--amber); stroke-width: 2; vector-effect: non-scaling-stroke; }
+    .sun-baseline { stroke: #343432; stroke-width: 1; vector-effect: non-scaling-stroke; }
+    .sun-times { display: flex; justify-content: space-between; color: var(--muted); font-size: 9px; }
+    .sun-times strong { display: block; margin-top: 5px; color: var(--ink); font-size: 10px; }
+    .sun-times span:nth-child(2) { text-align: center; }
+    .sun-times span:last-child { text-align: right; }
+    .atmosphere-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid var(--line-soft); border-bottom: 1px solid var(--line-soft); }
+    .atmosphere-item { display: grid; gap: 9px; align-content: center; min-height: 88px; }
+    .atmosphere-item:not(:first-child) { padding-left: 24px; border-left: 1px solid var(--line-soft); }
+    .atmosphere-item .metric-value { font-size: 12px; }
+    .atmosphere-item small { color: var(--dim); font-size: 8px; }
+
+    .prototype-footer {
+      display: flex;
+      justify-content: space-between;
+      gap: 24px;
+      margin-top: 16px;
+      color: var(--dim);
+      font-family: var(--mono);
+      font-size: 9px;
+      line-height: 1.5;
+    }
+
+    @media (max-width: 800px) {
+      .lab { width: min(100% - 20px, 1320px); padding-top: 18px; }
+      .lab-header { grid-template-columns: 1fr; }
+      .scale-note { display: none; }
+      .concept-tabs { grid-template-columns: 1fr; border-radius: 8px 8px 0 0; }
+      .concept-tab { border-right: 0; border-bottom: 1px solid var(--line); }
+      .concept-tab:last-child { border-bottom: 0; }
+      .concept-brief { grid-template-columns: 1fr; gap: 8px; }
+      .reference-note { text-align: left; }
+      .stage { padding: 12px; }
+      .prototype-footer { flex-direction: column; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <svg width="0" height="0" aria-hidden="true" style="position:absolute">
+    <symbol id="icon-partly" viewBox="0 0 48 48">
+      <path d="M27.8 12.2a9.2 9.2 0 0 1 8 8.2"/>
+      <path d="M27.8 5.5v3.1M42.7 20.4h-3.1M38.3 9.9l-2.2 2.2"/>
+      <path d="M31.5 37H12.8a8.7 8.7 0 1 1 2.1-17.1 12.2 12.2 0 0 1 22.9 5.8A5.8 5.8 0 0 1 31.5 37Z"/>
+    </symbol>
+    <symbol id="icon-rain" viewBox="0 0 48 48">
+      <path d="M35.2 30.8H12.9a8.2 8.2 0 1 1 2-16A11.2 11.2 0 0 1 36 20.3a5.3 5.3 0 0 1-.8 10.5Z"/>
+      <path d="m16.7 35.1-2.4 5.2M25.2 35.1l-2.4 5.2M33.7 35.1l-2.4 5.2"/>
+    </symbol>
+    <symbol id="icon-storm" viewBox="0 0 48 48">
+      <path d="M35.2 29.1H12.9a8.2 8.2 0 1 1 2-16A11.2 11.2 0 0 1 36 18.6a5.3 5.3 0 0 1-.8 10.5Z"/>
+      <path d="m24.8 31.8-4.1 7h4.6l-2.5 5.1 8-8.6h-5.2l2.2-3.5M15.4 33.5l-2 4.4M35 33.5l-2 4.4"/>
+    </symbol>
+    <symbol id="icon-cloud" viewBox="0 0 48 48">
+      <path d="M35.2 34H12.9a8.2 8.2 0 1 1 2-16A11.2 11.2 0 0 1 36 23.5 5.3 5.3 0 0 1 35.2 34Z"/>
+    </symbol>
+    <symbol id="icon-sun" viewBox="0 0 48 48">
+      <circle cx="24" cy="24" r="8.2"/>
+      <path d="M24 5.4v5M24 37.6v5M5.4 24h5M37.6 24h5M10.8 10.8l3.6 3.6M33.6 33.6l3.6 3.6M37.2 10.8l-3.6 3.6M14.4 33.6l-3.6 3.6"/>
+    </symbol>
+  </svg>
+
+  <div class="lab">
+    <header class="lab-header">
+      <div>
+        <p class="eyebrow">Weather detail design study</p>
+        <h1>Three ways to give the forecast room to breathe</h1>
+        <p class="lab-intro">Same location, data, and approximate panel footprint. Each direction changes the information hierarchy and interaction model, not merely the styling.</p>
+      </div>
+      <div class="scale-note">Target frame · 1240 × 690</div>
+    </header>
+
+    <nav class="concept-tabs" role="tablist" aria-label="Weather design concepts">
+      <button class="concept-tab" type="button" role="tab" id="tab-almanac" aria-controls="almanac" aria-selected="true" style="--tab-accent:var(--amber)">
+        <span class="concept-number">01</span><span class="concept-name">Airy Almanac</span><span class="concept-axis">Hierarchy</span>
+      </button>
+      <button class="concept-tab" type="button" role="tab" id="tab-ribbon" aria-controls="ribbon" aria-selected="false" tabindex="-1" style="--tab-accent:var(--blue)">
+        <span class="concept-number">02</span><span class="concept-name">Forecast Ribbon</span><span class="concept-axis">Timeline</span>
+      </button>
+      <button class="concept-tab" type="button" role="tab" id="tab-field" aria-controls="field" aria-selected="false" tabindex="-1" style="--tab-accent:var(--coral)">
+        <span class="concept-number">03</span><span class="concept-name">Field Notes</span><span class="concept-axis">Narrative</span>
+      </button>
+    </nav>
+
+    <section class="concept-brief" aria-live="polite">
+      <div>
+        <h2 id="brief-title">01 · Airy Almanac</h2>
+        <p id="brief-copy">A calm, editorial hierarchy. The current reading and plain-language outlook get a generous hero; supporting measurements become a ruled ledger below.</p>
+      </div>
+      <div class="reference-note" id="brief-reference">Draws from <a href="https://support.apple.com/guide/iphone/check-the-weather-iph1ac0b35f/ios">Apple Weather</a> and <a href="https://apps.apple.com/us/app/mercury-weather/id1621800675">Mercury Weather</a></div>
+    </section>
+
+    <main class="stage">
+      <article class="weather-panel almanac" id="almanac" role="tabpanel" aria-labelledby="tab-almanac">
+        <header class="panel-topbar">
+          <button class="back-button" type="button" aria-label="Back">‹</button>
+          <h2 class="panel-location">Home</h2>
+          <span class="panel-source">Open-Meteo · updated now</span>
+        </header>
+
+        <section class="almanac-hero">
+          <div class="almanac-reading">
+            <svg class="wx-icon" aria-hidden="true"><use href="#icon-partly"/></svg>
+            <div>
+              <div class="temperature-lockup"><span class="temperature-major">33°</span><span class="temperature-unit">C</span></div>
+              <div class="current-stamp">Now · 17:05 local</div>
+            </div>
+          </div>
+          <div class="almanac-overview">
+            <div class="kicker">Today’s outlook</div>
+            <h2>Mostly clear</h2>
+            <p class="almanac-summary">Warm and humid now. Storms build through the afternoon, then ease as the sun drops.</p>
+            <div class="almanac-range"><span>High <strong>33°</strong></span><span>Low <strong>26°</strong></span><span>Feels <strong>39°</strong></span></div>
+          </div>
+        </section>
+
+        <section class="almanac-facts" aria-label="Current conditions">
+          <div class="almanac-fact"><span class="metric-label">Rain next hour</span><span class="metric-value">52%</span></div>
+          <div class="almanac-fact"><span class="metric-label">Wind</span><span class="metric-value">E 13 · G32 km/h</span></div>
+          <div class="almanac-fact"><span class="metric-label">Humidity</span><span class="metric-value">60%</span></div>
+          <div class="almanac-fact"><span class="metric-label">Sunrise</span><span class="metric-value">06:31</span></div>
+          <div class="almanac-fact"><span class="metric-label">Sunset</span><span class="metric-value">19:02</span></div>
+          <div class="almanac-fact"><span class="metric-label">UV max</span><span class="metric-value">8 · Very high</span></div>
+        </section>
+
+        <section class="almanac-hourly">
+          <h3 class="section-title">Next 8 hours</h3>
+          <div class="almanac-hour-grid">
+            <div class="almanac-hour"><span class="hour-time">Now</span><svg class="wx-icon"><use href="#icon-rain"/></svg><span class="hour-reading">33°<span class="hour-rain">52%</span></span></div>
+            <div class="almanac-hour is-storm"><span class="hour-time">13</span><svg class="wx-icon"><use href="#icon-storm"/></svg><span class="hour-reading">31°<span class="hour-rain">69%</span></span></div>
+            <div class="almanac-hour is-storm"><span class="hour-time">14</span><svg class="wx-icon"><use href="#icon-storm"/></svg><span class="hour-reading">30°<span class="hour-rain">83%</span></span></div>
+            <div class="almanac-hour is-storm"><span class="hour-time">15</span><svg class="wx-icon"><use href="#icon-storm"/></svg><span class="hour-reading">30°<span class="hour-rain">95%</span></span></div>
+            <div class="almanac-hour"><span class="hour-time">16</span><svg class="wx-icon"><use href="#icon-rain"/></svg><span class="hour-reading">31°<span class="hour-rain">96%</span></span></div>
+            <div class="almanac-hour is-sun"><span class="hour-time">17</span><svg class="wx-icon"><use href="#icon-partly"/></svg><span class="hour-reading">30°<span class="hour-rain">78%</span></span></div>
+            <div class="almanac-hour"><span class="hour-time">18</span><svg class="wx-icon"><use href="#icon-cloud"/></svg><span class="hour-reading">30°<span class="hour-rain">48%</span></span></div>
+            <div class="almanac-hour"><span class="hour-time">19</span><svg class="wx-icon"><use href="#icon-cloud"/></svg><span class="hour-reading">29°<span class="hour-rain">24%</span></span></div>
+          </div>
+        </section>
+
+        <section class="almanac-daily">
+          <h3 class="section-title">4-day outlook</h3>
+          <div class="almanac-day-grid">
+            <div class="almanac-day"><svg class="wx-icon"><use href="#icon-storm"/></svg><div><div class="day-name">Thu</div><div class="day-condition">Thunderstorm</div><div class="day-temperatures">31°<span class="day-low">26°</span><span class="day-rain">90%</span></div></div></div>
+            <div class="almanac-day is-drizzle"><svg class="wx-icon"><use href="#icon-rain"/></svg><div><div class="day-name">Fri</div><div class="day-condition">Drizzle</div><div class="day-temperatures">32°<span class="day-low">26°</span><span class="day-rain">67%</span></div></div></div>
+            <div class="almanac-day"><svg class="wx-icon"><use href="#icon-storm"/></svg><div><div class="day-name">Sat</div><div class="day-condition">Thunderstorm</div><div class="day-temperatures">31°<span class="day-low">26°</span><span class="day-rain">88%</span></div></div></div>
+            <div class="almanac-day"><svg class="wx-icon"><use href="#icon-storm"/></svg><div><div class="day-name">Sun</div><div class="day-condition">Thunderstorm</div><div class="day-temperatures">30°<span class="day-low">25°</span><span class="day-rain">89%</span></div></div></div>
+          </div>
+        </section>
+      </article>
+
+      <article class="weather-panel ribbon" id="ribbon" role="tabpanel" aria-labelledby="tab-ribbon" hidden>
+        <header class="panel-topbar">
+          <button class="back-button" type="button" aria-label="Back">‹</button>
+          <h2 class="panel-location">Home</h2>
+          <span class="panel-source">Open-Meteo · updated now</span>
+        </header>
+
+        <section class="ribbon-hero">
+          <div class="ribbon-now">
+            <svg class="wx-icon"><use href="#icon-partly"/></svg>
+            <div><div class="ribbon-temperature">33°<small style="font-size:18px;letter-spacing:0">C</small></div><div class="ribbon-condition">Mostly clear · feels 39°</div></div>
+          </div>
+          <div class="next-event">
+            <div class="kicker" style="color:var(--blue)">Next change</div>
+            <h2>Rain becomes likely after 13:00</h2>
+            <p>Peak chance near 16:00, then a clearer window toward sunset.</p>
+            <div class="event-stats"><span>Peak rain <strong>96%</strong></span><span>High <strong>33°</strong></span><span>Low <strong>26°</strong></span></div>
+          </div>
+        </section>
+
+        <section class="ribbon-chart-section">
+          <div class="ribbon-chart-head">
+            <h3 class="section-title">Hourly trajectory</h3>
+            <div class="mode-switch" aria-label="Chart metric">
+              <button class="mode-button" type="button" data-metric="temperature" aria-pressed="true">Temp</button>
+              <button class="mode-button" type="button" data-metric="rain" aria-pressed="false">Rain</button>
+              <button class="mode-button" type="button" data-metric="wind" aria-pressed="false">Wind</button>
+            </div>
+          </div>
+          <div class="ribbon-chart" data-metric="temperature">
+            <div class="ribbon-plot">
+              <div class="plot-grid"></div>
+              <svg class="chart-svg" viewBox="0 0 920 137" preserveAspectRatio="none" aria-hidden="true">
+                <g class="series-temp">
+                  <path class="curve" d="M0 22 C55 23 75 43 131 48 S210 68 263 70 S341 70 394 58 S472 67 526 70 S604 70 657 70 S736 70 789 72 S867 87 920 91"/>
+                  <g><circle class="dot" cx="0" cy="22" r="4"/><circle class="dot" cx="131" cy="48" r="4"/><circle class="dot" cx="263" cy="70" r="4"/><circle class="dot" cx="394" cy="70" r="4"/><circle class="dot" cx="526" cy="58" r="4"/><circle class="dot" cx="657" cy="70" r="4"/><circle class="dot" cx="789" cy="72" r="4"/><circle class="dot" cx="920" cy="91" r="4"/></g>
+                </g>
+                <g class="series-rain">
+                  <rect class="drop-bar" x="0" y="72" width="18" height="48"/><rect class="drop-bar" x="122" y="55" width="18" height="65"/><rect class="drop-bar" x="254" y="39" width="18" height="81"/><rect class="drop-bar" x="385" y="24" width="18" height="96"/><rect class="drop-bar" x="517" y="22" width="18" height="98"/><rect class="drop-bar" x="648" y="44" width="18" height="76"/><rect class="drop-bar" x="780" y="74" width="18" height="46"/><rect class="drop-bar" x="902" y="96" width="18" height="24"/>
+                  <path class="curve" d="M9 72 C65 69 80 57 131 55 S211 39 263 39 S342 24 394 24 S474 22 526 22 S606 44 657 44 S737 74 789 74 S868 96 911 96"/>
+                  <g><circle class="dot" cx="9" cy="72" r="4"/><circle class="dot" cx="131" cy="55" r="4"/><circle class="dot" cx="263" cy="39" r="4"/><circle class="dot" cx="394" cy="24" r="4"/><circle class="dot" cx="526" cy="22" r="4"/><circle class="dot" cx="657" cy="44" r="4"/><circle class="dot" cx="789" cy="74" r="4"/><circle class="dot" cx="911" cy="96" r="4"/></g>
+                </g>
+                <g class="series-wind">
+                  <path class="curve" d="M0 78 C52 75 80 67 131 64 S212 43 263 40 S342 48 394 52 S473 58 526 61 S606 68 657 72 S736 87 789 90 S866 101 920 104"/>
+                  <g><circle class="dot" cx="0" cy="78" r="4"/><circle class="dot" cx="131" cy="64" r="4"/><circle class="dot" cx="263" cy="40" r="4"/><circle class="dot" cx="394" cy="52" r="4"/><circle class="dot" cx="526" cy="61" r="4"/><circle class="dot" cx="657" cy="72" r="4"/><circle class="dot" cx="789" cy="90" r="4"/><circle class="dot" cx="920" cy="104" r="4"/></g>
+                </g>
+              </svg>
+              <div class="ribbon-hours">
+                <div class="ribbon-hour"><span class="ribbon-value" data-values="33°|52%|13 km/h">33°</span><span class="hour-time">Now</span></div>
+                <div class="ribbon-hour"><span class="ribbon-value" data-values="31°|69%|15 km/h">31°</span><span class="hour-time">13</span></div>
+                <div class="ribbon-hour"><span class="ribbon-value" data-values="30°|83%|18 km/h">30°</span><span class="hour-time">14</span></div>
+                <div class="ribbon-hour"><span class="ribbon-value" data-values="30°|95%|17 km/h">30°</span><span class="hour-time">15</span></div>
+                <div class="ribbon-hour"><span class="ribbon-value" data-values="31°|96%|16 km/h">31°</span><span class="hour-time">16</span></div>
+                <div class="ribbon-hour"><span class="ribbon-value" data-values="30°|78%|14 km/h">30°</span><span class="hour-time">17</span></div>
+                <div class="ribbon-hour"><span class="ribbon-value" data-values="30°|48%|11 km/h">30°</span><span class="hour-time">18</span></div>
+                <div class="ribbon-hour"><span class="ribbon-value" data-values="29°|24%|9 km/h">29°</span><span class="hour-time">19</span></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="ribbon-facts">
+          <div class="ribbon-fact"><span class="metric-label">Wind</span><span class="metric-value">E 13 · G32</span></div>
+          <div class="ribbon-fact"><span class="metric-label">Humidity</span><span class="metric-value">60%</span></div>
+          <div class="ribbon-fact"><span class="metric-label">UV</span><span class="metric-value">8 · Very high</span></div>
+          <div class="ribbon-fact"><span class="metric-label">Pressure</span><span class="metric-value">1016 hPa</span></div>
+          <div class="ribbon-fact"><span class="metric-label">Sunrise</span><span class="metric-value">06:31</span></div>
+          <div class="ribbon-fact"><span class="metric-label">Sunset</span><span class="metric-value">19:02</span></div>
+        </section>
+
+        <section class="ribbon-outlook">
+          <h3 class="section-title">Next 4 days · temperature range</h3>
+          <div class="ribbon-day-grid">
+            <div><div class="ribbon-day-head"><div class="ribbon-day-main"><svg class="wx-icon"><use href="#icon-storm"/></svg><span class="day-name">Thu</span></div><span class="day-rain">90%</span></div><div class="ribbon-range"><span style="--start:18%;--end:9%"></span></div><div class="ribbon-day-meta"><span>26°</span><span>31°</span></div></div>
+            <div><div class="ribbon-day-head"><div class="ribbon-day-main is-drizzle"><svg class="wx-icon"><use href="#icon-rain"/></svg><span class="day-name">Fri</span></div><span class="day-rain">67%</span></div><div class="ribbon-range"><span style="--start:18%;--end:0%"></span></div><div class="ribbon-day-meta"><span>26°</span><span>32°</span></div></div>
+            <div><div class="ribbon-day-head"><div class="ribbon-day-main"><svg class="wx-icon"><use href="#icon-storm"/></svg><span class="day-name">Sat</span></div><span class="day-rain">88%</span></div><div class="ribbon-range"><span style="--start:18%;--end:9%"></span></div><div class="ribbon-day-meta"><span>26°</span><span>31°</span></div></div>
+            <div><div class="ribbon-day-head"><div class="ribbon-day-main"><svg class="wx-icon"><use href="#icon-storm"/></svg><span class="day-name">Sun</span></div><span class="day-rain">89%</span></div><div class="ribbon-range"><span style="--start:34%;--end:18%"></span></div><div class="ribbon-day-meta"><span>25°</span><span>30°</span></div></div>
+          </div>
+        </section>
+      </article>
+
+      <article class="weather-panel field" id="field" role="tabpanel" aria-labelledby="tab-field" hidden>
+        <header class="panel-topbar">
+          <button class="back-button" type="button" aria-label="Back">‹</button>
+          <h2 class="panel-location">Home</h2>
+          <span class="panel-source">Open-Meteo · updated now</span>
+        </header>
+
+        <div class="field-scroll">
+          <section class="field-hero">
+            <div class="field-current">
+              <svg class="wx-icon"><use href="#icon-partly"/></svg>
+              <div><div class="field-temperature">33°<small style="font-size:18px;letter-spacing:0">C</small></div><div class="field-condition">Mostly clear <span>17:05 · EST</span></div></div>
+            </div>
+            <div class="field-note">
+              <div class="kicker">Local note · Wednesday</div>
+              <h2>Storms build after lunch, then <em>soften toward dusk.</em></h2>
+              <div class="field-note-sub">A hot, humid afternoon. The clearest window begins after 18:00.</div>
+              <div class="field-facts">
+                <div class="field-fact"><span class="metric-label">Feels</span><span class="metric-value">39°C</span></div>
+                <div class="field-fact"><span class="metric-label">Rain next hour</span><span class="metric-value">52%</span></div>
+                <div class="field-fact"><span class="metric-label">Wind</span><span class="metric-value">E 13 · G32</span></div>
+                <div class="field-fact"><span class="metric-label">Sunset</span><span class="metric-value">19:02</span></div>
+              </div>
+            </div>
+          </section>
+
+          <section class="field-phases">
+            <h3 class="section-title">Today by phase</h3>
+            <div class="phase-grid">
+              <div class="phase">
+                <div class="phase-time">Now → 13:00</div>
+                <div class="phase-main"><svg class="wx-icon"><use href="#icon-rain"/></svg><div><div class="phase-name">Rain gathering</div><div class="phase-reading">33° → 31° · 52–69%</div></div></div>
+                <div class="phase-meter" aria-hidden="true"><span style="--level:35%"></span><span style="--level:48%"></span><span style="--level:58%"></span><span style="--level:69%"></span><span style="--level:76%"></span><span style="--level:84%"></span></div>
+              </div>
+              <div class="phase is-storm">
+                <div class="phase-time">14:00 → 17:00</div>
+                <div class="phase-main"><svg class="wx-icon"><use href="#icon-storm"/></svg><div><div class="phase-name">Storm window</div><div class="phase-reading">30° → 31° · peaks at 96%</div></div></div>
+                <div class="phase-meter" aria-hidden="true"><span style="--level:64%"></span><span style="--level:81%"></span><span style="--level:92%"></span><span style="--level:100%"></span><span style="--level:94%"></span><span style="--level:78%"></span></div>
+              </div>
+              <div class="phase is-clear">
+                <div class="phase-time">After 18:00</div>
+                <div class="phase-main"><svg class="wx-icon"><use href="#icon-partly"/></svg><div><div class="phase-name">Clearing slowly</div><div class="phase-reading">30° → 29° · 48–24%</div></div></div>
+                <div class="phase-meter" aria-hidden="true"><span style="--level:54%"></span><span style="--level:43%"></span><span style="--level:31%"></span><span style="--level:24%"></span><span style="--level:18%"></span><span style="--level:12%"></span></div>
+              </div>
+            </div>
+          </section>
+
+          <section class="field-outlook">
+            <div class="field-outlook-head">
+              <h3 class="section-title">4-day outlook</h3>
+              <span class="field-outlook-note">Shared temperature scale · 24° to 34°</span>
+            </div>
+            <div class="field-day-grid">
+              <div class="field-day-header" aria-hidden="true"><span>Day</span><span></span><span>Conditions</span><span>Rain</span><span>Low → high</span><span>UV max</span></div>
+              <div class="field-day">
+                <span class="day-name">Thu</span><svg class="wx-icon"><use href="#icon-storm"/></svg><div class="field-day-copy"><div class="day-condition">Thunderstorm</div></div><div class="field-rain"><strong>90%</strong></div>
+                <div class="field-temperature-range"><span>26°</span><span class="field-temperature-track" style="--low:20%;--high:70%"></span><strong>31°</strong></div><div class="field-uv"><span>UV</span><strong>8</strong><em>Very high</em></div>
+              </div>
+              <div class="field-day is-drizzle">
+                <span class="day-name">Fri</span><svg class="wx-icon"><use href="#icon-rain"/></svg><div class="field-day-copy"><div class="day-condition">Drizzle</div></div><div class="field-rain"><strong>67%</strong></div>
+                <div class="field-temperature-range"><span>26°</span><span class="field-temperature-track" style="--low:20%;--high:80%"></span><strong>32°</strong></div><div class="field-uv"><span>UV</span><strong>4</strong><em>Moderate</em></div>
+              </div>
+              <div class="field-day">
+                <span class="day-name">Sat</span><svg class="wx-icon"><use href="#icon-storm"/></svg><div class="field-day-copy"><div class="day-condition">Thunderstorm</div></div><div class="field-rain"><strong>88%</strong></div>
+                <div class="field-temperature-range"><span>26°</span><span class="field-temperature-track" style="--low:20%;--high:70%"></span><strong>31°</strong></div><div class="field-uv"><span>UV</span><strong>8</strong><em>Very high</em></div>
+              </div>
+              <div class="field-day">
+                <span class="day-name">Sun</span><svg class="wx-icon"><use href="#icon-storm"/></svg><div class="field-day-copy"><div class="day-condition">Thunderstorm</div></div><div class="field-rain"><strong>89%</strong></div>
+                <div class="field-temperature-range"><span>25°</span><span class="field-temperature-track" style="--low:10%;--high:60%"></span><strong>30°</strong></div><div class="field-uv"><span>UV</span><strong>6</strong><em>High</em></div>
+              </div>
+            </div>
+          </section>
+
+          <section class="field-detail">
+            <div class="field-detail-head">
+              <h3 class="section-title">24-hour detail</h3>
+              <div class="field-mode-switch" aria-label="Detail graph metric">
+                <button class="field-mode-button" type="button" data-field-metric="temperature" aria-pressed="false">Temp</button>
+                <button class="field-mode-button" type="button" data-field-metric="rain" aria-pressed="false">Rain</button>
+                <button class="field-mode-button" type="button" data-field-metric="uv" aria-pressed="true">UV index</button>
+                <button class="field-mode-button" type="button" data-field-metric="wind" aria-pressed="false">Wind</button>
+              </div>
+            </div>
+            <div class="field-chart-context"><strong id="field-chart-title">UV reaches 8 · Very high</strong><span id="field-chart-note">Highest from 11:00 to 14:00</span></div>
+            <div class="field-chart" data-metric="uv">
+              <div class="field-chart-plot">
+                <div class="field-chart-grid"></div>
+                <svg class="field-chart-svg" viewBox="0 0 1000 152" preserveAspectRatio="none" aria-hidden="true">
+                  <g class="uv-guide"><rect class="uv-threshold" x="0" y="0" width="1000" height="35"/><text class="uv-threshold-label" x="10" y="13">VERY HIGH · 8+</text></g>
+                  <line class="now-marker" x1="785" y1="0" x2="785" y2="152"/><text class="now-marker-label" x="792" y="145">NOW</text>
+                  <g class="field-series-temperature">
+                    <path class="curve" d="M0 126 C58 125 88 114 143 112 S231 91 286 84 S374 62 429 56 S516 41 571 42 S659 63 714 70 S802 91 857 98 S945 122 1000 126"/>
+                    <g><circle class="dot" cx="0" cy="126" r="4"/><circle class="dot" cx="143" cy="112" r="4"/><circle class="dot" cx="286" cy="84" r="4"/><circle class="dot" cx="429" cy="56" r="4"/><circle class="dot" cx="571" cy="42" r="4"/><circle class="dot" cx="714" cy="70" r="4"/><circle class="dot" cx="857" cy="98" r="4"/><circle class="dot" cx="1000" cy="126" r="4"/></g>
+                  </g>
+                  <g class="field-series-rain">
+                    <g><rect class="bar" x="0" y="143" width="17" height="9"/><rect class="bar" x="134" y="138" width="17" height="14"/><rect class="bar" x="277" y="124" width="17" height="28"/><rect class="bar" x="420" y="94" width="17" height="58"/><rect class="bar" x="562" y="34" width="17" height="118"/><rect class="bar" x="705" y="16" width="17" height="136"/><rect class="bar" x="848" y="82" width="17" height="70"/><rect class="bar" x="983" y="116" width="17" height="36"/></g>
+                    <path class="curve" d="M8 143 C67 142 87 139 143 138 S230 126 286 124 S373 99 429 94 S515 43 571 34 S658 17 714 16 S801 72 857 82 S943 111 992 116"/>
+                    <g><circle class="dot" cx="8" cy="143" r="4"/><circle class="dot" cx="143" cy="138" r="4"/><circle class="dot" cx="286" cy="124" r="4"/><circle class="dot" cx="429" cy="94" r="4"/><circle class="dot" cx="571" cy="34" r="4"/><circle class="dot" cx="714" cy="16" r="4"/><circle class="dot" cx="857" cy="82" r="4"/><circle class="dot" cx="992" cy="116" r="4"/></g>
+                  </g>
+                  <g class="field-series-uv">
+                    <path class="curve" d="M0 145 C58 145 88 132 143 130 S231 95 286 88 S374 52 429 46 S516 31 571 32 S659 61 714 74 S802 124 857 130 S945 145 1000 145"/>
+                    <g><circle class="dot" cx="0" cy="145" r="4"/><circle class="dot" cx="143" cy="130" r="4"/><circle class="dot" cx="286" cy="88" r="4"/><circle class="dot" cx="429" cy="46" r="4"/><circle class="dot" cx="571" cy="32" r="4"/><circle class="dot" cx="714" cy="74" r="4"/><circle class="dot" cx="857" cy="130" r="4"/><circle class="dot" cx="1000" cy="145" r="4"/></g>
+                  </g>
+                  <g class="field-series-wind">
+                    <path class="curve" d="M0 118 C58 116 88 105 143 104 S231 86 286 82 S374 69 429 68 S516 48 571 46 S659 56 714 60 S802 89 857 96 S945 116 1000 118"/>
+                    <g><circle class="dot" cx="0" cy="118" r="4"/><circle class="dot" cx="143" cy="104" r="4"/><circle class="dot" cx="286" cy="82" r="4"/><circle class="dot" cx="429" cy="68" r="4"/><circle class="dot" cx="571" cy="46" r="4"/><circle class="dot" cx="714" cy="60" r="4"/><circle class="dot" cx="857" cy="96" r="4"/><circle class="dot" cx="1000" cy="118" r="4"/></g>
+                  </g>
+                </svg>
+                <div class="field-chart-hours">
+                  <div class="field-chart-hour"><span class="field-chart-value" data-field-values="27°|5%|0|8 km/h">0</span><span class="hour-time">06</span></div>
+                  <div class="field-chart-hour"><span class="field-chart-value" data-field-values="28°|8%|1|10 km/h">1</span><span class="hour-time">08</span></div>
+                  <div class="field-chart-hour"><span class="field-chart-value" data-field-values="30°|18%|4|13 km/h">4</span><span class="hour-time">10</span></div>
+                  <div class="field-chart-hour"><span class="field-chart-value" data-field-values="32°|40%|7|15 km/h">7</span><span class="hour-time">12</span></div>
+                  <div class="field-chart-hour"><span class="field-chart-value" data-field-values="33°|83%|8|18 km/h">8</span><span class="hour-time">14</span></div>
+                  <div class="field-chart-hour"><span class="field-chart-value" data-field-values="31°|96%|5|16 km/h">5</span><span class="hour-time">16</span></div>
+                  <div class="field-chart-hour"><span class="field-chart-value" data-field-values="29°|48%|1|11 km/h">1</span><span class="hour-time">18</span></div>
+                  <div class="field-chart-hour"><span class="field-chart-value" data-field-values="27°|24%|0|8 km/h">0</span><span class="hour-time">20</span></div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="field-environment">
+            <h3 class="section-title">Sun and atmosphere</h3>
+            <div class="field-environment-grid">
+              <div class="sun-plot">
+                <svg viewBox="0 0 440 74" preserveAspectRatio="none" aria-hidden="true">
+                  <line class="sun-baseline" x1="20" y1="64" x2="420" y2="64"/>
+                  <path class="sun-arc" d="M20 64 Q220 -22 420 64"/>
+                  <path class="sun-progress" d="M20 64 Q190 -9 360 43"/>
+                  <circle class="sun-dot" cx="360" cy="43" r="5"/>
+                </svg>
+                <div class="sun-times"><span>Sunrise<strong>06:31</strong></span><span>Solar noon<strong>12:47</strong></span><span>Sunset<strong>19:02</strong></span></div>
+              </div>
+              <div class="atmosphere-grid">
+                <div class="atmosphere-item"><span class="metric-label">Humidity</span><span class="metric-value">60%</span><small>Warm and humid</small></div>
+                <div class="atmosphere-item"><span class="metric-label">Pressure</span><span class="metric-value">1016 hPa</span><small>Steady</small></div>
+                <div class="atmosphere-item"><span class="metric-label">Visibility</span><span class="metric-value">11 km</span><small>Moderate</small></div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </article>
+    </main>
+
+    <footer class="prototype-footer">
+      <span>Keyboard: ← → switches concepts · graph controls are interactive</span>
+      <span>Design artifact only · production QML unchanged</span>
+    </footer>
+  </div>
+
+  <script>
+    const concepts = {
+      almanac: {
+        title: "01 · Airy Almanac",
+        copy: "A calm, editorial hierarchy. The current reading and plain-language outlook get a generous hero; supporting measurements become a ruled ledger below.",
+        reference: 'Draws from <a href="https://support.apple.com/guide/iphone/check-the-weather-iph1ac0b35f/ios">Apple Weather</a> and <a href="https://apps.apple.com/us/app/mercury-weather/id1621800675">Mercury Weather</a>'
+      },
+      ribbon: {
+        title: "02 · Forecast Ribbon",
+        copy: "A continuous forecast surface built around one question: when does the weather change? Temperature, rain, and wind share the same timeline and can be switched in place.",
+        reference: 'Draws from <a href="https://weathergraph.app/">Weathergraph</a> and <a href="https://www.meetcarrot.com/weather/presskit.html">CARROT Weather 6</a>'
+      },
+      field: {
+        title: "03 · Field Notes",
+        copy: "A scrollable local forecast with a concise daily narrative, shared-scale outlook rows, and a data-point graph for deeper inspection without crowding the opening view.",
+        reference: 'Draws from <a href="https://www.meetcarrot.com/weather/presskit.html">CARROT Weather 6</a> and compact field-instrument displays'
+      }
+    };
+
+    const tabs = [...document.querySelectorAll('[role="tab"]')];
+    const panels = [...document.querySelectorAll('[role="tabpanel"]')];
+    const briefTitle = document.querySelector('#brief-title');
+    const briefCopy = document.querySelector('#brief-copy');
+    const briefReference = document.querySelector('#brief-reference');
+
+    function selectConcept(id, focus = false) {
+      tabs.forEach(tab => {
+        const selected = tab.getAttribute('aria-controls') === id;
+        tab.setAttribute('aria-selected', selected ? 'true' : 'false');
+        tab.tabIndex = selected ? 0 : -1;
+        if (selected && focus) tab.focus();
+      });
+      panels.forEach(panel => { panel.hidden = panel.id !== id; });
+      briefTitle.textContent = concepts[id].title;
+      briefCopy.textContent = concepts[id].copy;
+      briefReference.innerHTML = concepts[id].reference;
+      history.replaceState(null, '', `#${id}`);
+    }
+
+    tabs.forEach((tab, index) => {
+      tab.addEventListener('click', () => selectConcept(tab.getAttribute('aria-controls')));
+      tab.addEventListener('keydown', event => {
+        if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+        event.preventDefault();
+        const delta = event.key === 'ArrowRight' ? 1 : -1;
+        const next = (index + delta + tabs.length) % tabs.length;
+        selectConcept(tabs[next].getAttribute('aria-controls'), true);
+      });
+    });
+
+    document.addEventListener('keydown', event => {
+      if (event.target.closest('button') || (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight')) return;
+      const current = tabs.findIndex(tab => tab.getAttribute('aria-selected') === 'true');
+      const delta = event.key === 'ArrowRight' ? 1 : -1;
+      const next = (current + delta + tabs.length) % tabs.length;
+      selectConcept(tabs[next].getAttribute('aria-controls'));
+    });
+
+    const metricIndexes = { temperature: 0, rain: 1, wind: 2 };
+    document.querySelectorAll('.mode-button').forEach(button => {
+      button.addEventListener('click', () => {
+        const metric = button.dataset.metric;
+        const chart = button.closest('.ribbon-chart-section').querySelector('.ribbon-chart');
+        chart.dataset.metric = metric;
+        button.parentElement.querySelectorAll('.mode-button').forEach(candidate => {
+          candidate.setAttribute('aria-pressed', candidate === button ? 'true' : 'false');
+        });
+        chart.querySelectorAll('.ribbon-value').forEach(value => {
+          value.textContent = value.dataset.values.split('|')[metricIndexes[metric]];
+        });
+      });
+    });
+
+    const fieldMetrics = {
+      temperature: { index: 0, title: "Warmest near 14:00 · 33°C", note: "Cooling gradually after the storm window" },
+      rain: { index: 1, title: "Rain peaks near 16:00 · 96%", note: "Falling below 50% around sunset" },
+      uv: { index: 2, title: "UV reaches 8 · Very high", note: "Highest from 11:00 to 14:00" },
+      wind: { index: 3, title: "Wind peaks near 14:00 · 18 km/h", note: "Easterly, with gusts reaching 32 km/h" }
+    };
+
+    document.querySelectorAll('.field-mode-button').forEach(button => {
+      button.addEventListener('click', () => {
+        const metric = button.dataset.fieldMetric;
+        const fieldChart = button.closest('.field-detail').querySelector('.field-chart');
+        const content = fieldMetrics[metric];
+        fieldChart.dataset.metric = metric;
+        button.parentElement.querySelectorAll('.field-mode-button').forEach(candidate => {
+          candidate.setAttribute('aria-pressed', candidate === button ? 'true' : 'false');
+        });
+        document.querySelector('#field-chart-title').textContent = content.title;
+        document.querySelector('#field-chart-note').textContent = content.note;
+        fieldChart.querySelectorAll('.field-chart-value').forEach(value => {
+          value.textContent = value.dataset.fieldValues.split('|')[content.index];
+        });
+      });
+    });
+
+    const requested = location.hash.slice(1);
+    if (concepts[requested]) selectConcept(requested);
+  </script>
+</body>
+</html>

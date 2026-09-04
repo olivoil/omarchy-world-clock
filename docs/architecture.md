@@ -75,7 +75,7 @@ The executable exposes a deliberately small command/JSON boundary:
 | `module` | bar tooltip, ordered coded pin clocks, compatibility handshake | JSON |
 | `snapshot` | complete read/edit model at now or `--at` | JSON |
 | `convert` | parse a local input and return a converted snapshot | JSON |
-| `weather` | fetch current conditions for visible coordinates at now or `--at` | JSON |
+| `weather` | fetch current conditions and a short forecast for visible coordinates at now or `--at` | JSON |
 | `search` | local search with optional remote fallback and live display context | JSON array |
 | `locate` | map coordinate to a timezone and display model | JSON/null |
 | `add` | persist a new card with an actual place and optional personal label | no output |
@@ -95,14 +95,21 @@ transient identity, so equal places and equal labels do not merge. Weather
 requests are de-duplicated by exact coordinate and fanned back out by card ID.
 
 Weather is deliberately outside the snapshot path. Clock refreshes remain
-local and deterministic, while the panel requests current conditions in HTTPS
-batches of at most 50 unique coordinates and keeps the last successful
-combined response for 15 minutes. A lightweight 30-second freshness check
-refreshes that response at its original expiry even when the panel closes and
-reopens. The explicit return-to-live action bypasses the freshness window, but
-every attempt shares a two-minute cooldown so repeated clicks and failed
-retries cannot create a request burst. A weather timeout therefore cannot
-delay panel opening, minute ticks, or time conversion.
+local and deterministic, while the panel requests rich current conditions,
+the next 24 local hourly points, and five daily records for every visible
+coordinate in bounded HTTPS batches and keeps the last successful response for
+15 minutes. Hourly records carry temperature, condition, precipitation chance
+and amount, UV, wind speed, and gusts for the Field Notes graph and near-term
+phases.
+The first daily record supplies today's high, low, sun times, rain chance, and
+UV maximum; the frontend presents the following four days as a shared-scale
+outlook. Richer responses use smaller batches so each remains inside the shared
+response-size ceiling. A lightweight 30-second freshness check refreshes that
+response at its original expiry even when the panel closes and reopens. A
+explicit return-to-live action bypasses the freshness window, but every attempt
+shares a two-minute cooldown so repeated clicks and failed retries cannot create
+a request burst. A weather timeout therefore cannot delay panel opening, minute
+ticks, or time conversion.
 
 Snapshots carry the effective unit inherited from `omarchy.weather`. An
 explicit `shell.json` unit wins; automatic mode resolves the configured Weather

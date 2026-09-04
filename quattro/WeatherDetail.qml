@@ -191,10 +191,10 @@ Item {
       items[items.length - 1].temperature_celsius)
     var minimum = phaseProbability(items, false)
     var maximum = phaseProbability(items, true)
-    var rain = isFinite(minimum) && isFinite(maximum)
+    var chance = isFinite(minimum) && isFinite(maximum)
       ? controller.weatherProbability(minimum) + " to "
-        + controller.weatherProbability(maximum) : "rain unavailable"
-    return startTemperature + " → " + endTemperature + " · " + rain
+        + controller.weatherProbability(maximum) : "chance unavailable"
+    return startTemperature + " → " + endTemperature + " · " + chance
   }
 
   function buildPhases(source) {

@@ -73,7 +73,7 @@ Panel {
   property int searchResultIndex: -1
   property var mapSelection: null
   property string mapSelectionLabelDraft: ""
-  property bool mapSelectionActionFocusPending: false
+  property bool mapSelectionLabelFocusPending: false
   property real mapRequestedLatitude: 0
   property real mapRequestedLongitude: 0
   property real mapLookupLatitude: 0
@@ -382,7 +382,10 @@ Panel {
       activeGroupId = 0
   }
 
-  onMapSelectionChanged: mapSelectionLabelDraft = ""
+  onMapSelectionChanged: {
+    mapSelectionLabelDraft = ""
+    if (mapSelection !== null) focusMapSelectionLabel()
+  }
 
   FontMetrics {
     id: searchResultTitleMetrics
@@ -517,7 +520,7 @@ Panel {
     searchResultIndex = -1
     addField.text = ""
     mapSelection = null
-    mapSelectionActionFocusPending = false
+    mapSelectionLabelFocusPending = false
     mapClickPending = false
     editorActive = false
     keyCatcher.forceActiveFocus(Qt.ShortcutFocusReason)
@@ -549,7 +552,7 @@ Panel {
     searchResultIndex = -1
     searchVisible = false
     mapSelection = null
-    mapSelectionActionFocusPending = false
+    mapSelectionLabelFocusPending = false
     mapClickPending = false
     globeInitialized = false
     skipNextGlobeOpeningFlight = false
@@ -1801,7 +1804,7 @@ Panel {
 
   function searchTextChanged() {
     mapSelection = null
-    mapSelectionActionFocusPending = false
+    mapSelectionLabelFocusPending = false
     mapClickPending = false
     searchResultIndex = -1
     if (!searchVisible) {
@@ -1842,7 +1845,7 @@ Panel {
     if (!isFinite(boundedIndex)) boundedIndex = 0
     searchResultIndex = boundedIndex
     mapSelection = null
-    mapSelectionActionFocusPending = false
+    mapSelectionLabelFocusPending = false
     var result = searchResults[searchResultIndex]
     var focusLocation = mapFocusLocation(result)
     if (focusLocation) mapCanvas.focusOnLocations([focusLocation])
@@ -1866,20 +1869,24 @@ Panel {
       root.mapSelection, root.mapSelectionLabelDraft)
   }
 
-  function completeMapSelectionActionFocus() {
-    if (!mapSelectionActionFocusPending) return
+  function completeMapSelectionLabelFocus() {
+    if (!mapSelectionLabelFocusPending) return
     if (!opened || mode !== "add" || mapSelection === null) {
-      mapSelectionActionFocusPending = false
+      mapSelectionLabelFocusPending = false
       return
     }
-    if (!mapSelectionCard.visible || !mapSelectionAddButton.enabled) return
-    mapSelectionActionFocusPending = false
-    mapSelectionAddButton.forceActiveFocus(Qt.ShortcutFocusReason)
+    if (!mapSelectionCard.visible || !mapSelectionLabelField.enabled) return
+    mapSelectionLabelFocusPending = false
+    mapSelectionLabelField.forceActiveFocus(Qt.ShortcutFocusReason)
   }
 
-  function focusMapSelectionAction() {
-    mapSelectionActionFocusPending = true
-    Qt.callLater(root.completeMapSelectionActionFocus)
+  function focusMapSelectionLabel() {
+    mapSelectionLabelFocusPending = true
+    // A pointer tap can schedule the panel's focus catcher for the next turn.
+    // Hand focus to the newly shown field one turn after that dismissal pass.
+    Qt.callLater(function() {
+      Qt.callLater(root.completeMapSelectionLabelFocus)
+    })
   }
 
   function acceptSearchResult() {
@@ -1895,7 +1902,7 @@ Panel {
         var activeIndex = searchResultIndex >= 0 ? searchResultIndex : 0
         focusSearchResult(activeIndex)
         selectMapLocation(searchResults[activeIndex])
-        focusMapSelectionAction()
+        focusMapSelectionLabel()
       }
       return
     }
@@ -1994,7 +2001,7 @@ Panel {
 
   function selectMapLocation(location) {
     if (!location) return
-    mapSelectionActionFocusPending = false
+    mapSelectionLabelFocusPending = false
     var focusLocation = mapFocusLocation(location)
     if (focusLocation) {
       var projection = mapCanvas.project(focusLocation.latitude,
@@ -2010,7 +2017,7 @@ Panel {
   function dismissMapSelection() {
     if (mapSelection === null) return
     mapSelection = null
-    mapSelectionActionFocusPending = false
+    mapSelectionLabelFocusPending = false
     mapClickPending = false
     if (searchVisible) {
       closeSearch()
@@ -2347,7 +2354,7 @@ Panel {
           Qt.callLater(root.focusActiveGroupName)
         }
         if (root.actionName === "add" && root.mapSelection !== null)
-          root.focusMapSelectionAction()
+          root.focusMapSelectionLabel()
         return
       }
       if (root.actionName === "add") {
@@ -2357,7 +2364,7 @@ Panel {
         root.searchSubmitQuery = ""
         root.mapSelection = null
         root.mapSelectionLabelDraft = ""
-        root.mapSelectionActionFocusPending = false
+        root.mapSelectionLabelFocusPending = false
         root.mapClickPending = false
         root.mode = "read"
         root.editorActive = false
@@ -2416,7 +2423,7 @@ Panel {
               && root.searchSubmitQuery === root.searchResultsQuery) {
             root.searchSubmitQuery = ""
             root.selectMapLocation(root.searchResults[0])
-            root.focusMapSelectionAction()
+            root.focusMapSelectionLabel()
           }
         }
       } catch (error) {
@@ -4798,7 +4805,7 @@ Panel {
                 visible: root.mode === "add" && root.mapSelection !== null
                   && !mapProcess.running
                 onVisibleChanged: {
-                  if (visible) root.completeMapSelectionActionFocus()
+                  if (visible) root.focusMapSelectionLabel()
                 }
                 z: 32
                 width: Math.min(Style.space(252), parent.width - edgeInset * 2)

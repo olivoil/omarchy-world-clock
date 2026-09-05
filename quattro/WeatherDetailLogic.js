@@ -559,3 +559,75 @@ function nextScrollTarget(contentY, pendingTargetY, hasPending,
   var next = origin - finite(distance)
   return Math.max(0, Math.min(limit, next))
 }
+
+function precipitationKind(item) {
+  var code = Number(item ? item.weather_code : -1)
+  if (code === 95 || code === 96 || code === 99) return "storm"
+  if (code === 71 || code === 73 || code === 75 || code === 77
+      || code === 85 || code === 86) return "snow"
+  if (code === 56 || code === 57 || code === 66 || code === 67)
+    return "ice"
+  return "rain"
+}
+
+function peakHourly(hourly, field, limit) {
+  var count = Math.min(hourly.length, limit || hourly.length)
+  var peak = null
+  var peakValue = Number.NEGATIVE_INFINITY
+  for (var index = 0; index < count; index++) {
+    var value = finite(hourly[index] ? hourly[index][field] : null)
+    if (isFinite(value) && value > peakValue) {
+      peakValue = value
+      peak = hourly[index]
+    }
+  }
+  return { item: peak, value: peakValue, index: peak ? hourly.indexOf(peak) : -1 }
+}
+
+function narrativeParts(weatherData, hourly) {
+  if (!weatherData)
+    return { lead: "Current conditions are unavailable.", accent: "" }
+  var rainPeak = peakHourly(hourly, "precipitation_probability_percent", 12)
+  var currentProbability = hourly.length
+    ? finite(hourly[0].precipitation_probability_percent) : NaN
+  var lastProbability = hourly.length >= 12
+    ? finite(hourly[11].precipitation_probability_percent) : NaN
+  var precipitation = precipitationKind(rainPeak.item)
+  if (isFinite(rainPeak.value) && rainPeak.value >= 70) {
+    if (isFinite(currentProbability) && isFinite(lastProbability)
+        && rainPeak.value >= currentProbability + 15
+        && rainPeak.value >= lastProbability + 15)
+      return precipitationBuildParts(
+        precipitation, rainPeak.item,
+        hourly[Math.min(11, hourly.length - 1)])
+    return { lead: precipitationPeakTitle(
+        precipitation, rainPeak.item),
+      accent: "" }
+  }
+  if (isFinite(rainPeak.value) && rainPeak.value >= 35)
+    return { lead: precipitationPassingTitle(
+        precipitation, rainPeak.item),
+      accent: "" }
+  var temperaturePeak = peakHourly(hourly, "temperature_celsius", 12)
+  if (isFinite(temperaturePeak.value) && temperaturePeak.value >= 32) {
+    var temperatureCount = Math.min(hourly.length, 12)
+    var endTemperature = temperatureCount > 0
+      ? finite(hourly[temperatureCount - 1].temperature_celsius) : NaN
+    var heatTitle = heatHoldTitle(temperaturePeak.item)
+    if (temperaturePeak.index < temperatureCount - 1
+        && isFinite(endTemperature)
+        && endTemperature <= temperaturePeak.value - 2)
+      return { lead: heatTitle + ", then", accent: "eases later." }
+    return { lead: heatTitle + ".", accent: "" }
+  }
+  var code = Number(weatherData.weather_code)
+  if (code <= 1 && clearSkiesHold(hourly, 4))
+    return { lead: "Clear skies hold for the next few hours.", accent: "" }
+  return { lead: String(weatherData.condition || "Conditions stay steady")
+    + " for now.", accent: "" }
+}
+
+function narrativeTitle(weatherData, hourly) {
+  var parts = narrativeParts(weatherData, hourly)
+  return parts.lead + (parts.accent ? " " + parts.accent : "")
+}

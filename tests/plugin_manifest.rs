@@ -969,14 +969,14 @@ fn quattro_manifest_declares_a_loadable_world_clock_widget() {
     assert!(weather_detail.contains("return \"Storms building\""));
     assert!(weather_detail.contains("return \"Snow likely\""));
     assert!(weather_detail.contains("return \"Icy mix possible\""));
-    assert!(weather_detail.contains("WeatherDetailLogic.precipitationBuildParts("));
+    assert!(weather_detail.contains("WeatherDetailLogic.narrativeParts(weatherData, hourly)"));
     assert!(weather_logic.contains("return { lead: \"Rain builds \""));
     assert!(weather_logic.contains("return \"Snow is most likely \""));
     assert!(weather_detail.contains("model: detail.narrativeWordModel"));
     assert!(weather_detail.contains("modelData.accent ? detail.coral"));
     assert!(weather_logic.contains("function defaultMetric("));
-    assert!(weather_detail.contains("endTemperature <= temperaturePeak.value - 2"));
-    assert!(weather_detail.contains("rainPeak.value >= 35"));
+    assert!(weather_logic.contains("endTemperature <= temperaturePeak.value - 2"));
+    assert!(weather_logic.contains("rainPeak.value >= 35"));
     assert!(weather_detail.contains("probability < 30) && code <= 2"));
     let weather_signature = panel
         .split("function weatherSignature()")

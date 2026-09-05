@@ -1,0 +1,2065 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>World Clock Focus Study</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --page: oklch(0.105 0.006 72);
+      --page-raised: oklch(0.135 0.007 72);
+      --panel: oklch(0.145 0.006 72);
+      --surface: oklch(0.185 0.007 72);
+      --surface-hover: oklch(0.225 0.009 72);
+      --surface-selected: oklch(0.245 0.025 68);
+      --text: oklch(0.92 0.008 76);
+      --muted: oklch(0.67 0.012 76);
+      --dim: oklch(0.49 0.01 76);
+      --line: oklch(0.29 0.009 72);
+      --line-strong: oklch(0.38 0.012 72);
+      --accent: oklch(0.77 0.13 69);
+      --accent-soft: oklch(0.29 0.045 69);
+      --night: oklch(0.69 0.07 255);
+      --danger: oklch(0.7 0.14 28);
+      --mono: "JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    [hidden] {
+      display: none !important;
+    }
+
+    html {
+      min-width: 320px;
+      background: var(--page);
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--page);
+      color: var(--text);
+      font-family: var(--sans);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    button,
+    input {
+      color: inherit;
+      font: inherit;
+    }
+
+    button:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 3px;
+    }
+
+    input:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    .study {
+      width: min(1240px, calc(100% - 40px));
+      margin: 0 auto;
+      padding: 28px 0 42px;
+    }
+
+    .study-header {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 36px;
+      align-items: end;
+      margin-bottom: 21px;
+    }
+
+    .eyebrow,
+    .control-label,
+    .panel-title,
+    .summary-place,
+    .summary-meta,
+    .clock-identity,
+    .clock-place,
+    .clock-zone,
+    .clock-day,
+    .mini-name,
+    .mini-time,
+    .selection-count,
+    .behavior dt,
+    .rail-label,
+    .rail-hour,
+    .view-button,
+    .focus-status {
+      font-family: var(--mono);
+      letter-spacing: 0.095em;
+      text-transform: uppercase;
+    }
+
+    .eyebrow {
+      margin: 0 0 7px;
+      color: var(--accent);
+      font-size: 10px;
+      font-weight: 720;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 34px;
+      line-height: 1.08;
+      letter-spacing: -0.035em;
+      font-weight: 690;
+    }
+
+    .intro {
+      max-width: 68ch;
+      margin: 9px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.55;
+    }
+
+    .moment-control {
+      display: grid;
+      justify-items: end;
+      gap: 7px;
+    }
+
+    .control-label {
+      color: var(--dim);
+      font-size: 9px;
+      font-weight: 720;
+    }
+
+    .segmented {
+      display: inline-flex;
+      padding: 3px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--page-raised);
+    }
+
+    .segmented button {
+      min-width: 82px;
+      height: 30px;
+      padding: 0 12px;
+      border: 0;
+      border-radius: 5px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 12px;
+      cursor: pointer;
+      transition: color 160ms var(--ease-out), background-color 160ms var(--ease-out);
+    }
+
+    .segmented button:hover {
+      color: var(--text);
+    }
+
+    .segmented button[aria-pressed="true"] {
+      background: var(--surface-hover);
+      color: var(--text);
+    }
+
+    .concept-tabs {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 10px 10px 0 0;
+      background: var(--page-raised);
+    }
+
+    .concept-tab {
+      position: relative;
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 10px;
+      align-items: center;
+      min-height: 54px;
+      padding: 10px 15px;
+      border: 0;
+      border-right: 1px solid var(--line);
+      background: transparent;
+      color: var(--muted);
+      text-align: left;
+      cursor: pointer;
+      transition: color 160ms var(--ease-out), background-color 160ms var(--ease-out);
+    }
+
+    .concept-tab:last-child {
+      border-right: 0;
+    }
+
+    .concept-tab::after {
+      content: "";
+      position: absolute;
+      right: 15px;
+      bottom: 0;
+      left: 15px;
+      height: 2px;
+      background: transparent;
+      transform: scaleX(0.2);
+      transition: background-color 160ms var(--ease-out), transform 200ms var(--ease-out);
+    }
+
+    .concept-tab:hover,
+    .concept-tab[aria-selected="true"] {
+      background: var(--surface);
+      color: var(--text);
+    }
+
+    .concept-tab[aria-selected="true"]::after {
+      background: var(--accent);
+      transform: scaleX(1);
+    }
+
+    .tab-index {
+      color: var(--dim);
+      font-family: var(--mono);
+      font-size: 9px;
+    }
+
+    .tab-label {
+      overflow: hidden;
+      font-size: 12px;
+      font-weight: 650;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .concept-brief {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 24px;
+      align-items: center;
+      min-height: 76px;
+      padding: 14px 17px;
+      border-right: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      border-left: 1px solid var(--line);
+      background: var(--page-raised);
+    }
+
+    .concept-brief h2 {
+      margin: 0 0 4px;
+      font-size: 14px;
+      line-height: 1.3;
+      font-weight: 680;
+    }
+
+    .concept-brief p {
+      max-width: 76ch;
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .tradeoffs {
+      display: flex;
+      justify-content: flex-end;
+      gap: 7px;
+      flex-wrap: wrap;
+    }
+
+    .tradeoff {
+      padding: 5px 8px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 9px;
+      letter-spacing: 0.045em;
+      white-space: nowrap;
+    }
+
+    .tradeoff.recommended {
+      border-color: var(--accent-soft);
+      color: var(--accent);
+    }
+
+    .demo-stage {
+      display: grid;
+      place-items: center;
+      padding: 22px;
+      border-right: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      border-left: 1px solid var(--line);
+      background: oklch(0.125 0.005 72);
+    }
+
+    .world-panel {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      width: min(1080px, 100%);
+      height: 680px;
+      overflow: hidden;
+      border: 1px solid var(--line-strong);
+      border-top-color: var(--accent);
+      border-radius: 8px;
+      background: var(--panel);
+      box-shadow: 0 22px 70px oklch(0.035 0.004 72 / 0.62);
+    }
+
+    .panel-toolbar {
+      position: relative;
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      flex: 0 0 48px;
+      padding: 0 14px;
+    }
+
+    .toolbar-side {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .toolbar-side.end {
+      justify-content: flex-end;
+    }
+
+    .toolbar-attribution {
+      overflow: hidden;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 9px;
+      letter-spacing: 0.06em;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .panel-title {
+      color: var(--text);
+      font-size: 12px;
+      font-weight: 720;
+    }
+
+    .icon-button,
+    .mode-button,
+    .text-button,
+    .done-button {
+      display: inline-grid;
+      place-items: center;
+      height: 30px;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      transition: color 160ms var(--ease-out), background-color 160ms var(--ease-out);
+    }
+
+    .icon-button {
+      width: 30px;
+      color: var(--text);
+      font-size: 17px;
+    }
+
+    .mode-button,
+    .text-button,
+    .done-button {
+      grid-auto-flow: column;
+      gap: 7px;
+      padding: 0 10px;
+      font-size: 11px;
+      font-weight: 650;
+    }
+
+    .icon-button:hover,
+    .mode-button:hover,
+    .text-button:hover {
+      background: var(--surface-hover);
+      color: var(--text);
+    }
+
+    .icon-button[aria-pressed="true"] {
+      background: var(--surface-hover);
+      color: var(--text);
+    }
+
+    .mode-button.active {
+      background: var(--surface-hover);
+      color: var(--text);
+    }
+
+    .done-button {
+      background: var(--text);
+      color: var(--panel);
+    }
+
+    .done-button:hover {
+      background: oklch(0.83 0.009 76);
+    }
+
+    .summary {
+      display: grid;
+      justify-items: center;
+      align-content: start;
+      flex: 0 0 166px;
+      padding-top: 5px;
+    }
+
+    .summary-place {
+      margin-top: 1px;
+      color: var(--text);
+      font-size: 12px;
+      font-weight: 720;
+    }
+
+    .summary-time {
+      margin-top: 16px;
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 54px;
+      line-height: 1;
+      letter-spacing: 0.025em;
+      font-weight: 720;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .solar-rule {
+      position: relative;
+      width: min(420px, 58%);
+      height: 22px;
+      margin-top: 11px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .solar-rule::before {
+      content: "";
+      position: absolute;
+      right: 21%;
+      bottom: -1px;
+      left: 28%;
+      height: 15px;
+      border-top: 1px solid oklch(0.48 0.1 74 / 0.72);
+      border-radius: 50% 50% 0 0;
+      transform: translateY(7px);
+    }
+
+    .solar-dot {
+      position: absolute;
+      left: 72%;
+      bottom: 2px;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 0 5px oklch(0.77 0.13 69 / 0.1);
+    }
+
+    .summary-meta {
+      margin-top: 12px;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 580;
+    }
+
+    .timeline {
+      position: relative;
+      flex: 0 0 116px;
+      padding: 0 40px;
+    }
+
+    .rail {
+      position: relative;
+      height: 93px;
+      margin-top: 12px;
+    }
+
+    .rail-track {
+      position: absolute;
+      top: 40px;
+      right: 0;
+      left: 0;
+      height: 1px;
+      background: var(--line-strong);
+    }
+
+    .rail-track::before {
+      content: "";
+      position: absolute;
+      inset: -5px 0;
+      background: repeating-linear-gradient(90deg, transparent 0 calc(4.166% - 1px), var(--line-strong) calc(4.166% - 1px) 4.166%);
+      opacity: 0.58;
+    }
+
+    .rail-hours {
+      position: absolute;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      height: 20px;
+    }
+
+    .rail-hour {
+      position: absolute;
+      color: var(--dim);
+      font-size: 9px;
+      transform: translateX(-50%);
+      white-space: nowrap;
+    }
+
+    .rail-marker {
+      position: absolute;
+      top: 36px;
+      width: 8px;
+      height: 8px;
+      border: 1px solid var(--text);
+      border-radius: 50%;
+      background: var(--panel);
+      transform: translateX(-50%);
+      transition: opacity 180ms var(--ease-out), transform 180ms var(--ease-out);
+    }
+
+    .rail-marker.muted {
+      border-color: var(--dim);
+      opacity: 0.24;
+      transform: translateX(-50%) scale(0.75);
+    }
+
+    .rail-marker.home {
+      width: 10px;
+      height: 10px;
+      background: var(--text);
+    }
+
+    .rail-label {
+      position: absolute;
+      left: 50%;
+      color: var(--muted);
+      font-size: 9px;
+      transform: translateX(-50%);
+      white-space: nowrap;
+    }
+
+    .rail-marker.above .rail-label {
+      bottom: 13px;
+    }
+
+    .rail-marker.below .rail-label {
+      top: 13px;
+    }
+
+    .playhead {
+      position: absolute;
+      top: 8px;
+      bottom: 26px;
+      left: 50%;
+      width: 1px;
+      background: var(--text);
+      transform: translateX(-50%);
+      opacity: 0.72;
+    }
+
+    .playhead.live {
+      top: 34px;
+      bottom: 46px;
+      opacity: 0.32;
+    }
+
+    .time-bubble {
+      position: absolute;
+      top: -19px;
+      left: 50%;
+      padding: 5px 10px;
+      border: 1px solid var(--text);
+      border-radius: 6px;
+      background: var(--surface-hover);
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.085em;
+      text-transform: uppercase;
+      transform: translateX(-50%);
+      white-space: nowrap;
+    }
+
+    .clock-area {
+      min-height: 0;
+      flex: 1;
+      padding: 10px 28px 19px;
+      overflow: auto;
+      scrollbar-color: var(--line-strong) transparent;
+      scrollbar-width: thin;
+    }
+
+    .context-bar,
+    .selection-bar,
+    .views-bar,
+    .collapsed-shelf {
+      display: flex;
+      align-items: center;
+      min-height: 34px;
+    }
+
+    .context-bar,
+    .selection-bar,
+    .views-bar {
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 9px;
+    }
+
+    .context-copy,
+    .selection-copy {
+      display: flex;
+      align-items: baseline;
+      gap: 9px;
+      min-width: 0;
+    }
+
+    .focus-status,
+    .selection-count {
+      color: var(--accent);
+      font-size: 9px;
+      font-weight: 720;
+      white-space: nowrap;
+    }
+
+    .context-note,
+    .selection-note {
+      overflow: hidden;
+      color: var(--dim);
+      font-size: 11px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .context-actions,
+    .selection-actions,
+    .view-switcher {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .clock-grid,
+    .selection-grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .clock-grid.focused {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .clock-grid.folded-grid {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .clock-card,
+    .selection-card {
+      position: relative;
+      min-width: 0;
+      height: 112px;
+      overflow: hidden;
+      border: 1px solid transparent;
+      border-radius: 7px;
+      background: var(--surface);
+      text-align: left;
+    }
+
+    .clock-card {
+      padding: 12px 12px 9px;
+      transition: background-color 160ms var(--ease-out), border-color 160ms var(--ease-out), opacity 160ms var(--ease-out);
+    }
+
+    .clock-card:hover {
+      background: var(--surface-hover);
+    }
+
+    .clock-card.prominent {
+      height: 126px;
+      padding: 14px 14px 10px;
+      border-color: var(--line);
+    }
+
+    .clock-card.planning-member::after {
+      content: "";
+      position: absolute;
+      top: 9px;
+      right: 9px;
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 0 3px oklch(0.77 0.13 69 / 0.1);
+    }
+
+    .clock-top,
+    .clock-bottom,
+    .mini-clock {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .clock-name {
+      display: flex;
+      min-width: 0;
+      align-items: baseline;
+      gap: 6px;
+    }
+
+    .clock-identity {
+      overflow: hidden;
+      color: var(--text);
+      font-size: 10px;
+      font-weight: 760;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .clock-place {
+      overflow: hidden;
+      color: var(--muted);
+      font-size: 8px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .clock-place::before {
+      content: "· ";
+      color: var(--dim);
+    }
+
+    .clock-zone {
+      flex: 0 0 auto;
+      color: var(--muted);
+      font-size: 8px;
+      opacity: 1;
+      transition: opacity 120ms var(--ease-out);
+    }
+
+    .clock-time {
+      margin-top: 12px;
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 25px;
+      line-height: 1;
+      letter-spacing: 0.02em;
+      font-weight: 690;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .prominent .clock-time {
+      margin-top: 16px;
+      font-size: 30px;
+    }
+
+    .clock-bottom {
+      margin-top: 10px;
+    }
+
+    .clock-day {
+      color: var(--muted);
+      font-size: 8px;
+    }
+
+    .weather {
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 9px;
+      white-space: nowrap;
+    }
+
+    .solar-mini {
+      position: absolute;
+      right: 12px;
+      bottom: 0;
+      left: 12px;
+      height: 9px;
+      border-bottom: 1px solid var(--line);
+      opacity: 0.7;
+    }
+
+    .solar-mini::before {
+      content: "";
+      position: absolute;
+      right: 18%;
+      bottom: -1px;
+      left: 23%;
+      height: 7px;
+      border-top: 1px solid oklch(0.62 0.1 73 / 0.68);
+      border-radius: 50% 50% 0 0;
+    }
+
+    .solar-mini.night::before {
+      border-top-color: oklch(0.48 0.05 255 / 0.58);
+    }
+
+    .card-action {
+      position: absolute;
+      top: 7px;
+      right: 7px;
+      display: grid;
+      place-items: center;
+      width: 24px;
+      height: 24px;
+      border: 0;
+      border-radius: 5px;
+      background: transparent;
+      color: var(--dim);
+      font-family: var(--mono);
+      font-size: 15px;
+      cursor: pointer;
+      opacity: 0;
+      transition: opacity 140ms var(--ease-out), color 140ms var(--ease-out), background-color 140ms var(--ease-out);
+    }
+
+    .clock-card:hover .card-action,
+    .card-action:focus-visible {
+      opacity: 1;
+    }
+
+    .card-action:hover {
+      background: var(--page-raised);
+      color: var(--text);
+    }
+
+    .clock-card.has-action:hover .clock-zone,
+    .clock-card.has-action:focus-within .clock-zone {
+      opacity: 0;
+    }
+
+    .collapsed-shelf {
+      margin-top: 10px;
+      padding-top: 9px;
+      border-top: 1px solid var(--line);
+      gap: 7px;
+    }
+
+    .shelf-label {
+      flex: 0 0 auto;
+      color: var(--dim);
+      font-family: var(--mono);
+      font-size: 8px;
+      font-weight: 680;
+      letter-spacing: 0.075em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .mini-list {
+      display: flex;
+      min-width: 0;
+      flex: 1;
+      gap: 6px;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+
+    .mini-list::-webkit-scrollbar {
+      display: none;
+    }
+
+    .mini-clock {
+      min-width: 116px;
+      height: 32px;
+      padding: 0 9px;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      background: var(--page-raised);
+      color: var(--muted);
+      cursor: pointer;
+      transition: background-color 150ms var(--ease-out), color 150ms var(--ease-out), border-color 150ms var(--ease-out);
+    }
+
+    .mini-clock:hover {
+      border-color: var(--line);
+      background: var(--surface-hover);
+      color: var(--text);
+    }
+
+    .mini-name,
+    .mini-time {
+      overflow: hidden;
+      font-size: 8px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .mini-time {
+      color: var(--text);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .selection-card {
+      display: block;
+      height: 106px;
+      padding: 12px;
+      color: var(--muted);
+      cursor: pointer;
+      opacity: 0.48;
+      transition: opacity 160ms var(--ease-out), background-color 160ms var(--ease-out), border-color 160ms var(--ease-out), transform 160ms var(--ease-out);
+    }
+
+    .selection-card:hover {
+      opacity: 0.78;
+      transform: translateY(-1px);
+    }
+
+    .selection-card[aria-pressed="true"] {
+      border-color: var(--accent-soft);
+      background: var(--surface-selected);
+      color: var(--text);
+      opacity: 1;
+    }
+
+    .selection-check {
+      position: absolute;
+      top: 9px;
+      right: 9px;
+      display: grid;
+      place-items: center;
+      width: 17px;
+      height: 17px;
+      border: 1px solid var(--dim);
+      border-radius: 50%;
+      color: transparent;
+      font-size: 10px;
+    }
+
+    .selection-card[aria-pressed="true"] .selection-check {
+      border-color: var(--accent);
+      background: var(--accent);
+      color: var(--panel);
+    }
+
+    .selection-card .clock-time {
+      margin-top: 17px;
+      font-size: 23px;
+    }
+
+    .view-switcher {
+      padding: 3px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--page-raised);
+    }
+
+    .view-button {
+      height: 27px;
+      padding: 0 10px;
+      border: 0;
+      border-radius: 4px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 8px;
+      cursor: pointer;
+    }
+
+    .view-button:hover {
+      color: var(--text);
+    }
+
+    .view-button[aria-pressed="true"] {
+      background: var(--surface-hover);
+      color: var(--text);
+    }
+
+    .view-edit-head,
+    .view-editor-head,
+    .view-name-field,
+    .view-editor-actions {
+      display: flex;
+      align-items: center;
+    }
+
+    .view-edit-head,
+    .view-editor-head {
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .view-edit-head {
+      min-height: 34px;
+      margin-bottom: 5px;
+    }
+
+    .view-editor-head {
+      min-height: 34px;
+      margin-bottom: 7px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .edit-view-tabs {
+      display: flex;
+      min-width: 0;
+      align-items: center;
+      gap: 5px;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+
+    .edit-view-tabs::-webkit-scrollbar {
+      display: none;
+    }
+
+    .manager-tab,
+    .new-view-button {
+      flex: 0 0 auto;
+      height: 28px;
+      padding: 0 9px;
+      border: 1px solid transparent;
+      border-radius: 5px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 10px;
+      cursor: pointer;
+    }
+
+    .manager-tab:hover,
+    .new-view-button:hover {
+      border-color: var(--line);
+      color: var(--text);
+    }
+
+    .manager-tab[aria-pressed="true"] {
+      border-color: var(--line);
+      background: var(--surface-hover);
+      color: var(--text);
+    }
+
+    .new-view-button {
+      color: var(--accent);
+    }
+
+    .view-name-input {
+      height: 28px;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      background: var(--page-raised);
+      color: var(--text);
+      font-size: 11px;
+    }
+
+    .view-name-field {
+      min-width: 0;
+      gap: 8px;
+    }
+
+    .view-name-input {
+      width: 138px;
+      padding: 0 8px;
+      font-family: var(--mono);
+      letter-spacing: 0.055em;
+      text-transform: uppercase;
+    }
+
+    .membership-count {
+      color: var(--dim);
+      font-size: 10px;
+      white-space: nowrap;
+    }
+
+    .view-editor-actions {
+      flex: 0 0 auto;
+      gap: 4px;
+    }
+
+    .reorder-view-button {
+      display: grid;
+      place-items: center;
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 10px;
+      cursor: pointer;
+    }
+
+    .reorder-view-button:hover:not(:disabled) {
+      border-color: var(--line-strong);
+      color: var(--text);
+    }
+
+    .reorder-view-button:disabled {
+      cursor: not-allowed;
+      opacity: 0.3;
+    }
+
+    .delete-view-button {
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      border: 0;
+      border-radius: 5px;
+      background: transparent;
+      color: var(--dim);
+      font-size: 10px;
+      cursor: pointer;
+    }
+
+    .delete-view-button:hover {
+      background: oklch(0.22 0.035 28);
+      color: var(--danger);
+    }
+
+    .delete-view-button:disabled {
+      background: transparent;
+      color: var(--dim);
+      cursor: not-allowed;
+      opacity: 0.35;
+    }
+
+    .empty-view {
+      display: grid;
+      place-items: center;
+      align-content: center;
+      min-height: 210px;
+      color: var(--muted);
+      text-align: center;
+    }
+
+    .empty-view span {
+      color: var(--dim);
+      font-size: 11px;
+    }
+
+    .behavior {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      margin: 0;
+      border: 1px solid var(--line);
+      border-top: 0;
+      border-radius: 0 0 10px 10px;
+      background: var(--page-raised);
+    }
+
+    .behavior > div {
+      min-width: 0;
+      padding: 13px 16px 15px;
+      border-right: 1px solid var(--line);
+    }
+
+    .behavior > div:last-child {
+      border-right: 0;
+    }
+
+    .behavior dt {
+      margin: 0 0 5px;
+      color: var(--dim);
+      font-size: 8px;
+      font-weight: 720;
+    }
+
+    .behavior dd {
+      margin: 0;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.45;
+    }
+
+    .prototype-hint {
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      margin-top: 11px;
+      color: var(--dim);
+      font-size: 11px;
+    }
+
+    @media (max-width: 880px) {
+      .study {
+        width: min(100% - 24px, 760px);
+        padding-top: 17px;
+      }
+
+      .study-header {
+        grid-template-columns: 1fr;
+        gap: 15px;
+      }
+
+      .moment-control {
+        justify-items: start;
+      }
+
+      .concept-tabs {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .concept-tab:nth-child(2) {
+        border-right: 0;
+      }
+
+      .concept-tab:nth-child(-n + 2) {
+        border-bottom: 1px solid var(--line);
+      }
+
+      .concept-brief {
+        grid-template-columns: 1fr;
+        gap: 10px;
+      }
+
+      .tradeoffs {
+        justify-content: flex-start;
+      }
+
+      .demo-stage {
+        padding: 12px;
+      }
+
+      .world-panel {
+        height: 760px;
+      }
+
+      .clock-grid,
+      .selection-grid,
+      .clock-grid.focused,
+      .clock-grid.folded-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .behavior {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .behavior > div:nth-child(2) {
+        border-right: 0;
+      }
+
+      .behavior > div:nth-child(-n + 2) {
+        border-bottom: 1px solid var(--line);
+      }
+    }
+
+    @media (max-width: 560px) {
+      h1 {
+        font-size: 28px;
+      }
+
+      .concept-tabs,
+      .clock-grid,
+      .selection-grid,
+      .clock-grid.focused,
+      .clock-grid.folded-grid,
+      .behavior {
+        grid-template-columns: 1fr;
+      }
+
+      .concept-tab,
+      .concept-tab:nth-child(2) {
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .concept-tab:last-child {
+        border-bottom: 0;
+      }
+
+      .world-panel {
+        height: 780px;
+      }
+
+      .toolbar-attribution,
+      .mode-button span,
+      .context-note,
+      .selection-note {
+        display: none;
+      }
+
+      .summary {
+        flex-basis: 168px;
+      }
+
+      .summary-time {
+        font-size: 43px;
+      }
+
+      .timeline {
+        padding: 0 18px;
+      }
+
+      .clock-area {
+        padding-right: 15px;
+        padding-left: 15px;
+      }
+
+      .behavior > div,
+      .behavior > div:nth-child(2) {
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .behavior > div:last-child {
+        border-bottom: 0;
+      }
+
+      .prototype-hint {
+        display: block;
+      }
+
+      .prototype-hint span {
+        display: block;
+        margin-top: 5px;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *,
+      *::before,
+      *::after {
+        scroll-behavior: auto !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="study">
+    <header class="study-header">
+      <div>
+        <p class="eyebrow">World Clock · focus study</p>
+        <h1>Bring the right clocks forward</h1>
+        <p class="intro">Four ways to make Mark, Jeff, Vlad, and Olivier prominent without deleting or reordering the saved location list.</p>
+      </div>
+
+      <div class="moment-control">
+        <span class="control-label">Panel state</span>
+        <div class="segmented" aria-label="Panel state">
+          <button type="button" data-moment="live" aria-pressed="false">Live</button>
+          <button type="button" data-moment="planning" aria-pressed="true">Planning time</button>
+        </div>
+      </div>
+    </header>
+
+    <nav class="concept-tabs" role="tablist" aria-label="Focus concepts">
+      <button class="concept-tab" type="button" role="tab" data-concept="fold" aria-controls="prototypePanel" aria-selected="false" tabindex="-1">
+        <span class="tab-index">01</span>
+        <span class="tab-label">Fold cards</span>
+      </button>
+      <button class="concept-tab" type="button" role="tab" data-concept="focus" aria-controls="prototypePanel" aria-selected="false" tabindex="-1">
+        <span class="tab-index">02</span>
+        <span class="tab-label">Focus session</span>
+      </button>
+      <button class="concept-tab" type="button" role="tab" data-concept="planning" aria-controls="prototypePanel" aria-selected="false" tabindex="-1">
+        <span class="tab-index">03</span>
+        <span class="tab-label">Planning-only</span>
+      </button>
+      <button class="concept-tab" type="button" role="tab" data-concept="views" aria-controls="prototypePanel" aria-selected="true">
+        <span class="tab-index">04</span>
+        <span class="tab-label">Named views</span>
+      </button>
+    </nav>
+
+    <section class="concept-brief" aria-live="polite">
+      <div>
+        <h2 id="conceptTitle"></h2>
+        <p id="conceptDescription"></p>
+      </div>
+      <div class="tradeoffs" id="tradeoffs"></div>
+    </section>
+
+    <section class="demo-stage">
+      <div class="world-panel" id="prototypePanel" aria-label="Interactive World Clock focus concept">
+        <header class="panel-toolbar">
+          <div class="toolbar-side">
+            <button class="icon-button" type="button" data-action="return-live" aria-label="Return to current time">↻</button>
+            <span class="toolbar-attribution">Open-Meteo</span>
+          </div>
+          <div class="panel-title">Cancun</div>
+          <div class="toolbar-side end">
+            <span id="toolbarMode"></span>
+            <button class="icon-button" type="button" aria-label="Add a location">＋</button>
+            <button class="icon-button" id="editButton" type="button" data-action="toggle-view-edit" aria-label="Edit groups" aria-pressed="false">✎</button>
+          </div>
+        </header>
+
+        <section class="summary" aria-label="Current location">
+          <div class="summary-place">Cancun</div>
+          <div class="summary-time" id="summaryTime">2:00 PM</div>
+          <div class="solar-rule" aria-hidden="true"><span class="solar-dot"></span></div>
+          <div class="summary-meta" id="summaryMeta">America/Cancun · EST</div>
+        </section>
+
+        <section class="timeline" aria-label="Time comparison">
+          <div class="rail">
+            <div class="rail-track"></div>
+            <div class="rail-hours" id="railHours"></div>
+            <div id="railMarkers"></div>
+            <div class="playhead" id="playhead"><span class="time-bubble" id="timeBubble">Fri 4 · 2:00 PM</span></div>
+          </div>
+        </section>
+
+        <section class="clock-area" id="clockArea" aria-live="polite"></section>
+      </div>
+    </section>
+
+    <dl class="behavior" id="behavior"></dl>
+
+    <div class="prototype-hint">9 saved locations · 4-person project</div>
+  </main>
+
+  <script>
+    const LOCATIONS = [
+      { id: "mark", label: "Mark", place: "Vancouver", zone: "PDT", offset: -120, weather: "☁ 20°" },
+      { id: "soline", label: "Soline", place: "Vancouver", zone: "PDT", offset: -120, weather: "☀ 9°" },
+      { id: "exsq-sj", label: "Exsq", place: "San José", zone: "CST", offset: -60, weather: "☂ 22°" },
+      { id: "exsq-austin", label: "Exsq", place: "Austin", zone: "CDT", offset: 0, weather: "☀ 37°" },
+      { id: "olivier", label: "Olivier", place: "Cancun", zone: "EST", offset: 0, weather: "☁ 30°" },
+      { id: "jeff", label: "Jeff", place: "Cape Cod", zone: "EDT", offset: 60, weather: "☀ 23°" },
+      { id: "parents", label: "Parents", place: "Rennes", zone: "CEST", offset: 420, weather: "☁ 21°" },
+      { id: "vlad", label: "Vlad", place: "Prague", zone: "CEST", offset: 420, weather: "☁ 19°" },
+      { id: "exsq-faridabad", label: "Exsq", place: "Faridabad", zone: "IST", offset: 630, weather: "☁ 26°" }
+    ];
+
+    const CORE_IDS = ["mark", "jeff", "vlad", "olivier"];
+    const ALL_IDS = LOCATIONS.map(location => location.id);
+
+    const CONCEPTS = {
+      fold: {
+        title: "Fold individual cards",
+        description: "A quiet minus control folds any card into the always-visible mini dock. One click restores it, Restore all resets the set, and a minimized location also leaves the timeline.",
+        tags: ["One-click", "Mini dock stays open", "Persistent"],
+        behavior: {
+          trigger: "Minus control on each card",
+          lifetime: "Until that card is restored",
+          rail: "Minimized markers disappear",
+          best: "A stable personal shortlist"
+        }
+      },
+      focus: {
+        title: "Start a temporary focus session",
+        description: "Focus opens an explicit selection pass. Chosen clocks move into one prominent row and everyone else becomes a reversible summary. Closing the panel returns to All.",
+        tags: ["Recommended", "Clear temporary scope", "One extra step"],
+        behavior: {
+          trigger: "Focus button, then card selection",
+          lifetime: "This panel session",
+          rail: "Unselected markers become quiet",
+          best: "One-off coordination groups"
+        }
+      },
+      planning: {
+        title: "Focus only while planning",
+        description: "Live view keeps every clock. Scrubbing the rail or entering a time compresses non-participants, then returning to live time restores the full location grid.",
+        tags: ["No ambient change", "Task-specific", "Automatic layout shift"],
+        behavior: {
+          trigger: "Scrub or enter a time",
+          lifetime: "Only while time is selected",
+          rail: "Participants lead, others stay faint",
+          best: "Protecting the everyday clock view"
+        }
+      },
+      views: {
+        title: "Build reusable named views",
+        description: "All stays put. The pencil handles everything else.",
+        tags: ["One edit mode", "Saved groups"],
+        behavior: {
+          trigger: "Pencil",
+          lifetime: "Persistent",
+          rail: "Current group",
+          best: "Recurring groups"
+        }
+      }
+    };
+
+    const VIEW_SETS = {
+      all: { label: "All", ids: ALL_IDS, builtIn: true }
+    };
+    const viewOrder = ["all"];
+
+    const state = {
+      concept: "views",
+      moment: "planning",
+      folded: new Set(ALL_IDS.filter(id => !CORE_IDS.includes(id))),
+      focused: new Set(CORE_IDS),
+      selectionOpen: false,
+      currentView: "all",
+      editingView: "all",
+      viewEditing: false
+    };
+
+    const clockArea = document.getElementById("clockArea");
+    const conceptTabs = [...document.querySelectorAll("[data-concept]")];
+
+    function escapeHtml(value) {
+      return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    function baseMinutes() {
+      return state.moment === "planning" ? 14 * 60 : 17 * 60 + 46;
+    }
+
+    function timeFor(location) {
+      let minutes = baseMinutes() + location.offset;
+      let dayShift = 0;
+      while (minutes < 0) {
+        minutes += 1440;
+        dayShift -= 1;
+      }
+      while (minutes >= 1440) {
+        minutes -= 1440;
+        dayShift += 1;
+      }
+      const hour = Math.floor(minutes / 60);
+      const minute = minutes % 60;
+      const hour12 = hour % 12 || 12;
+      return {
+        value: `${hour12}:${String(minute).padStart(2, "0")} ${hour < 12 ? "AM" : "PM"}`,
+        dayShift
+      };
+    }
+
+    function dayFor(dayShift) {
+      if (state.moment === "planning") {
+        if (dayShift < 0) return "Previous day";
+        if (dayShift > 0) return "Next day";
+        return "Same day";
+      }
+      if (dayShift < 0) return "Yesterday";
+      if (dayShift > 0) return "Tomorrow";
+      return "Today";
+    }
+
+    function relativeFor(offset) {
+      if (offset === 0) return "Same time";
+      const absolute = Math.abs(offset);
+      const hours = Math.floor(absolute / 60);
+      const minutes = absolute % 60;
+      const amount = minutes ? `${hours}h ${String(minutes).padStart(2, "0")}m` : `${hours}h`;
+      return `${amount} ${offset > 0 ? "ahead" : "behind"}`;
+    }
+
+    function isNight(location) {
+      const result = timeFor(location).value;
+      const match = result.match(/^(\d+):\d+ (AM|PM)$/);
+      if (!match) return false;
+      let hour = Number(match[1]) % 12;
+      if (match[2] === "PM") hour += 12;
+      return hour < 6 || hour >= 20;
+    }
+
+    function cardMarkup(location, options = {}) {
+      const time = timeFor(location);
+      const classes = ["clock-card"];
+      if (options.prominent) classes.push("prominent");
+      if (options.action) classes.push("has-action");
+      if (options.planningMember) classes.push("planning-member");
+      return `
+        <article class="${classes.join(" ")}">
+          <div class="clock-top">
+            <div class="clock-name">
+              <span class="clock-identity">${escapeHtml(location.label)}</span>
+              <span class="clock-place">${escapeHtml(location.place)}</span>
+            </div>
+            <span class="clock-zone">${escapeHtml(location.zone)}</span>
+          </div>
+          <div class="clock-time">${escapeHtml(time.value)}</div>
+          <div class="clock-bottom">
+            <span class="clock-day">${escapeHtml(dayFor(time.dayShift))}${state.moment === "planning" ? ` · ${escapeHtml(relativeFor(location.offset))}` : ""}</span>
+            ${state.moment === "live" ? `<span class="weather">${escapeHtml(location.weather)}</span>` : ""}
+          </div>
+          ${state.moment === "planning" ? `<span class="solar-mini ${isNight(location) ? "night" : ""}" aria-hidden="true"></span>` : ""}
+          ${options.action ? `<button class="card-action" type="button" data-action="${options.action}" data-id="${location.id}" aria-label="Minimize ${escapeHtml(location.label)}">−</button>` : ""}
+        </article>`;
+    }
+
+    function miniMarkup(location, action, symbol = "+") {
+      return `
+        <button class="mini-clock" type="button" data-action="${action}" data-id="${location.id}" aria-label="Restore ${escapeHtml(location.label)}">
+          <span class="mini-name">${escapeHtml(symbol)} ${escapeHtml(location.label)}</span>
+          <span class="mini-time">${escapeHtml(timeFor(location).value.replace(" ", " "))}</span>
+        </button>`;
+    }
+
+    function selectionMarkup(location) {
+      const selected = state.focused.has(location.id);
+      const time = timeFor(location);
+      return `
+        <button class="selection-card" type="button" data-action="focus-toggle" data-id="${location.id}" aria-pressed="${selected}">
+          <span class="selection-check" aria-hidden="true">✓</span>
+          <span class="clock-name">
+            <span class="clock-identity">${escapeHtml(location.label)}</span>
+            <span class="clock-place">${escapeHtml(location.place)}</span>
+          </span>
+          <span class="clock-time">${escapeHtml(time.value)}</span>
+          <span class="clock-day">${escapeHtml(dayFor(time.dayShift))}</span>
+        </button>`;
+    }
+
+    function otherViewLabels(locationId, excludedViewId) {
+      return viewOrder
+        .filter(viewId => viewId !== "all" && viewId !== excludedViewId && VIEW_SETS[viewId].ids.includes(locationId))
+        .map(viewId => VIEW_SETS[viewId].label);
+    }
+
+    function viewMembershipMarkup(location) {
+      const view = VIEW_SETS[state.editingView];
+      const selected = view.ids.includes(location.id);
+      const time = timeFor(location);
+      const alsoIn = otherViewLabels(location.id, state.editingView);
+      const membership = alsoIn.length ? `Also in ${alsoIn.join(", ")}` : "No other groups";
+      return `
+        <button class="selection-card" type="button" data-action="view-toggle" data-id="${location.id}" aria-pressed="${selected}" aria-label="${selected ? "Remove" : "Add"} ${escapeHtml(location.label)} ${selected ? "from" : "to"} ${escapeHtml(view.label)}. ${escapeHtml(membership)}">
+          <span class="selection-check" aria-hidden="true">✓</span>
+          <span class="clock-name">
+            <span class="clock-identity">${escapeHtml(location.label)}</span>
+            <span class="clock-place">${escapeHtml(location.place)}</span>
+          </span>
+          <span class="clock-time">${escapeHtml(time.value)}</span>
+        </button>`;
+    }
+
+    function selectedLocations(ids) {
+      return LOCATIONS.filter(location => ids.has(location.id));
+    }
+
+    function unselectedLocations(ids) {
+      return LOCATIONS.filter(location => !ids.has(location.id));
+    }
+
+    function renderSelection(title, note) {
+      return `
+        <div class="selection-bar">
+          <div class="selection-copy">
+            <span class="selection-count">${state.focused.size} selected</span>
+            <span class="selection-note">${escapeHtml(note)}</span>
+          </div>
+          <div class="selection-actions">
+            <button class="text-button" type="button" data-action="select-core">Choose example four</button>
+            <button class="done-button" type="button" data-action="selection-done">Done</button>
+          </div>
+        </div>
+        <div class="selection-grid" aria-label="${escapeHtml(title)}">
+          ${LOCATIONS.map(selectionMarkup).join("")}
+        </div>`;
+    }
+
+    function renderMiniDock(minimized) {
+      if (!minimized.length) return "";
+      return `
+        <div class="collapsed-shelf" aria-label="Minimized locations">
+          <span class="shelf-label">${minimized.length} minimized</span>
+          <div class="mini-list">
+            ${minimized.map(location => miniMarkup(location, "fold-toggle")).join("")}
+          </div>
+        </div>`;
+    }
+
+    function renderFold() {
+      const visible = LOCATIONS.filter(location => !state.folded.has(location.id));
+      const folded = LOCATIONS.filter(location => state.folded.has(location.id));
+      return `
+        <div class="context-bar">
+          <div class="context-copy">
+            <span class="focus-status">${folded.length} minimized</span>
+            <span class="context-note">Mini cards stay visible and leave the timeline</span>
+          </div>
+          <div class="context-actions">
+            <button class="text-button" type="button" data-action="fold-example">Use example four</button>
+            <button class="text-button" type="button" data-action="restore-all">Restore all</button>
+          </div>
+        </div>
+        <div class="clock-grid ${visible.length <= 4 ? "folded-grid" : ""}">
+          ${visible.map(location => cardMarkup(location, { prominent: visible.length <= 4, action: "fold-toggle" })).join("")}
+        </div>
+        ${renderMiniDock(folded)}`;
+    }
+
+    function renderFocus() {
+      if (state.selectionOpen) return renderSelection("Choose clocks for this focus session", "Whole-card clicks select participants");
+      const selected = selectedLocations(state.focused);
+      const hidden = unselectedLocations(state.focused);
+      return `
+        <div class="context-bar">
+          <div class="context-copy">
+            <span class="focus-status">Focus · ${selected.length}</span>
+            <span class="context-note">${hidden.length} other locations hidden, clears when this panel closes</span>
+          </div>
+          <div class="context-actions">
+            <button class="text-button" type="button" data-action="selection-edit">Edit focus</button>
+            <button class="text-button" type="button" data-action="focus-save-view">Save as view</button>
+            <button class="text-button" type="button" data-action="focus-end">End focus</button>
+          </div>
+        </div>
+        <div class="clock-grid focused">
+          ${selected.map(location => cardMarkup(location, { prominent: true })).join("")}
+        </div>`;
+    }
+
+    function renderPlanning() {
+      if (state.selectionOpen) return renderSelection("Choose the planning group", "Saved locations are unchanged");
+      const planning = state.moment === "planning";
+      if (!planning) {
+        return `
+          <div class="context-bar">
+            <div class="context-copy">
+              <span class="focus-status">All locations</span>
+              <span class="context-note">Four are ready for the next planning moment</span>
+            </div>
+            <button class="text-button" type="button" data-action="selection-edit">Edit participants · ${state.focused.size}</button>
+          </div>
+          <div class="clock-grid">
+            ${LOCATIONS.map(location => cardMarkup(location, { planningMember: state.focused.has(location.id) })).join("")}
+          </div>`;
+      }
+      const selected = selectedLocations(state.focused);
+      const hidden = unselectedLocations(state.focused);
+      return `
+        <div class="context-bar">
+          <div class="context-copy">
+            <span class="focus-status">Planning · ${selected.length}</span>
+            <span class="context-note">${hidden.length} non-participants hidden, they return automatically in Live</span>
+          </div>
+          <button class="text-button" type="button" data-action="selection-edit">Edit participants</button>
+        </div>
+        <div class="clock-grid focused">
+          ${selected.map(location => cardMarkup(location, { prominent: true })).join("")}
+        </div>`;
+    }
+
+    function renderViewEditor() {
+      const view = VIEW_SETS[state.editingView];
+      const index = viewOrder.indexOf(state.editingView);
+      const editable = state.editingView !== "all";
+      return `
+        <div class="view-edit-head">
+          <div class="edit-view-tabs" aria-label="Groups to edit">
+            ${viewOrder.map(id => {
+              const candidate = VIEW_SETS[id];
+              return `
+              <button class="manager-tab" type="button" data-action="view-edit-select" data-view="${id}" aria-pressed="${state.editingView === id}" ${id === "all" ? `title="All always contains every location"` : ""}>
+                ${escapeHtml(candidate.label)}
+              </button>`;
+            }).join("")}
+            <button class="new-view-button" type="button" data-action="view-new">＋ Group</button>
+          </div>
+        </div>
+        ${editable ? `
+          <div class="view-editor-head">
+            <label class="view-name-field">
+              <input class="view-name-input" type="text" value="${escapeHtml(view.label)}" data-view-name="${state.editingView}" aria-label="Rename ${escapeHtml(view.label)}">
+              <span class="membership-count">${view.ids.length} selected</span>
+            </label>
+            <div class="view-editor-actions">
+              <button class="reorder-view-button" type="button" data-action="view-move-left" aria-label="Move ${escapeHtml(view.label)} left" title="Move left" ${index <= 1 ? "disabled" : ""}>←</button>
+              <button class="reorder-view-button" type="button" data-action="view-move-right" aria-label="Move ${escapeHtml(view.label)} right" title="Move right" ${index >= viewOrder.length - 1 ? "disabled" : ""}>→</button>
+              <button class="delete-view-button" type="button" data-action="view-delete" aria-label="Delete ${escapeHtml(view.label)}" title="Delete group">×</button>
+            </div>
+          </div>
+          <div class="selection-grid" aria-label="Locations in ${escapeHtml(view.label)}">
+            ${LOCATIONS.map(viewMembershipMarkup).join("")}
+          </div>
+        ` : `
+          <div class="clock-grid">
+            ${LOCATIONS.map(location => cardMarkup(location)).join("")}
+          </div>
+        `}`;
+    }
+
+    function renderViews() {
+      if (state.viewEditing) return renderViewEditor();
+      const view = VIEW_SETS[state.currentView];
+      const ids = new Set(view.ids);
+      const visible = selectedLocations(ids);
+      return `
+        <div class="views-bar">
+          <div class="view-switcher" aria-label="Location view">
+            ${viewOrder.map(id => {
+              const candidate = VIEW_SETS[id];
+              return `
+              <button class="view-button" type="button" data-action="view" data-view="${id}" aria-pressed="${state.currentView === id}">${escapeHtml(candidate.label)}</button>
+            `;}).join("")}
+          </div>
+        </div>
+        ${visible.length ? `
+          <div class="clock-grid ${visible.length <= 4 ? "focused" : ""}">
+            ${visible.map(location => cardMarkup(location, { prominent: visible.length <= 4 })).join("")}
+          </div>
+        ` : `
+          <div class="empty-view">
+            <span>No locations in ${escapeHtml(view.label)}</span>
+          </div>
+        `}`;
+    }
+
+    function renderClockArea() {
+      if (state.concept === "fold") clockArea.innerHTML = renderFold();
+      if (state.concept === "focus") clockArea.innerHTML = renderFocus();
+      if (state.concept === "planning") clockArea.innerHTML = renderPlanning();
+      if (state.concept === "views") clockArea.innerHTML = renderViews();
+    }
+
+    function relevantIdsForRail() {
+      if (state.concept === "fold") return new Set(ALL_IDS.filter(id => !state.folded.has(id)));
+      if (state.concept === "views") {
+        const viewId = state.viewEditing ? state.editingView : state.currentView;
+        return new Set(VIEW_SETS[viewId].ids);
+      }
+      if (state.concept === "focus") return state.focused;
+      if (state.concept === "planning" && state.moment === "planning") return state.focused;
+      return new Set(ALL_IDS);
+    }
+
+    function renderTimeline() {
+      const hourLabels = state.moment === "planning"
+        ? ["3 AM", "6 AM", "9 AM", "12 PM", "3 PM", "6 PM", "9 PM", "12 AM"]
+        : ["6 AM", "9 AM", "12 PM", "3 PM", "6 PM", "9 PM", "12 AM", "3 AM"];
+      document.getElementById("railHours").innerHTML = hourLabels
+        .map((label, index) => `<span class="rail-hour" style="left:${index / (hourLabels.length - 1) * 100}%">${label}</span>`)
+        .join("");
+
+      const relevant = relevantIdsForRail();
+      const groups = [
+        { offset: -120, label: "PDT", ids: ["mark", "soline"] },
+        { offset: -60, label: "CST", ids: ["exsq-sj"] },
+        { offset: 0, label: "CDT / EST", ids: ["exsq-austin", "olivier"] },
+        { offset: 60, label: "EDT", ids: ["jeff"] },
+        { offset: 420, label: "CEST", ids: ["parents", "vlad"] },
+        { offset: 630, label: "IST +1", ids: ["exsq-faridabad"] }
+      ];
+      document.getElementById("railMarkers").innerHTML = groups.map((group, index) => {
+        const active = group.ids.some(id => relevant.has(id));
+        const hideInactive = state.concept === "fold" || (state.concept === "views" && !state.viewEditing);
+        if (!active && hideInactive) return "";
+        const activeZones = [...new Set(group.ids
+          .filter(id => relevant.has(id))
+          .map(id => LOCATIONS.find(location => location.id === id).zone))];
+        const label = activeZones.length
+          ? activeZones.join(" / ") + (group.offset >= 600 ? " +1" : "")
+          : group.label;
+        const isHome = group.ids.includes("olivier") && relevant.has("olivier");
+        const left = Math.max(2, Math.min(98, 50 + group.offset / 1440 * 100));
+        return `<span class="rail-marker ${index % 2 ? "below" : "above"} ${active ? "" : "muted"} ${isHome ? "home" : ""}" style="left:${left}%"><span class="rail-label">${escapeHtml(label)}</span></span>`;
+      }).join("");
+
+      const planning = state.moment === "planning";
+      document.getElementById("playhead").classList.toggle("live", !planning);
+      document.getElementById("timeBubble").hidden = !planning;
+    }
+
+    function updateSummary() {
+      const planning = state.moment === "planning";
+      document.getElementById("summaryTime").textContent = planning ? "2:00 PM" : "5:46 PM";
+      document.getElementById("summaryMeta").textContent = planning ? "America/Cancun · EST" : "America/Cancun · EST · ☁ 30°C";
+    }
+
+    function updateToolbar() {
+      const target = document.getElementById("toolbarMode");
+      const editButton = document.getElementById("editButton");
+      editButton.setAttribute("aria-pressed", "false");
+      editButton.setAttribute("aria-label", "Edit groups");
+      editButton.textContent = "✎";
+      if (state.concept === "focus") {
+        target.innerHTML = `<button class="mode-button active" type="button" data-action="selection-edit" aria-label="Edit temporary focus"><span>◎ Focus · ${state.focused.size}</span></button>`;
+      } else if (state.concept === "planning") {
+        target.innerHTML = `<button class="mode-button ${state.moment === "planning" ? "active" : ""}" type="button" data-action="selection-edit" aria-label="Edit planning participants"><span>◉ Participants · ${state.focused.size}</span></button>`;
+      } else if (state.concept === "fold") {
+        target.innerHTML = `<button class="mode-button" type="button" data-action="restore-all" aria-label="Restore minimized clocks"><span>▤ ${state.folded.size} minimized</span></button>`;
+      } else {
+        target.innerHTML = "";
+        editButton.setAttribute("aria-pressed", String(state.viewEditing));
+        editButton.setAttribute("aria-label", state.viewEditing ? "Finish editing groups" : "Edit groups");
+        editButton.textContent = state.viewEditing ? "✓" : "✎";
+      }
+    }
+
+    function updateBrief() {
+      const concept = CONCEPTS[state.concept];
+      document.getElementById("conceptTitle").textContent = concept.title;
+      document.getElementById("conceptDescription").textContent = concept.description;
+      document.getElementById("tradeoffs").innerHTML = concept.tags.map(tag =>
+        `<span class="tradeoff ${tag === "Recommended" ? "recommended" : ""}">${escapeHtml(tag)}</span>`
+      ).join("");
+      document.getElementById("behavior").innerHTML = `
+        <div><dt>Starts with</dt><dd>${escapeHtml(concept.behavior.trigger)}</dd></div>
+        <div><dt>Lasts for</dt><dd>${escapeHtml(concept.behavior.lifetime)}</dd></div>
+        <div><dt>Timeline</dt><dd>${escapeHtml(concept.behavior.rail)}</dd></div>
+        <div><dt>Best fit</dt><dd>${escapeHtml(concept.behavior.best)}</dd></div>`;
+      conceptTabs.forEach(tab => {
+        const selected = tab.dataset.concept === state.concept;
+        tab.setAttribute("aria-selected", String(selected));
+        tab.tabIndex = selected ? 0 : -1;
+      });
+    }
+
+    function updateMomentControls() {
+      document.querySelectorAll("[data-moment]").forEach(button => {
+        button.setAttribute("aria-pressed", String(button.dataset.moment === state.moment));
+      });
+    }
+
+    function render() {
+      updateBrief();
+      updateMomentControls();
+      updateSummary();
+      updateToolbar();
+      renderTimeline();
+      renderClockArea();
+    }
+
+    function setExampleFour() {
+      state.focused = new Set(CORE_IDS);
+    }
+
+    document.addEventListener("click", event => {
+      const conceptButton = event.target.closest("[data-concept]");
+      if (conceptButton) {
+        state.concept = conceptButton.dataset.concept;
+        state.selectionOpen = false;
+        state.viewEditing = false;
+        render();
+        return;
+      }
+
+      const momentButton = event.target.closest("[data-moment]");
+      if (momentButton) {
+        state.moment = momentButton.dataset.moment;
+        state.selectionOpen = false;
+        render();
+        return;
+      }
+
+      const actionButton = event.target.closest("[data-action]");
+      if (!actionButton) return;
+      const { action, id } = actionButton.dataset;
+      let focusNewViewName = false;
+
+      if (action === "return-live") state.moment = "live";
+      if (action === "selection-edit") state.selectionOpen = !state.selectionOpen;
+      if (action === "selection-done") state.selectionOpen = false;
+      if (action === "select-core") setExampleFour();
+      if (action === "focus-end") {
+        state.focused = new Set(ALL_IDS);
+      }
+      if (action === "focus-save-view") {
+        if (!VIEW_SETS.focus) viewOrder.push("focus");
+        VIEW_SETS.focus = { label: "Focus group", ids: [...state.focused] };
+        state.concept = "views";
+        state.currentView = "focus";
+        state.editingView = "focus";
+        state.viewEditing = true;
+        state.selectionOpen = false;
+      }
+      if (action === "restore-all") {
+        state.folded = new Set();
+      }
+      if (action === "fold-example") {
+        state.folded = new Set(ALL_IDS.filter(candidate => !CORE_IDS.includes(candidate)));
+      }
+      if (action === "fold-toggle") {
+        if (state.folded.has(id)) state.folded.delete(id);
+        else state.folded.add(id);
+      }
+      if (action === "focus-toggle") {
+        if (state.focused.has(id) && state.focused.size > 1) state.focused.delete(id);
+        else state.focused.add(id);
+      }
+      if (action === "view") {
+        state.currentView = actionButton.dataset.view;
+      }
+      if (action === "toggle-view-edit") {
+        if (state.concept !== "views") {
+          state.concept = "views";
+          state.viewEditing = true;
+          state.editingView = state.currentView;
+        } else if (state.viewEditing) {
+          state.currentView = state.editingView;
+          state.viewEditing = false;
+        } else {
+          state.editingView = state.currentView;
+          state.viewEditing = true;
+        }
+      }
+      if (action === "view-edit-select") {
+        state.editingView = actionButton.dataset.view;
+      }
+      if (action === "view-toggle") {
+        const ids = VIEW_SETS[state.editingView].ids;
+        const position = ids.indexOf(id);
+        if (position >= 0) ids.splice(position, 1);
+        else ids.push(id);
+        ids.sort((left, right) => ALL_IDS.indexOf(left) - ALL_IDS.indexOf(right));
+      }
+      if (action === "view-new") {
+        let viewId = "group";
+        let suffix = 2;
+        while (VIEW_SETS[viewId]) viewId = `group-${suffix++}`;
+        VIEW_SETS[viewId] = { label: "New group", ids: [] };
+        viewOrder.push(viewId);
+        state.editingView = viewId;
+        state.currentView = viewId;
+        focusNewViewName = true;
+      }
+      if (action === "view-move-left" || action === "view-move-right") {
+        const from = viewOrder.indexOf(state.editingView);
+        const to = action === "view-move-left" ? from - 1 : from + 1;
+        if (from > 0 && to > 0 && to < viewOrder.length) {
+          [viewOrder[from], viewOrder[to]] = [viewOrder[to], viewOrder[from]];
+        }
+      }
+      if (action === "view-delete") {
+        const deletedId = state.editingView;
+        if (deletedId !== "all") {
+          const deletedIndex = viewOrder.indexOf(deletedId);
+          delete VIEW_SETS[deletedId];
+          viewOrder.splice(deletedIndex, 1);
+          state.editingView = viewOrder[Math.max(0, deletedIndex - 1)] || "all";
+          if (state.currentView === deletedId) state.currentView = state.editingView;
+        }
+      }
+      render();
+      if (focusNewViewName) requestAnimationFrame(() => {
+        const input = document.querySelector(`[data-view-name="${state.editingView}"]`);
+        input?.focus();
+        input?.select();
+      });
+    });
+
+    document.addEventListener("change", event => {
+      const nameInput = event.target.closest("[data-view-name]");
+      if (!nameInput) return;
+      const view = VIEW_SETS[nameInput.dataset.viewName];
+      if (!view) return;
+      view.label = String(nameInput.value).trim() || "Untitled group";
+      render();
+    });
+
+    document.addEventListener("keydown", event => {
+      if (event.key !== "Enter" || !event.target.matches("[data-view-name]")) return;
+      event.preventDefault();
+      event.target.blur();
+    });
+
+    conceptTabs.forEach(tab => {
+      tab.addEventListener("keydown", event => {
+        const current = conceptTabs.indexOf(tab);
+        let next = current;
+        if (event.key === "ArrowRight") next = (current + 1) % conceptTabs.length;
+        if (event.key === "ArrowLeft") next = (current - 1 + conceptTabs.length) % conceptTabs.length;
+        if (event.key === "Home") next = 0;
+        if (event.key === "End") next = conceptTabs.length - 1;
+        if (next === current) return;
+        event.preventDefault();
+        conceptTabs[next].click();
+        conceptTabs[next].focus();
+      });
+    });
+
+    render();
+  </script>
+</body>
+</html>

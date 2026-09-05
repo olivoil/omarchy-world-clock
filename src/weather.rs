@@ -192,6 +192,7 @@ pub fn current_weather(
     config: &AppConfig,
     local_timezone: &str,
     reference_utc: DateTime<Utc>,
+    group_id: Option<u64>,
 ) -> Result<WeatherPayload> {
     let mut payload = WeatherPayload {
         source: "Open-Meteo",
@@ -205,7 +206,7 @@ pub fn current_weather(
         return Ok(payload);
     }
 
-    let locations = weather_locations(config, local_timezone, reference_utc);
+    let locations = weather_locations(config, local_timezone, reference_utc, group_id)?;
     if locations.is_empty() {
         return Ok(payload);
     }
@@ -328,10 +329,24 @@ fn weather_locations(
     config: &AppConfig,
     local_timezone: &str,
     reference_utc: DateTime<Utc>,
-) -> Vec<WeatherLocation> {
+    group_id: Option<u64>,
+) -> Result<Vec<WeatherLocation>> {
+    let group = match group_id {
+        Some(id) => Some(
+            config
+                .groups
+                .iter()
+                .find(|group| group.id == id)
+                .ok_or_else(|| anyhow::anyhow!("group is not in the World Clock list: {id}"))?,
+        ),
+        None => None,
+    };
     let (_, entries) = visible_location_entries(config, reference_utc, local_timezone);
     let mut locations: Vec<WeatherLocation> = Vec::new();
-    for entry in entries {
+    for (index, entry) in entries.into_iter().enumerate() {
+        if index > 0 && group.is_some_and(|group| !group.location_ids.contains(&entry.id)) {
+            continue;
+        }
         let Some((latitude, longitude)) = place_coordinate(&entry) else {
             continue;
         };
@@ -354,7 +369,7 @@ fn weather_locations(
             });
         }
     }
-    locations
+    Ok(locations)
 }
 
 #[cfg(test)]
@@ -604,7 +619,7 @@ mod tests {
         fetch_weather_response, parse_weather_response, weather_condition, weather_in_batches,
         weather_locations, WeatherLocation, WeatherTarget, OPEN_METEO_BATCH_SIZE,
     };
-    use crate::config::{AppConfig, LocationKey, TimezoneEntry};
+    use crate::config::{AppConfig, LocationGroup, LocationKey, TimezoneEntry};
     use crate::quattro::build_snapshot;
     use crate::remote_response::{
         open_meteo_client, serve_http_redirect_to_response, serve_http_response_without_length,
@@ -993,11 +1008,12 @@ mod tests {
                 timezone: "Asia/Tokyo".to_string(),
                 label: "Tokyo".to_string(),
             }],
+            groups: Vec::new(),
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 8, 21, 15, 0, 0).unwrap();
 
-        let requested = weather_locations(&config, "America/Cancun", now);
+        let requested = weather_locations(&config, "America/Cancun", now, None).unwrap();
         let snapshot = build_snapshot(&config, now, "America/Cancun", "24h");
         let expected = std::iter::once(&snapshot.summary)
             .chain(snapshot.clocks.iter())
@@ -1039,10 +1055,11 @@ mod tests {
                 },
             ],
             pinned_locations: vec![],
+            groups: Vec::new(),
             disable_open_meteo_geolocation: false,
         };
         let now = Utc.with_ymd_and_hms(2026, 8, 11, 15, 0, 0).unwrap();
-        let locations = weather_locations(&config, "America/New_York", now);
+        let locations = weather_locations(&config, "America/New_York", now, None).unwrap();
 
         assert_eq!(locations.len(), 1);
         assert_eq!(locations[0].targets.len(), 2);
@@ -1063,5 +1080,78 @@ mod tests {
             weather[0].temperature_celsius,
             weather[1].temperature_celsius
         );
+    }
+
+    #[test]
+    fn named_group_weather_includes_only_the_summary_and_group_members() {
+        let config = AppConfig {
+            timezones: vec![
+                TimezoneEntry {
+                    id: 1,
+                    timezone: "America/Cancun".to_string(),
+                    place: "Cancun".to_string(),
+                    label: "Olivier".to_string(),
+                    latitude: Some(21.1619),
+                    longitude: Some(-86.8515),
+                },
+                TimezoneEntry {
+                    id: 2,
+                    timezone: "America/Vancouver".to_string(),
+                    place: "Vancouver".to_string(),
+                    label: "Mark".to_string(),
+                    latitude: Some(49.2827),
+                    longitude: Some(-123.1207),
+                },
+                TimezoneEntry {
+                    id: 3,
+                    timezone: "America/New_York".to_string(),
+                    place: "Cape Cod".to_string(),
+                    label: "Jeff".to_string(),
+                    latitude: Some(41.6688),
+                    longitude: Some(-70.2962),
+                },
+            ],
+            pinned_locations: Vec::new(),
+            groups: vec![LocationGroup {
+                id: 7,
+                name: "Launch crew".to_string(),
+                location_ids: vec![2],
+            }],
+            disable_open_meteo_geolocation: false,
+        };
+        let now = Utc.with_ymd_and_hms(2026, 8, 11, 15, 0, 0).unwrap();
+
+        let requested = weather_locations(&config, "America/Cancun", now, Some(7)).unwrap();
+        let ids = requested
+            .iter()
+            .flat_map(|location| location.targets.iter())
+            .map(|target| target.id)
+            .collect::<Vec<_>>();
+
+        assert_eq!(ids, vec![1, 2]);
+    }
+
+    #[test]
+    fn named_group_weather_rejects_an_unknown_group() {
+        let config = AppConfig {
+            timezones: vec![TimezoneEntry {
+                id: 1,
+                timezone: "America/Cancun".to_string(),
+                place: "Cancun".to_string(),
+                label: String::new(),
+                latitude: Some(21.1619),
+                longitude: Some(-86.8515),
+            }],
+            pinned_locations: Vec::new(),
+            groups: Vec::new(),
+            disable_open_meteo_geolocation: false,
+        };
+        let now = Utc.with_ymd_and_hms(2026, 8, 11, 15, 0, 0).unwrap();
+
+        let error = weather_locations(&config, "America/Cancun", now, Some(99)).unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("group is not in the World Clock list: 99"));
     }
 }

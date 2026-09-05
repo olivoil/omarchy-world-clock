@@ -75,13 +75,16 @@ The executable exposes a deliberately small command/JSON boundary:
 | `module` | bar tooltip, ordered coded pin clocks, compatibility handshake | JSON |
 | `snapshot` | complete read/edit model at now or `--at` | JSON |
 | `convert` | parse a local input and return a converted snapshot | JSON |
-| `weather` | fetch current conditions and a short forecast for visible coordinates at now or `--at` | JSON |
+| `weather` | fetch current conditions and a short forecast for visible coordinates, optionally scoped by `--group-id` | JSON |
 | `search` | local search with optional remote fallback and live display context | JSON array |
 | `locate` | map coordinate to a timezone and display model | JSON/null |
 | `add` | persist a new card with an actual place and optional personal label | no output |
 | `rename` | change one card's personal label by stable ID | no output |
 | `remove` | remove one card by stable ID | no output |
 | `pin` / `unpin` | add or remove one pinned card by stable ID | no output |
+| `group-add` | create a named group | stable group ID |
+| `group-rename` / `group-remove` / `group-move` | edit a named group | no output |
+| `group-set-location` | include or exclude a card by stable ID | no output |
 | `version` | report the source/package version | text |
 
 `module.protocol_version` lets QML reject an incompatible executable before
@@ -93,14 +96,17 @@ Snapshot clocks carry a stable card ID, timezone, actual place, and optional
 personal label as separate fields. The frontend uses the ID for actions and
 transient identity, so equal places and equal labels do not merge. Weather
 requests are de-duplicated by exact coordinate and fanned back out by card ID.
+Snapshots also carry ordered named groups as stable group IDs plus member card
+IDs. The built-in **All** view is frontend state and is never persisted.
 
 Weather is deliberately outside the snapshot path. Clock refreshes remain
 local and deterministic, while the panel requests rich current conditions,
 the next 24 local hourly points, and five daily records for every visible
 coordinate in bounded HTTPS batches and keeps the last successful response for
-15 minutes. Hourly records carry temperature, condition, precipitation chance
-and amount, UV, wind speed, and gusts for the Field Notes graph and near-term
-phases.
+15 minutes. A selected named group sends only its members plus the persistent
+local summary location. Hourly records carry temperature, condition,
+precipitation chance and amount, UV, wind speed, and gusts for the Field Notes
+graph and near-term phases.
 The first daily record supplies today's high, low, sun times, rain chance, and
 UV maximum; the frontend presents the following four days as a shared-scale
 outlook. Richer responses use smaller batches so each remains inside the shared

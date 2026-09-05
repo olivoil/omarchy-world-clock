@@ -2,10 +2,12 @@
 set -euo pipefail
 
 usage() {
-  printf 'Usage: scripts/install-review-preview.sh [--after <plugin-id>]\n'
+  printf '%s\n' \
+    'Usage: scripts/install-review-preview.sh [--after <plugin-id>] [--prune-other-reviews]'
 }
 
 after_id=io.github.olivoil.world-clock
+prune_other_reviews=false
 while (( $# > 0 )); do
   case "$1" in
   --after)
@@ -15,6 +17,10 @@ while (( $# > 0 )); do
     }
     after_id=$2
     shift 2
+    ;;
+  --prune-other-reviews)
+    prune_other_reviews=true
+    shift
     ;;
   -h | --help)
     usage
@@ -56,6 +62,8 @@ branch_hash=$(printf '%s' "$branch" | git hash-object --stdin)
 slug="${normalized_slug}-${branch_hash:0:10}"
 
 plugin_id="io.github.olivoil.world-clock-review-${slug}"
+canonical_id=io.github.olivoil.world-clock
+review_prefix="${canonical_id}-review-"
 branch_leaf=${branch##*/}
 display_name="World Clock · ${branch_leaf}"
 config_home=${XDG_CONFIG_HOME:-"$HOME/.config"}
@@ -166,3 +174,80 @@ fi
 printf 'Installed %s\n' "$plugin_id"
 printf 'Review branch: %s\n' "$branch"
 printf 'Review config: %s\n' "$review_config"
+
+if [[ $prune_other_reviews == true ]]; then
+  proc_root=${OMARCHY_REVIEW_PROC_ROOT:-/proc}
+
+  branch_for_review() {
+    local review_id=$1
+    local review_manifest="$plugins_dir/$review_id/manifest.json"
+    [[ -f $review_manifest ]] || return 1
+    jq -er \
+      '.description
+       | capture("^Local review build for branch (?<branch>.+)\\.$")
+       | .branch' \
+      "$review_manifest"
+  }
+
+  live_process_branches=()
+  collect_live_process_branches() {
+    local process_dir process_cwd process_branch known_branch
+    local -A seen_process_cwds=()
+    for process_dir in "$proc_root"/[0-9]*; do
+      [[ -L $process_dir/cwd || -e $process_dir/cwd ]] || continue
+      process_cwd=$(readlink "$process_dir/cwd" 2>/dev/null) || continue
+      [[ -d $process_cwd ]] || continue
+      [[ -z ${seen_process_cwds[$process_cwd]+present} ]] || continue
+      seen_process_cwds[$process_cwd]=true
+      process_branch=$(git -C "$process_cwd" branch --show-current 2>/dev/null) \
+        || continue
+      [[ -n $process_branch ]] || continue
+      for known_branch in "${live_process_branches[@]}"; do
+        [[ $known_branch != "$process_branch" ]] || continue 2
+      done
+      live_process_branches+=("$process_branch")
+    done
+  }
+
+  branch_is_live() {
+    local wanted_branch=$1
+    local live_branch
+    for live_branch in "${live_process_branches[@]}"; do
+      [[ $live_branch != "$wanted_branch" ]] || return 0
+    done
+    return 1
+  }
+
+  collect_live_process_branches
+
+  printf 'Retained %s (production)\n' "$canonical_id"
+  printf 'Retained %s (current branch)\n' "$plugin_id"
+
+  prune_failed=false
+  mapfile -t review_ids < <(
+    omarchy plugin list --json |
+      jq -r --arg prefix "$review_prefix" \
+        '.[] | select(.id | startswith($prefix)) | .id'
+  )
+  for review_id in "${review_ids[@]}"; do
+    [[ $review_id != "$plugin_id" ]] || continue
+
+    if ! review_branch=$(branch_for_review "$review_id"); then
+      printf 'Retained %s (could not verify its branch)\n' "$review_id"
+      continue
+    fi
+    if branch_is_live "$review_branch"; then
+      printf 'Retained %s (live branch: %s)\n' "$review_id" "$review_branch"
+      continue
+    fi
+
+    if omarchy plugin remove "$review_id" --yes; then
+      printf 'Removed %s\n' "$review_id"
+    else
+      printf 'Could not remove %s\n' "$review_id" >&2
+      prune_failed=true
+    fi
+  done
+
+  [[ $prune_failed == false ]] || exit 1
+fi

@@ -60,7 +60,13 @@ AUR package, `PATH` lookup, user-configured backend command, or install hook.
 - `Tab` and `Shift+Tab` can hand off to adjacent panels.
 - Opening the panel is an in-process state change; only bounded backend
   commands start an external process.
-- The panel has read, edit, and add modes.
+- The panel has read, edit, and add modes. **All** is the built-in default
+  view; named groups filter both the card grid and timeline without deleting
+  locations.
+- The view picker is one segmented control. Every segment includes its visible
+  card count; in group edit mode, the active segment's label becomes the inline
+  name field instead of opening a second management surface. The picker
+  scrolls horizontally when needed, and creation stops at eight named groups.
 - Read mode shows the summary clock, proportional relative timeline, and every
   non-local location clock. Comfortable density uses a borderless three-column
   layout; automatic density switches to a denser grid when those cards would
@@ -77,11 +83,14 @@ AUR package, `PATH` lookup, user-configured backend command, or install hook.
   solar elevation.
 - Live read mode shows current temperature and conditions as secondary context
   for every visible location with a known coordinate.
-- Edit mode preserves the read layout and exposes pin/unpin and remove actions.
-  Personal labels retain their read-mode styling until clicked or selected
-  with the keyboard, then become inline inputs; `Enter` saves and `Escape`
-  cancels. A card with a personal label also keeps its actual place visible as
-  quieter context.
+- Edit mode is contextual. In **All**, it preserves the read layout and exposes
+  card rename, pin/unpin, and remove actions. In a named group, it reveals all
+  cards and edits only that group's name, order, deletion, and membership;
+  selected cards use both a check mark and selected styling. A card can belong
+  to multiple groups. Personal labels retain their read-mode styling until
+  clicked or selected with the keyboard, then become inline inputs; `Enter`
+  saves and `Escape` cancels. A card with a personal label also keeps its
+  actual place visible as quieter context.
 - Add mode is a map-first surface. The rotating globe fills the panel, with
   compact Back and Search controls floating above it.
 
@@ -91,13 +100,20 @@ State lives in `~/.config/omarchy-world-clock/config.json`.
 
 ```json
 {
-  "version": 8,
+  "version": 9,
   "pinned_locations": [
     {
       "id": 2
     },
     {
       "id": 3
+    }
+  ],
+  "groups": [
+    {
+      "id": 1,
+      "name": "Launch crew",
+      "location_ids": [2, 3]
     }
   ],
   "timezones": [
@@ -144,6 +160,10 @@ Persistence rules:
 - saved order is preserved
 - pin order is preserved and duplicate pins are discarded
 - pins refer to stable card IDs rather than mutable display text
+- group order is preserved; group membership also refers to stable card IDs
+- at most eight named groups can be created; **All** is built in and does not
+  count toward that limit
+- removing a location drops only that ID from every group
 - an empty personal label displays the saved place name, falling back to a
   friendly timezone name only when no place name exists
 - submitting an empty inline name removes the custom label and restores that
@@ -513,6 +533,12 @@ Rules:
   timezone.
 - The same actual place can be added twice, given two personal labels, and each
   card can then be renamed, pinned, or removed without changing the other.
+- A clean config shows only the built-in **All** segment; creating a group opens
+  its inline name editor and leaves every card available for membership edits.
+- Selecting a named group filters both its cards and timeline markers. Returning
+  to **All** restores every card, and deleting a group never deletes a location.
+- Group names, membership, and segment order survive a shell restart.
+- The ninth named group is rejected without changing existing groups.
 - Time conversion works from the summary and every visible location.
 - More than nine saved places remain visible; automatic compact density keeps
   typical long lists together and the panel scrolls when compact rows still do

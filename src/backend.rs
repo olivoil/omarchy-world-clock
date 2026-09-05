@@ -13,7 +13,23 @@ use anyhow::{bail, Context, Result};
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 
-pub const USAGE: &str = "Usage: omarchy-world-clock-backend <module|snapshot|scrub|convert|weather|search|locate|add|rename|remove|pin|unpin|version>";
+pub const USAGE: &str = "Usage: omarchy-world-clock-backend <module|snapshot|scrub|convert|weather|search|locate|add|rename|remove|pin|unpin|group-add|group-rename|group-remove|group-move|group-set-location|version>";
+
+const HELP: &str = "World Clock backend commands
+
+Read JSON state:
+  snapshot [--at RFC3339]
+  weather [--at RFC3339] [--group-id ID]
+
+Manage named groups by stable IDs:
+  group-add --name NAME
+  group-rename --group-id ID --name NAME
+  group-remove --group-id ID
+  group-move --group-id ID --direction left|right
+  group-set-location --group-id ID --location-id ID --included true|false
+
+Run snapshot first to discover location and group IDs. group-add prints the
+new stable group ID.";
 
 fn optional_flag(args: &[String], flag: &str) -> Result<Option<String>> {
     let mut index = 0;
@@ -62,6 +78,19 @@ fn optional_u64(args: &[String], flag: &str) -> Result<Option<u64>> {
                 .with_context(|| format!("invalid location ID for {flag}: {value}"))
         })
         .transpose()
+}
+
+fn required_u64(args: &[String], flag: &str) -> Result<u64> {
+    optional_u64(args, flag)?.ok_or_else(|| anyhow::anyhow!("missing required flag {flag}"))
+}
+
+fn required_bool(args: &[String], flag: &str) -> Result<bool> {
+    let value = required_flag(args, flag)?;
+    match value.as_str() {
+        "true" => Ok(true),
+        "false" => Ok(false),
+        _ => bail!("invalid boolean for {flag}: {value}"),
+    }
 }
 
 fn parse_reference_utc(raw: Option<String>) -> Result<DateTime<Utc>> {
@@ -142,7 +171,9 @@ pub fn execute(args: &[String]) -> Result<Option<String>> {
         "weather" => {
             let config = ConfigManager::new(None).load()?;
             let reference_utc = parse_reference_utc(optional_flag(remaining_args, "--at")?)?;
-            let payload = current_weather(&config, &detect_local_timezone(), reference_utc)?;
+            let group_id = optional_u64(remaining_args, "--group-id")?;
+            let payload =
+                current_weather(&config, &detect_local_timezone(), reference_utc, group_id)?;
             Some(serde_json::to_string(&payload)?)
         }
         "search" => {
@@ -283,6 +314,42 @@ pub fn execute(args: &[String]) -> Result<Option<String>> {
             }
             None
         }
+        "group-add" => {
+            let outcome =
+                ConfigManager::new(None).add_group(&required_flag(remaining_args, "--name")?)?;
+            Some(outcome.group_id.to_string())
+        }
+        "group-rename" => {
+            ConfigManager::new(None).rename_group_by_id(
+                required_u64(remaining_args, "--group-id")?,
+                &required_flag(remaining_args, "--name")?,
+            )?;
+            None
+        }
+        "group-remove" => {
+            ConfigManager::new(None)
+                .remove_group_by_id(required_u64(remaining_args, "--group-id")?)?;
+            None
+        }
+        "group-move" => {
+            let direction = match required_flag(remaining_args, "--direction")?.as_str() {
+                "left" => -1,
+                "right" => 1,
+                value => bail!("invalid group direction: {value}"),
+            };
+            ConfigManager::new(None)
+                .move_group_by_id(required_u64(remaining_args, "--group-id")?, direction)?;
+            None
+        }
+        "group-set-location" => {
+            ConfigManager::new(None).set_group_location(
+                required_u64(remaining_args, "--group-id")?,
+                required_u64(remaining_args, "--location-id")?,
+                required_bool(remaining_args, "--included")?,
+            )?;
+            None
+        }
+        "help" | "--help" | "-h" => Some(HELP.to_string()),
         "version" | "--version" | "-V" => Some(env!("CARGO_PKG_VERSION").to_string()),
         _ => bail!("unknown backend command: {command}\n{USAGE}"),
     };

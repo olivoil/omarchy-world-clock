@@ -1503,7 +1503,7 @@ fn add_confirmation_and_core_actions_are_keyboard_reachable() {
         .expect("search acceptance body");
     assert!(accept_search.contains("if (mapSelection !== null)"));
     assert!(accept_search.contains("addMapSelection()"));
-    assert!(accept_search.contains("focusMapSelectionAction()"));
+    assert!(accept_search.contains("focusMapSelectionLabel()"));
 
     let activate_cursor = panel
         .split("function activateKeyboardCursor() {")
@@ -1513,8 +1513,13 @@ fn add_confirmation_and_core_actions_are_keyboard_reachable() {
     assert!(activate_cursor.contains("if (mapSelection !== null) addMapSelection()"));
     assert!(panel.contains("function addMapSelection()"));
     assert!(panel.contains("root.mapSelection, root.mapSelectionLabelDraft"));
-    assert!(panel.contains("function focusMapSelectionAction()"));
-    assert!(panel.contains("mapSelectionAddButton.forceActiveFocus(Qt.ShortcutFocusReason)"));
+    assert!(panel.contains("function focusMapSelectionLabel()"));
+    assert!(panel.contains("mapSelectionLabelField.forceActiveFocus(Qt.ShortcutFocusReason)"));
+    assert!(panel.contains(
+        "onMapSelectionChanged: {\n    mapSelectionLabelDraft = \"\"\n    if (mapSelection !== null) focusMapSelectionLabel()"
+    ));
+    assert!(panel.contains("if (visible) root.focusMapSelectionLabel()"));
+    assert!(!panel.contains("mapSelectionAddButton.forceActiveFocus"));
     assert!(panel.contains("onClicked: root.addMapSelection()"));
     assert!(panel.contains("onAccepted: root.addMapSelection()"));
 

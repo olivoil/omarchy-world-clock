@@ -216,4 +216,22 @@ assert.equal(context.weatherUpdateLabel(0, updateTime, false, true), "UPDATING",
 assert.equal(context.weatherUpdateLabel(updateTime, updateTime, true, false),
   "UPDATE UNAVAILABLE", "a failed refresh keeps its explicit status")
 
+
+assert.equal(context.narrativeTitle(null, []),
+  "Current conditions are unavailable.")
+assert.equal(context.narrativeTitle({ condition: "Overcast", weather_code: 3 }, []),
+  "Overcast for now.")
+const clearHours = [12, 13, 14, 15].map(value => ({
+  ...hour(0, 0), ...forecastAt(value),
+}))
+assert.equal(context.narrativeTitle({ condition: "Clear", weather_code: 0 }, clearHours),
+  "Clear skies hold for the next few hours.")
+const hotHours = [32, 34, 31, 30].map((temperature, index) => ({
+  ...hour(0, 0, { temperature_celsius: temperature }), ...forecastAt(12 + index),
+}))
+const hotParts = context.narrativeParts({ weather_code: 0 }, hotHours)
+assert.equal(hotParts.accent, "eases later.")
+assert.equal(context.narrativeTitle({ weather_code: 0 }, hotHours),
+  hotParts.lead + " " + hotParts.accent)
+
 console.log("Weather detail logic tests passed.")

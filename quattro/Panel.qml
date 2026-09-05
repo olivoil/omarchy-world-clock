@@ -9,6 +9,7 @@ import "TimelineHoverState.js" as TimelineHoverState
 import "TimeRail.js" as TimeRail
 import "WeatherState.js" as WeatherState
 import "WeatherRefresh.js" as WeatherRefresh
+import "WeatherDetailLogic.js" as WeatherDetailLogic
 
 // Quattro-native world-clock panel. Rust remains the timezone/config engine;
 // this already-loaded QML surface owns the interaction and visual lifecycle.
@@ -177,20 +178,8 @@ Panel {
   readonly property bool weatherDetailOpen: weatherDetailKey !== ""
   readonly property var weatherDetailClock: root.clockForWeatherDetail()
   readonly property var weatherDetailData: root.weatherFor(weatherDetailClock)
-  readonly property var weatherDetailHourlyForecast: {
-    var forecast = weatherDetailData
-      && Array.isArray(weatherDetailData.hourly_forecast)
-      ? weatherDetailData.hourly_forecast : []
-    var currentMoment = root.weatherUtcMoment(snapshot.reference_utc)
-    if (!isFinite(currentMoment)) return forecast
-    var currentAndFuture = []
-    for (var i = 0; i < forecast.length; i++) {
-      var forecastStart = root.weatherUtcMoment(forecast[i].reference_utc)
-      if (isFinite(forecastStart) && forecastStart + 3600000 > currentMoment)
-        currentAndFuture.push(forecast[i])
-    }
-    return currentAndFuture
-  }
+  readonly property var weatherDetailHourlyForecast:
+    root.weatherHourlyForecast(weatherDetailData)
   readonly property var weatherDetailDailyForecast: {
     var days = []
     if (!weatherDetailData) return days
@@ -900,6 +889,26 @@ Panel {
       if (conversionSource(entries[index]) === weatherDetailKey)
         return entries[index]
     return null
+  }
+
+  function weatherHourlyForecast(weatherData) {
+    var forecast = weatherData
+      && Array.isArray(weatherData.hourly_forecast)
+      ? weatherData.hourly_forecast : []
+    var currentMoment = root.weatherUtcMoment(snapshot.reference_utc)
+    if (!isFinite(currentMoment)) return forecast
+    var currentAndFuture = []
+    for (var i = 0; i < forecast.length; i++) {
+      var forecastStart = root.weatherUtcMoment(forecast[i].reference_utc)
+      if (isFinite(forecastStart) && forecastStart + 3600000 > currentMoment)
+        currentAndFuture.push(forecast[i])
+    }
+    return currentAndFuture
+  }
+
+  function weatherHeadline(weatherData) {
+    return WeatherDetailLogic.narrativeTitle(
+      weatherData, root.weatherHourlyForecast(weatherData))
   }
 
   function showWeatherDetail(clock) {
@@ -2921,8 +2930,8 @@ Panel {
                   horizontalPadding: 0
                   verticalPadding: 0
                   tooltipText: enabled
-                    ? "Show weather for " + root.currentLocationTitle : ""
-                  Accessible.name: tooltipText
+                    ? root.weatherHeadline(summaryClock.weatherData) : ""
+                  Accessible.name: "Show weather for " + root.currentLocationTitle
                   Accessible.role: Accessible.Button
                   onClicked: root.showWeatherDetail(root.summary)
 
@@ -4168,9 +4177,9 @@ Panel {
                               height: Style.space(20)
                               horizontalPadding: 0
                               verticalPadding: 0
-                              tooltipText: "Show weather for "
+                              tooltipText: root.weatherHeadline(clockCell.weatherData)
+                              Accessible.name: "Show weather for "
                                 + String(clockCell.clockData.title || "location")
-                              Accessible.name: tooltipText
                               Accessible.role: Accessible.Button
                               onClicked: root.showWeatherDetail(clockCell.clockData)
 
